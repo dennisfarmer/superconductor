@@ -1,13 +1,4 @@
-gesture_detection/hands_dataset/
-gesture_detection/hands_dataset.zip
-gesture_detection/hands_dataset_processed/
-gesture_detection/palm_hold_release/palm_hold
-gesture_detection/palm_hold_release/palm_release*
-gesture_detection/palm_hold_release_processed
-gesture_detection/palm_up_down*
 __pycache__/
-hand_landmarker.task
-gesture_detection/finger_pointing
 
 .venv
 .DS_Store
