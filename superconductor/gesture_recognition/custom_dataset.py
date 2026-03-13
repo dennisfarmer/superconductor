@@ -14,15 +14,15 @@ import shutil
 import time
 import sys
 sys.path.insert(0, '..')
-import frontend
+import laptop
 
 from collections import defaultdict
 
 
 class CustomDatasetCreator:
     def __init__(self, dataset_name="custom_dataset"):
-        self.landmarker = frontend.MediaPipeLandmarker()
-        self.gesture_detection = frontend.GestureDetection()
+        self.landmarker = laptop.MediaPipeLandmarker()
+        self.gesture_detection = laptop.GestureRecognition()
         self.webcam = cv2.VideoCapture(0)
         self.dataset_name = dataset_name
 

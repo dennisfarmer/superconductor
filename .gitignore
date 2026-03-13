@@ -9,5 +9,12 @@ __pycache__/
 hand_landmarker.task
 gesture_detection/finger_pointing
 
+var
+var/log
+superconductor.log
+
+
+superconductor.egg-info
+
 .venv
 .DS_Store

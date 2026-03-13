@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# Stop on errors
+# See https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
+set -Eeuo pipefail
+
+# Sanity check command line options
+usage() {
+  echo "Usage: $0 (start|stop|status|restart)"
+}
+
+if [ $# -ne 1 ]; then
+  usage
+  exit 1
+fi
+
+# Parse argument.  $1 is the first argument
+case $1 in
+  "start")
+    if pgrep -af sc-laptop >/dev/null || pgrep -af sc-server >/dev/null; then
+      echo "Error: sc-laptop is already running"
+      exit 1
+    else
+      echo "starting sc-laptop and sc-server ..."
+      mkdir -p var/log
+      rm -f var/log/laptop.log var/log/server.log
+      sc-laptop --host localhost --port 6000 --logfile var/log/laptop.log &
+      sleep 2
+      sc-server --host localhost --port 6001 --laptop-host localhost --laptop-port 6000 --logfile var/log/server.log &
+    fi
+    ;;
+
+  "stop")
+    echo "stopping superconductor ..."
+    sc-update --shutdown --host localhost --port 6000 || true
+    sleep 2
+    if pgrep -f sc-laptop &> /dev/null; then
+      #echo "killing laptop program ..."
+      pkill -f sc-laptop || true
+    fi
+    if pgrep -f sc-server &> /dev/null; then
+      #echo "killing server ..."
+      pkill -f sc-server || true
+    fi
+    ;;
+
+  "status")
+    laptop_running=false
+    server_running=false
+
+    if pgrep -af sc-laptop >/dev/null; then
+      echo "sc-laptop running"
+      laptop_running=true
+    else
+      echo "sc-laptop not running"
+    fi
+
+    if pgrep -af sc-server >/dev/null; then
+      echo "sc-server running"
+      server_running=true
+    else
+      echo "sc-server not running"
+    fi
+
+    if [ "$laptop_running" = true ] && [ "$server_running" = true ]; then
+      exit 0
+    else
+      exit 1
+    fi
+    ;;
+
+  
+  "restart")
+    ./superconductor stop
+    ./superconductor start
+    ;;
+
+  *)
+    usage
+    exit 1
+    ;;
+esac

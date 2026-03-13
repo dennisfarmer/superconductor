@@ -21,3 +21,4 @@ class PalmModel(nn.Module):
         z3 = self.fc3(h2)
         
         return z3
+

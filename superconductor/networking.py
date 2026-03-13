@@ -1,12 +1,5 @@
-
-"""Example of waiting on a socket or a shutdown signal."""
 import socket
 import json
-import logging
-
-logging.basicConfig(filename="p4.log", level=logging.DEBUG)
-LOGGER = logging.getLogger(__name__)
-
 
 def tcp_server(host, port, signals, handle_func):
     """Wait on a message from a socket OR a shutdown signal."""
@@ -111,6 +104,7 @@ def udp_server(host, port, signals, handle_func):
             message_dict = json.loads(message_str)
             handle_func(message_dict)
 
+#"""Example of waiting on a socket or a shutdown signal."""
 # def main():
     # """Main thread, which spawns a second server() thread."""
     # print("main() starting")
@@ -125,7 +119,6 @@ def udp_server(host, port, signals, handle_func):
     # signals["shutdown"] = True  # Tell server thread to shut down
     # thread.join()  # Wait for server thread to shut down
     # print("main() shutting down")
-
 
 # if __name__ == "__main__":
     # main()
