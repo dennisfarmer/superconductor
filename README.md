@@ -23,6 +23,8 @@ superconductor --stop
 
 Whenever recipe is updated via on-screen slider controls, a request is made to the mock backend running locally, which sends a sequence of mp3 files (5 segments of the beginning of No Idea - Don Toliver). These are loaded into a playback queue by the laptop code and played sequentially to a specified audio device.
 
+Note: current playback method is naive; doesn't support timing modulation down the road, processing lag between segments, doesn't send audio to other processes (TouchDesigner, Max/MSP, ChucK)
+
 ## Setup
 
 ```bash
