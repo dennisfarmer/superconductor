@@ -225,41 +225,79 @@ class PlaybackQueue:
     def __init__(self):
         self.deque = deque()
 
-    def append(self, audio_data):
-        self.deque.append(
-            self.preprocess_server_audio_from_json(audio_data)
-        )
+    # CHANGES MADE
+    # Old Stop-and-wait base64 JSON ingestion:
+    # def append(self, audio_data):
+    #     self.deque.append(
+    #         self.preprocess_server_audio_from_json(audio_data)
+    #     )
+    # 
+    # def preprocess_server_audio_from_json(self, audio_data):
+    #     audio_bytes = base64.b64decode(audio_data)
+    #     audio_io = io.BytesIO(audio_bytes)
+    #     audio_io.seek(0)
+    #     segment = AudioSegment.from_mp3(audio_io)
+    # 
+    #     sample_array = np.array(segment.get_array_of_samples())
+    #     if segment.channels > 1:
+    #         sample_array = sample_array.reshape((-1, segment.channels))
+    #     max_int = float(1 << (8 * segment.sample_width - 1))
+    #     audio = sample_array.astype(np.float32) / max_int
+    #     sr = segment.frame_rate
+    # 
+    #     # audio to the output stream format. For now we assume float32 and 
+    #     # a standard blocksize/samplerate on the output stream.
+    #     return {
+    #         "metadata": "",
+    #         "audio": audio,
+    #         "sr": sr
+    #     }
 
-    def preprocess_server_audio_from_json(self, audio_data):
-        # NOTE: this can be modified to work better
-        # (possibly save as files in a directory,
-        # optimize the way the audio stream is sent
-        # to other running processes like TouchDesigner
-        audio_bytes = base64.b64decode(audio_data)
-        audio_io = io.BytesIO(audio_bytes)
-        audio_io.seek(0)
-        segment = AudioSegment.from_mp3(audio_io)
-
-        sample_array = np.array(segment.get_array_of_samples())
-        if segment.channels > 1:
-            sample_array = sample_array.reshape((-1, segment.channels))
-        max_int = float(1 << (8 * segment.sample_width - 1))
-        audio = sample_array.astype(np.float32) / max_int
-        sr = segment.frame_rate
-
-
-        return {
+    def append_raw(self, raw_bytes, channels=2, sr=44100):
+        # Decode raw float32 bytes streams representing continuous audio
+        audio_array = np.frombuffer(raw_bytes, dtype=np.float32)
+        if channels > 1:
+            audio_array = audio_array.reshape((-1, channels))
+        else:
+            audio_array = np.column_stack((audio_array, audio_array))
+            
+        self.deque.append({
             "metadata": "",
-            "audio": audio,
+            "audio": audio_array,
             "sr": sr
-        }
+        })
 
+    # CHANGES MADE
+    # Old Stop-and-Wait Queue logic:
+    # def pop(self):
+    #     return self.deque.popleft()
+    # 
+    # def __len__(self):
+    #     return len(self.deque)
 
-    def pop(self):
-        return self.deque.popleft()
+    def pop(self, num_frames=None):
+        if len(self.deque) == 0:
+            return None
+            
+        current_chunk = self.deque[0]
+        audio = current_chunk["audio"]
+        
+        if num_frames is None or len(audio) <= num_frames:
+            # Pop the whole chunk if it's smaller or equal to what we need
+            return self.deque.popleft()
+        else:
+            # Split the chunk if we only need a portion
+            out_chunk = {
+                "metadata": current_chunk["metadata"],
+                "audio": audio[:num_frames],
+                "sr": current_chunk["sr"]
+            }
+            # Update the remaining chunk in the queue
+            current_chunk["audio"] = audio[num_frames:]
+            return out_chunk
 
     def __len__(self):
-        return len(self.deque)
+        return sum(len(chunk["audio"]) for chunk in self.deque)
 
     def refresh(self):
         # TODO: selectively remove audios from back of deque
@@ -371,16 +409,43 @@ class Frontend:
                     "message_type": "register_ack"
                 }
             )
+            # CHANGES MADE
+            # Now we extract our new dedicated audio streaming port and spin up a constant listener.
+            audio_port = json_data.get("audio_port")
+            if audio_port is not None:
+                threading.Thread(
+                    target=self.run_audio_receiver,
+                    args=(self.server_host, audio_port),
+                    daemon=True
+                ).start()
 
         elif json_data["message_type"] == "generated_audio":
-            #request_id = json_data["request_id"]
-            #audio_size = json_data["audio_size"]
-            audio_data = json_data["audio_data"]
+            # CHANGES MADE
+            # Old code processed base64 encoded audio files through the control channel JSON:
+            # audio_data = json_data["audio_data"]
+            # self.playback_queue.append(audio_data)
+            pass
 
-            self.playback_queue.append(audio_data)
-            # could send a message to server that audio was
-            # successfully recieved (do we have to think about
-            # dropped requests?)
+    def run_audio_receiver(self, host, port):
+        """Continuously receive raw float32 audio chunks from the server."""
+        while not self.signals["shutdown"]:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.connect((host, port))
+                    LOGGER.info("Connected to audio streaming port %s:%s", host, port)
+                    while not self.signals["shutdown"]:
+                        # read chunk exactly matching the server (1024 frames of 2-channel float32 = 8192 bytes)
+                        data = sock.recv(8192)
+                        if not data:
+                            LOGGER.warning("Audio stream disconnected")
+                            break
+                        # Queue the raw audio dynamically into our new PlaybackQueue
+                        self.playback_queue.append_raw(data)
+            except ConnectionRefusedError:
+                sleep(1)
+            except Exception as e:
+                LOGGER.error("Audio receiver error: %s", e)
+                sleep(1)
 
     def send_recipe_to_server(self, recipe):
         # NOTE: this does not incorperate a delay or smoothing
@@ -413,27 +478,64 @@ class Frontend:
 
 
     def run_playback(self):
-        # NOTE overly simple (multi-threading supported) playback 
-        #      implementation for testing the interaction loop
-        #      that doesn't support tempo control 
-        #      (also has some processing lag between sequential segments)
+        # CHANGES MADE
+        # Old Stop-and-Wait Architecture:
+        # while not self.signals["shutdown"]:
+        #     if len(self.playback_queue) > 0:
+        #         audio = self.playback_queue.pop()
+        #         sd.play(
+        #             data=audio["audio"],
+        #             samplerate=audio["sr"],
+        #             device=self.output_device,
+        #             blocking=True,
+        #         )
+        #     else:
+        #         # avoid busy waiting
+        #         sleep(0.5)
 
-        # from sd.play docs:
-        # "This is a convenience function for interactive 
-        # use and for small scripts. It cannot be used for 
-        # multiple overlapping playbacks."
-        while not self.signals["shutdown"]:
-            if len(self.playback_queue) > 0:
-                audio = self.playback_queue.pop()
-                sd.play(
-                    data=audio["audio"],
-                    samplerate=audio["sr"],
-                    device=self.output_device,
-                    blocking=True,
-                )
-            else:
-                # avoid busy waiting
-                sleep(0.5)
+        # Replace simple sd.play() with an asynchronous sd.OutputStream
+        # Note: the mock server currently returns MP3s with 48000hz depending on the file
+        samplerate = 44100
+        channels = 2
+
+        def callback(outdata, frames, time_info, status):
+            if status:
+                print("OutputStream status:", status)
+            
+            # Initialize with silence
+            outdata.fill(0)
+            
+            # Pull exactly enough frames from the queue to fill the output buffer
+            with self.lock:
+                frames_to_fill = frames
+                filled_frames = 0
+                
+                while frames_to_fill > 0 and len(self.playback_queue.deque) > 0:
+                    chunk = self.playback_queue.pop(num_frames=frames_to_fill)
+                    if not chunk:
+                        break
+                        
+                    audio_data = chunk["audio"]
+                    n_frames = len(audio_data)
+                        
+                    # Write into the output buffer
+                    outdata[filled_frames:filled_frames+n_frames] = audio_data
+                    filled_frames += n_frames
+                    frames_to_fill -= n_frames
+
+        try:
+            with sd.OutputStream(
+                samplerate=samplerate,
+                channels=channels,
+                device=self.output_device,
+                callback=callback,
+                blocksize=1024
+            ):
+                while not self.signals["shutdown"]:
+                    # Keep thread alive while the stream runs in the background
+                    sleep(0.5)
+        except Exception as e:
+            print(f"Failed to open audio stream: {e}")
 
 
     def run_webcam(self):
