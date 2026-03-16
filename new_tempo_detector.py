@@ -46,7 +46,7 @@ def frame(cap, hand_landmarker):
     )
 
     # retrieve landmark coordinates and handedness from camera input
-    results = hand_landmarker.detect(mp_image)
+    results = hand_landmarker.detect_for_video(mp_image, int(time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW) / 1e6))
 
     hand_landmarks_list = results.hand_landmarks
    
@@ -226,7 +226,7 @@ class Kalman2D(ConstantVelocityKalman):
 
 def create_hand_landmarker(task_path: Path):
     base_options = python.BaseOptions(model_asset_path=str(task_path))
-    options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=2)
+    options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=2, running_mode=mp.tasks.vision.RunningMode.VIDEO)
     return vision.HandLandmarker.create_from_options(options)
 
 def main():
