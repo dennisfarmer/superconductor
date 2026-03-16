@@ -22,6 +22,7 @@ case $1 in
       exit 1
     else
       echo "starting sc-laptop and sc-server ..."
+      echo "note: takes a while to start when running with fresh python environment"
       mkdir -p var/log
       rm -f var/log/laptop.log var/log/server.log
       sc-laptop --host localhost --port 6000 --logfile var/log/laptop.log &
