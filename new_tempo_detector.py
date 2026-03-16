@@ -12,13 +12,22 @@ import matplotlib.pyplot as plt
 from collections import deque
 from filterpy.kalman import KalmanFilter as FilterPyKalmanFilter
 from filterpy.common import Q_discrete_white_noise
+from typing import overload
 
 # pip install mediapipe opencv-python filterpy
 
 NS_TO_SECONDS = 1e-9
 MIN_DT_SECONDS = 1e-3
 
+class Vibe:
+    def __init__(self, pattern):
+        self.pattern = pattern
+        self.index = 0
 
+    def next(self):
+        current_vibe = self.pattern[self.index]
+        self.index = (self.index + 1) % len(self.pattern)
+        return current_vibe
 def frame(cap, hand_landmarker):
     for _ in range(1):
         cap.grab()
@@ -209,7 +218,7 @@ class Kalman1D(ConstantVelocityKalman):
 class Kalman2D(ConstantVelocityKalman):
     def __init__(self, pos_var=1e-4, vel_var=1e-3, meas_var=1e-3):
         super().__init__(dimensions=2, pos_var=pos_var, vel_var=vel_var, meas_var=meas_var)
-
+    
     def update(self, measurement_x: float, measurement_y: float, timestamp_ns: int):
         filtered_x, filtered_y = super().update([measurement_x, measurement_y], timestamp_ns)
         return float(filtered_x), float(filtered_y)
@@ -264,6 +273,7 @@ def main():
     ax.set_ylabel("Speed magnitude (units/s)")
     plt.show(block=False)
     position_kf = Kalman2D()
+    initial_bpm = None
     tempo_kf = Kalman1D(meas_var=5.0)
     while True:
         pos_counter += 1
@@ -294,7 +304,7 @@ def main():
         if len(beat_buffer) > 2:
             detected_bpm = 60 * 1e9 / (beat_buffer[-1] - beat_buffer[-2])
             smoothed_bpm = tempo_kf.update(detected_bpm, beat_buffer[-1])
-            initial_bpm = initial_bpm * 0.95 + smoothed_bpm * 0.05
+            initial_bpm = initial_bpm * 0.95 + smoothed_bpm * 0.05 if initial_bpm is not None else smoothed_bpm
 
             print(f"original bpm: {60*1e9/(beat_buffer[-1]-beat_buffer[-2])}, smoothed bpm: {initial_bpm}")
         if pos_counter % 5 == 0 and len(speed_buffer) > 1:
