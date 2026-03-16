@@ -59,8 +59,8 @@ class CustomDatasetCreator:
         gesture_dir = self.src_directory / gesture_name
         gesture_dir.mkdir(parents=True, exist_ok=True)
         
-        # capture every two seconds
-        t = 0.5
+        # capture every x seconds
+        t = 0.005
 
         idx = 0
         records = []

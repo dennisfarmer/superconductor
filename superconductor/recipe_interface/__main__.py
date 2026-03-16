@@ -86,6 +86,7 @@ class RecipeInterface:
     def update_positions(self, pointer_x, pointer_y, gesture):
         closest_bar = None
         min_distance = float('inf')
+        print(f"current gesture: {gesture}")
         
         for prompt, (bar_x, bar_y) in self.bar_positions.items():
             if bar_x is None:
@@ -102,7 +103,7 @@ class RecipeInterface:
                 self.bar_positions[closest_bar] = (self.bar_positions[closest_bar][0], pointer_y)
                 self.adjust_recipe(closest_bar, pointer_y)
             
-            elif gesture == self.slider_down_gesture and pointer_y > current_y:
+            if gesture == self.slider_down_gesture and pointer_y > current_y:
                 self.bar_positions[closest_bar] = (self.bar_positions[closest_bar][0], pointer_y)
                 self.adjust_recipe(closest_bar, pointer_y)
     

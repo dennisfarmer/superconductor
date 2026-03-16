@@ -148,11 +148,14 @@ class GestureRecognition:
         hands_dict = {}
         for hand_num in range(len(hand_landmarks)):
             current_hand_landmarks = hand_landmarks[hand_num]
-            hand_name = handedness[hand_num][0].category_name
+            hand_name = handedness[hand_num].classification[0].label
             coords = []
             for id, landmark in enumerate(current_hand_landmarks):
                 center_x, center_y, center_z = float(landmark.x), float(landmark.y), float(landmark.z)
                 coords.append([id, center_x, center_y, center_z])
 
-            hands_dict[hand_name] = coords
+            if hand_name == "Left":
+                hands_dict["Right"] = coords
+            elif hand_name == "Right":
+                hands_dict["Left"] = coords
         return hands_dict

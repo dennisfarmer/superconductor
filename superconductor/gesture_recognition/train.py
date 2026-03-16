@@ -61,7 +61,7 @@ def train_model(model_name="palm_up_down", visualize=False):
 
     print(f"Model:\n{model}")
 
-    num_epochs = 50
+    num_epochs = 250
     train_losses = []
     train_accuracies = []
     val_losses = []

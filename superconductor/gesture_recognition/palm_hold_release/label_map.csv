@@ -1,4 +1,3 @@
 ,gesture_name,label
 0,palm_hold,0
-1,palm_release_up,1
-2,palm_release_down,2
+1,palm_release,1

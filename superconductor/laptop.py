@@ -3,10 +3,7 @@
 
 import cv2
 import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
 from pathlib import Path
-from urllib.request import urlretrieve
 import numpy as np
 import click
 import logging
@@ -23,9 +20,9 @@ import io
 from pydub import AudioSegment
 import sounddevice as sd
 
-from . import networking
-from .gesture_recognition import GestureRecognition
-from .recipe_interface import RecipeInterface
+from superconductor import networking
+from superconductor.gesture_recognition import GestureRecognition
+from superconductor.recipe_interface import RecipeInterface
 
 audio_device_config = Path("var/config/audio_device.json")
 
@@ -119,23 +116,34 @@ def stop_superconductor(host, port):
 
 class MediaPipeLandmarker:
     def __init__(self):
-
-        task_file = Path("hand_landmarker.task")
-
-        # download hand_landmarker.task for MediaPipe
-        if not task_file.exists():
-            urlretrieve(
-                "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-                task_file
-                )
-
-        base_options = python.BaseOptions(model_asset_path=str(task_file))
-        options = vision.HandLandmarkerOptions(
-            base_options=base_options,
-            num_hands=2
+        self.hands = mp.solutions.hands.Hands(
+            max_num_hands=2,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
         )
+        self.current_handedness = []
+        self.current_hand_landmarks = []
 
-        self.hand_landmarker = vision.HandLandmarker.create_from_options(options)
+        self._hand_connections = mp.solutions.hands.HAND_CONNECTIONS
+
+    def _draw_hand_landmarks(self, frame, hand_landmarks):
+        height, width, _ = frame.shape
+        line_color = (121, 237, 116)
+        point_color = (88, 205, 54)
+
+        for start_idx, end_idx in self._hand_connections:
+            if start_idx >= len(hand_landmarks) or end_idx >= len(hand_landmarks):
+                continue
+
+            start = hand_landmarks[start_idx]
+            end = hand_landmarks[end_idx]
+            start_xy = (int(start.x * width), int(start.y * height))
+            end_xy = (int(end.x * width), int(end.y * height))
+            cv2.line(frame, start_xy, end_xy, line_color, 2, cv2.LINE_AA)
+
+        for landmark in hand_landmarks:
+            center = (int(landmark.x * width), int(landmark.y * height))
+            cv2.circle(frame, center, 3, point_color, -1, cv2.LINE_AA)
     
     
     #def process_landmarks(self, hand_landmarks, handedness):
@@ -152,12 +160,7 @@ class MediaPipeLandmarker:
 
 
     def preprocess_image(self, webcam_frame):
-        img_rgb = cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(
-            image_format=mp.ImageFormat.SRGB,
-            data=img_rgb
-        )
-        return mp_image
+        return cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB)
 
     def draw_overlay_hands(self, webcam_frame, overlay_mask, text_lr:tuple[str, str]=("Left", "Right")):
         """
@@ -170,8 +173,7 @@ class MediaPipeLandmarker:
             wrist_x = wrist_coordinates.x
             wrist_y = wrist_coordinates.y
             #wrist_z = wrist_coordinates.z
-            wrist_handedness = self.current_handedness[idx][0].category_name
-
+            wrist_handedness = self.current_handedness[idx].classification[0].label
 
             # Draw text at the wrist coordinate (index 0)
             hand_label = wrist_handedness
@@ -197,12 +199,7 @@ class MediaPipeLandmarker:
 
 
             # Draw the hand landmarks.
-            vision.drawing_utils.draw_landmarks(
-                webcam_frame,
-                self.current_hand_landmarks[idx],
-                vision.HandLandmarksConnections.HAND_CONNECTIONS,
-                vision.drawing_styles.get_default_hand_landmarks_style(),
-                vision.drawing_styles.get_default_hand_connections_style())
+            self._draw_hand_landmarks(webcam_frame, self.current_hand_landmarks[idx])
 
         #cv2.rectangle(img,(384,0),(510,128),(0,255,0),3)
 
@@ -211,12 +208,12 @@ class MediaPipeLandmarker:
         returns `(handedness, hand_landmarks)`
         """
 
-        results = self.hand_landmarker.detect(
-            self.preprocess_image(webcam_frame)
-            )
+        results = self.hands.process(self.preprocess_image(webcam_frame))
 
-        self.current_handedness = results.handedness
-        self.current_hand_landmarks = results.hand_landmarks
+        self.current_handedness = results.multi_handedness or []
+        self.current_hand_landmarks = [
+            hand.landmark for hand in (results.multi_hand_landmarks or [])
+        ]
 
         return self.current_handedness, self.current_hand_landmarks
 
@@ -330,8 +327,10 @@ class Frontend:
 
         self.recipe_interface = RecipeInterface(
             prompts=prompts,
-            slider_up_gesture = "palm_release_up",
-            slider_neutral_gesture = "palm_release_down",
+            #slider_up_gesture = "palm_release_up",
+            #slider_neutral_gesture = "palm_release_down",
+            slider_up_gesture = "palm_hold",
+            slider_neutral_gesture = "palm_release",
             slider_down_gesture = "palm_hold",
             on_recipe_change=self.send_recipe_to_server,
         )
@@ -553,12 +552,15 @@ class Frontend:
             handedness, hand_landmarks = self.landmarker(webcam_frame)
             overlay_mask = np.zeros((height, width, n_channels), dtype="uint8")
 
+            #isolated_hand = "Left"
             isolated_hand = "Left"
 
             if len(hand_landmarks) > 0:
+
                 hand_tensor = self.gesture_recognition.mediapipe_to_tensor(handedness, hand_landmarks, isolated_hand)
                 hand_tensor = self.gesture_recognition.expand_one_hand_to_two_hands(hand_tensor, isolated_hand)
-                gesture_name, confidence = self.gesture_recognition(hand_tensor, isolated_hand)
+                gesture_name, confidence = self.gesture_recognition(hand_tensor)
+
 
                 # extract middle finger tip
                 left_hand_landmarks = hand_landmarks[0]
