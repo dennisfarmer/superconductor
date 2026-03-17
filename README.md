@@ -23,7 +23,13 @@ superconductor --stop
 
 Whenever recipe is updated via on-screen slider controls, a request is made to the mock backend running locally, which sends a sequence of mp3 files (5 segments of the beginning of No Idea - Don Toliver). These are loaded into a playback queue by the laptop code and played sequentially to a specified audio device.
 
-Note: current playback method is naive; doesn't support timing modulation down the road, processing lag between segments, doesn't send audio to other processes (TouchDesigner, Max/MSP, ChucK)
+Current state of music playback:
+```
+The server pre-loads the MP3s into RAM as raw float32 numpy arrays and continuously streams small 1024-frame chunks over a new socket. 
+The frontend has am audio stream that pulls from the buffer and  receivies these raw chunks as they arrive.
+When a user gestures to change the recipe, the server instantly swaps the memory pointer for the stream track, so there might not be any gap
+have to see if it still works when we integrate magenta in the backend
+```
 
 ## Setup
 
