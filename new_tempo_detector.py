@@ -13,21 +13,12 @@ from collections import deque
 from filterpy.kalman import KalmanFilter as FilterPyKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 from typing import overload
-
+from vibe import VIBE_FOURFOUR,VIBE_DOWN,VIBE_UP,VIBE_LEFT,VIBE_RIGHT
 # pip install mediapipe opencv-python filterpy
-
 NS_TO_SECONDS = 1e-9
 MIN_DT_SECONDS = 1e-3
 
-class Vibe:
-    def __init__(self, pattern):
-        self.pattern = pattern
-        self.index = 0
 
-    def next(self):
-        current_vibe = self.pattern[self.index]
-        self.index = (self.index + 1) % len(self.pattern)
-        return current_vibe
 def frame(cap, hand_landmarker):
     for _ in range(1):
         cap.grab()
@@ -230,6 +221,7 @@ def create_hand_landmarker(task_path: Path):
     return vision.HandLandmarker.create_from_options(options)
 
 def main():
+    vibe = Vibe([0, 1, 0, -1])
     pos_buffer = deque(maxlen=20)
     beat_buffer = deque(maxlen=20)
     pos_counter=0
@@ -259,18 +251,25 @@ def main():
 #     Cap.set(cv2.CAP_PROP_EXPOSURE, -5)
     Cap = cv2.VideoCapture(0)
     plt.ion()
-    fig, ax = plt.subplots()
-    # create a dummy initial point so the PathCollection and colorbar initialize
-    # make the initial marker larger and visible (edge + alpha)
-    scatter = ax.scatter([0.0], [0.0], c=[0.0], cmap='hsv', vmin=0, vmax=2*np.pi, s=120, edgecolor='k', alpha=0.9)
-    cbar = fig.colorbar(scatter, ax=ax)
-    cbar.set_label("Direction (degrees)")
-    # show degree ticks on colorbar (convert radians ticks to degree labels)
-    cbar.set_ticks([0, np.pi/2, np.pi, 3*np.pi/2, 2*np.pi])
-    cbar.set_ticklabels(["0°", "90°", "180°", "270°", "360°"])
-    ax.set_title("Real-time Speed")
-    ax.set_xlabel("Sample index")
-    ax.set_ylabel("Speed magnitude (units/s)")
+    fig, axes = plt.subplots(3, 2, figsize=(12, 8))
+    axes = axes.flatten()
+    plot_specs = [
+        ("x", "X Position"),
+        ("y", "Y Position"),
+        ("vx", "Velocity X"),
+        ("vy", "Velocity Y"),
+        ("ax", "Acceleration X"),
+        ("ay", "Acceleration Y"),
+    ]
+    lines = {}
+    for plot_axis, (key, title) in zip(axes, plot_specs):
+        line, = plot_axis.plot([], [], linewidth=1.5)
+        lines[key] = line
+        plot_axis.set_title(title)
+        plot_axis.set_xlabel("Sample index")
+        plot_axis.set_ylabel(key)
+        plot_axis.grid(True, alpha=0.3)
+    fig.tight_layout()
     plt.show(block=False)
     position_kf = Kalman2D()
     initial_bpm = None
@@ -307,35 +306,63 @@ def main():
             initial_bpm = initial_bpm * 0.95 + smoothed_bpm * 0.05 if initial_bpm is not None else smoothed_bpm
 
             print(f"original bpm: {60*1e9/(beat_buffer[-1]-beat_buffer[-2])}, smoothed bpm: {initial_bpm}")
-        if pos_counter % 5 == 0 and len(speed_buffer) > 1:
-            # 1. Prepare data
-            x_data = np.arange(len(speed_buffer))
-            # Calculate magnitudes (Speed)
-            y_data = np.array([np.sqrt(v[0]**2 + v[1]**2) for v in speed_buffer])
-            # Calculate directions (0 to 2pi)
-            angles = np.array([np.arctan2(v[1], v[0]) for v in speed_buffer])
-            angles = (angles + 2 * np.pi) % (2 * np.pi)
+        if pos_counter % 5 == 0 and len(pos_buffer) > 2 and len(speed_buffer) > 1:
+            pos_array = np.array(pos_buffer, dtype=float)
+            speed_array = np.array(speed_buffer, dtype=float)
 
-            # 2. Update Scatter Object
-            offsets = np.column_stack((x_data, y_data))
-            scatter.set_offsets(offsets)
-            
-            # Explicitly set the color array and the limits
-            scatter.set_array(angles)
-            
-            # 3. Dynamic Marker Sizing
-            # Use a slightly more stable scaling for visibility
-            max_y = np.max(y_data) if np.max(y_data) > 0 else 1
-            sizes = (y_data / max_y) * 200 + 50
-            scatter.set_sizes(sizes)
+            x_series = pos_array[:, 0]
+            y_series = pos_array[:, 1]
+            vx_series = speed_array[:, 0]
+            vy_series = speed_array[:, 1]
 
-            # 4. Critical: Update Axis Limits
-            ax.set_xlim(0, len(speed_buffer))
-            # Give the Y axis 20% headroom
-            ax.set_ylim(0, max_y * 1.2)
-            
-            # 5. Redraw
-            fig.canvas.draw_idle() # Better than draw() for real-time
+            timestamp_deltas = np.diff(pos_array[:, 2]) * NS_TO_SECONDS
+            needed = max(0, len(vx_series) - 1)
+            if len(timestamp_deltas) >= needed and needed > 0:
+                dt_for_acc = timestamp_deltas[-needed:]
+            elif needed > 0:
+                dt_for_acc = np.ones(needed)
+            else:
+                dt_for_acc = np.array([])
+
+            if len(vx_series) > 1:
+                safe_dt = np.where(dt_for_acc == 0, 1e-9, dt_for_acc)
+                ax_series = np.diff(vx_series) / safe_dt
+                ay_series = np.diff(vy_series) / safe_dt
+            else:
+                ax_series = np.array([])
+                ay_series = np.array([])
+
+            series_map = {
+                "x": x_series,
+                "y": y_series,
+                "vx": vx_series,
+                "vy": vy_series,
+                "ax": ax_series,
+                "ay": ay_series,
+            }
+
+            for plot_axis, (key, _) in zip(axes, plot_specs):
+                data = np.array(series_map[key], dtype=float)
+                if len(data) == 0:
+                    lines[key].set_data([], [])
+                    plot_axis.set_xlim(0, 1)
+                    plot_axis.set_ylim(-1, 1)
+                    continue
+
+                x_index = np.arange(len(data))
+                lines[key].set_data(x_index, data)
+
+                plot_axis.set_xlim(0, max(1, len(data) - 1))
+
+                data_min = float(np.min(data))
+                data_max = float(np.max(data))
+                if np.isclose(data_min, data_max):
+                    pad = max(0.01, abs(data_max) * 0.1 + 0.01)
+                else:
+                    pad = (data_max - data_min) * 0.15
+                plot_axis.set_ylim(data_min - pad, data_max + pad)
+
+            fig.canvas.draw_idle()
             fig.canvas.flush_events()
             
             

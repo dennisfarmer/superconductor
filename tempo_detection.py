@@ -14,7 +14,7 @@ from scipy.interpolate import make_interp_spline
 import sys
 import filterpy as fpy
 # pip install mediapipe opencv-python
-
+from vibe import VIBE_FOURFOUR,VIBE_DOWN,VIBE_UP,VIBE_LEFT,VIBE_RIGHT
 def frame(cap,hand_landmarker) -> tuple[list[list[auto]], float]:
     
    
@@ -183,7 +183,7 @@ def main():
     initial_beat=0
     last_beat_time = 0
     COOLDOWN_NS = 200_000_000 # 200ms debounce
-    vibe = [0,1,0,1] # This is the rhythm pattern for the conductor to follow. 0 means detect y axis movement, 1 means detect x axis movement. This is a simple binary pattern that can be expanded to more complex rhythms.
+    ment, 1 means detect x axis movement. This is a simple binary pattern that can be expanded to more complex rhythms.
     fourfour = Vibe(vibe)
     while True:
         pos_counter+=1
