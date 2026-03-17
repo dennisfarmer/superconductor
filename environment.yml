@@ -31,8 +31,8 @@ dependencies:
       - flatbuffers==25.12.19
       - fonttools==4.62.1
       - fsspec==2026.2.0
-      - jax==0.7.1
-      - jaxlib==0.7.1
+      - jax
+      - jaxlib
       - jinja2==3.1.6
       - joblib==1.5.3
       - kiwisolver==1.5.0
@@ -60,5 +60,5 @@ dependencies:
       - sounddevice==0.5.5
       - sympy==1.14.0
       - threadpoolctl==3.6.0
-      - torch==2.10.0
+      - torch
       - typing-extensions==4.15.0
