@@ -238,7 +238,44 @@ def get_physics_series(pos_buffer, speed_buffer):
         "vx": speed_arr[:, 0], "vy": speed_arr[:, 1],
         "ax": acc_arr[:, 0], "ay": acc_arr[:, 1]
     }
+import numpy as np
+from scipy.interpolate import Akima1DInterpolator
 
+class MotionTracker:
+    def __init__(self, size=100):
+        self.size = size
+        # Pre-allocate one contiguous block of memory
+        self.data = np.zeros((size, 3))  # [x, y, ts]
+        self.ptr = 0
+        self.is_full = False
+
+    def add_sample(self, x, y, ts):
+        self.data[self.ptr] = [x, y, ts]
+        self.ptr = (self.ptr + 1) % self.size
+        if self.ptr == 0:
+            self.is_full = True
+
+    def get_view(self):
+        """Returns a sorted view of the data without copying the whole array."""
+        if not self.is_full:
+            return self.data[:self.ptr]
+        # np.roll creates a view/copy to linearize the circular buffer
+        return np.roll(self.data, -self.ptr, axis=0)
+
+    def interpolate(self, num_between=10):
+        view = self.get_view()
+        if len(view) < 5:
+            return None
+        
+        ts = view[:, 2]
+        # new_ts is a reference to a new array, but calculations are vectorized
+        new_ts = np.linspace(ts[0], ts[-1], (len(ts) - 1) * num_between + 1)
+        
+        # Akima fitting on the existing memory views
+        ix = Akima1DInterpolator(ts, view[:, 0])
+        iy = Akima1DInterpolator(ts, view[:, 1])
+        
+        return ix(new_ts), iy(new_ts), new_ts
 def main():
    
     pos_buffer = deque(maxlen=20)
@@ -294,10 +331,6 @@ def main():
     initial_bpm = None
     tempo_kf = Kalman1D(meas_var=5.0)
     while True:
-        
-
-# --- Helper Logic ---
-
         # --- Main Loop Logic ---
         pos_counter += 1
         landmarks, timestamp = frame(Cap, hand_landmarker_input)
@@ -314,14 +347,6 @@ def main():
                 vx = (pos_buffer[-1][0] - pos_buffer[-2][0]) / dt
                 vy = (pos_buffer[-1][1] - pos_buffer[-2][1]) / dt
                 speed_buffer.append((vx, vy))
-
-                # Beat detection (Direction change check)
-                if len(speed_buffer) >= 2:
-                    mag_old, dir_old = xytopolar(*speed_buffer[-2])
-                    mag_new, dir_new = xytopolar(*speed_buffer[-1])
-                    
-                    if (np.pi/4 < abs(dir_new - dir_old) < 3*np.pi/4) and (mag_new * mag_old > 0.2):
-                        beat_buffer.append(timestamp)
 
         # 3. BPM Processing
         if len(beat_buffer) >= 2:
