@@ -13,6 +13,7 @@ from collections import deque
 from filterpy.kalman import KalmanFilter as FilterPyKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 from typing import overload
+from scipy.interpolate import Akima1DInterpolator
 from vibe import VIBE_FOURFOUR,VIBE_DOWN,VIBE_UP,VIBE_LEFT,VIBE_RIGHT
 # pip install mediapipe opencv-python filterpy
 NS_TO_SECONDS = 1e-9
@@ -219,9 +220,27 @@ def create_hand_landmarker(task_path: Path):
     base_options = python.BaseOptions(model_asset_path=str(task_path))
     options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=2, running_mode=mp.tasks.vision.RunningMode.VIDEO)
     return vision.HandLandmarker.create_from_options(options)
+def get_physics_series(pos_buffer, speed_buffer):
+    """Computes arrays for X, Y, V, and A using numpy vectorization."""
+    pos_arr = np.array(pos_buffer)  # [x, y, ts]
+    speed_arr = np.array(speed_buffer) # [vx, vy]
+    
+    # Calculate dt for acceleration
+    dts = np.diff(pos_arr[:, 2]) * NS_TO_SECONDS
+    dts = np.where(dts <= 0, MIN_DT_SECONDS, dts)
+    
+    # Acceleration (diff of speed / dt)
+    # We match the length by taking the dts corresponding to the speed samples
+    acc_arr = np.diff(speed_arr, axis=0) / dts[-len(speed_arr)+1:][:, None] if len(speed_arr) > 1 else np.empty((0,2))
+    
+    return {
+        "x": pos_arr[:, 0], "y": pos_arr[:, 1],
+        "vx": speed_arr[:, 0], "vy": speed_arr[:, 1],
+        "ax": acc_arr[:, 0], "ay": acc_arr[:, 1]
+    }
 
 def main():
-    vibe = Vibe([0, 1, 0, -1])
+   
     pos_buffer = deque(maxlen=20)
     beat_buffer = deque(maxlen=20)
     pos_counter=0
@@ -275,97 +294,68 @@ def main():
     initial_bpm = None
     tempo_kf = Kalman1D(meas_var=5.0)
     while True:
+        
+
+# --- Helper Logic ---
+
+        # --- Main Loop Logic ---
         pos_counter += 1
-        hand_landmarker, timestamp = frame(Cap, hand_landmarker_input)
-       
-        # print(f"size: {len(hand_landmarker)}")
-        if len(hand_landmarker) != 0:
-            filt_x, filt_y = position_kf.update(1 - hand_landmarker[0][8].x, hand_landmarker[0][8].y, timestamp)
-            pos_buffer.append((filt_x, filt_y, timestamp)) # 8 is the tip of index finger
-        if len(pos_buffer) > 2:
-            dt = (pos_buffer[-1][2] - pos_buffer[-2][2]) * NS_TO_SECONDS
-            if dt <= 0:
-                dt = MIN_DT_SECONDS
-            speed = (
-                (pos_buffer[-1][0] - pos_buffer[-2][0]) / dt,
-                (pos_buffer[-1][1] - pos_buffer[-2][1]) / dt,
-            )
-            speed_buffer.append(speed)
-            if len(speed_buffer) > 2:
-                speed_old, speed_dir_old = xytopolar(speed_buffer[-2][0], speed_buffer[-2][1])
-                speed_new, speed_dir_new = xytopolar(speed_buffer[-1][0], speed_buffer[-1][1])
-                angle_delta = abs(speed_dir_new - speed_dir_old)
-                if np.pi / 4 < angle_delta < 3 * np.pi / 4 and speed_new * speed_old > 0.2:
-                    beat_buffer.append(pos_buffer[-1][2])
+        landmarks, timestamp = frame(Cap, hand_landmarker_input)
 
-        if len(beat_buffer) == 2:
-            initial_bpm = 60 * 1e9 / (beat_buffer[-1] - beat_buffer[-2])
-        if len(beat_buffer) > 2:
-            detected_bpm = 60 * 1e9 / (beat_buffer[-1] - beat_buffer[-2])
-            smoothed_bpm = tempo_kf.update(detected_bpm, beat_buffer[-1])
-            initial_bpm = initial_bpm * 0.95 + smoothed_bpm * 0.05 if initial_bpm is not None else smoothed_bpm
+        if landmarks:
+            # 1. Update Position (Kalman)
+            raw_x, raw_y = 1 - landmarks[0][8].x, landmarks[0][8].y
+            filt_x, filt_y = position_kf.update(raw_x, raw_y, timestamp)
+            pos_buffer.append((filt_x, filt_y, timestamp))
 
-            print(f"original bpm: {60*1e9/(beat_buffer[-1]-beat_buffer[-2])}, smoothed bpm: {initial_bpm}")
-        if pos_counter % 5 == 0 and len(pos_buffer) > 2 and len(speed_buffer) > 1:
-            pos_array = np.array(pos_buffer, dtype=float)
-            speed_array = np.array(speed_buffer, dtype=float)
+            # 2. Velocity & Beat Detection
+            if len(pos_buffer) >= 2:
+                dt = max((pos_buffer[-1][2] - pos_buffer[-2][2]) * NS_TO_SECONDS, MIN_DT_SECONDS)
+                vx = (pos_buffer[-1][0] - pos_buffer[-2][0]) / dt
+                vy = (pos_buffer[-1][1] - pos_buffer[-2][1]) / dt
+                speed_buffer.append((vx, vy))
 
-            x_series = pos_array[:, 0]
-            y_series = pos_array[:, 1]
-            vx_series = speed_array[:, 0]
-            vy_series = speed_array[:, 1]
+                # Beat detection (Direction change check)
+                if len(speed_buffer) >= 2:
+                    mag_old, dir_old = xytopolar(*speed_buffer[-2])
+                    mag_new, dir_new = xytopolar(*speed_buffer[-1])
+                    
+                    if (np.pi/4 < abs(dir_new - dir_old) < 3*np.pi/4) and (mag_new * mag_old > 0.2):
+                        beat_buffer.append(timestamp)
 
-            timestamp_deltas = np.diff(pos_array[:, 2]) * NS_TO_SECONDS
-            needed = max(0, len(vx_series) - 1)
-            if len(timestamp_deltas) >= needed and needed > 0:
-                dt_for_acc = timestamp_deltas[-needed:]
-            elif needed > 0:
-                dt_for_acc = np.ones(needed)
+        # 3. BPM Processing
+        if len(beat_buffer) >= 2:
+            delta_t = (beat_buffer[-1] - beat_buffer[-2])
+            detected_bpm = 60 * 1e9 / delta_t
+            
+            if len(beat_buffer) == 2:
+                initial_bpm = detected_bpm
             else:
-                dt_for_acc = np.array([])
+                smoothed_bpm = tempo_kf.update(detected_bpm, beat_buffer[-1])
+                initial_bpm = (initial_bpm * 0.95) + (smoothed_bpm * 0.05)
+                print(f"BPM: {detected_bpm:.1f} | Smooth: {initial_bpm:.1f}")
 
-            if len(vx_series) > 1:
-                safe_dt = np.where(dt_for_acc == 0, 1e-9, dt_for_acc)
-                ax_series = np.diff(vx_series) / safe_dt
-                ay_series = np.diff(vy_series) / safe_dt
-            else:
-                ax_series = np.array([])
-                ay_series = np.array([])
-
-            series_map = {
-                "x": x_series,
-                "y": y_series,
-                "vx": vx_series,
-                "vy": vy_series,
-                "ax": ax_series,
-                "ay": ay_series,
-            }
-
-            for plot_axis, (key, _) in zip(axes, plot_specs):
-                data = np.array(series_map[key], dtype=float)
-                if len(data) == 0:
-                    lines[key].set_data([], [])
-                    plot_axis.set_xlim(0, 1)
-                    plot_axis.set_ylim(-1, 1)
-                    continue
-
-                x_index = np.arange(len(data))
-                lines[key].set_data(x_index, data)
-
-                plot_axis.set_xlim(0, max(1, len(data) - 1))
-
-                data_min = float(np.min(data))
-                data_max = float(np.max(data))
-                if np.isclose(data_min, data_max):
-                    pad = max(0.01, abs(data_max) * 0.1 + 0.01)
-                else:
-                    pad = (data_max - data_min) * 0.15
-                plot_axis.set_ylim(data_min - pad, data_max + pad)
+        # 4. Visualization (Every 5 frames)
+        if pos_counter % 5 == 0 and len(pos_buffer) > 5:
+            series = get_physics_series(pos_buffer, speed_buffer)
+            
+            for ax, (key, _) in zip(axes, plot_specs):
+                data = series[key]
+                if len(data) == 0: continue
+                    
+                # Update line data
+                x_idx = np.arange(len(data))
+                lines[key].set_data(x_idx, data)
+                
+                # Auto-scale Y axis with padding
+                d_min, d_max = np.min(data), np.max(data)
+                pad = (d_max - d_min) * 0.15 if d_min != d_max else 0.1
+                ax.set_xlim(0, max(1, len(data)-1))
+                ax.set_ylim(d_min - pad, d_max + pad)
 
             fig.canvas.draw_idle()
             fig.canvas.flush_events()
-            
-            
+                    
         
 if __name__ == "__main__":
     main()
