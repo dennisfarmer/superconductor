@@ -180,7 +180,6 @@ class Frontend:
                 print("Camera read failed")
                 time.sleep(0.05)
                 continue
-                continue
 
             key = cv2.waitKey(1) & 0xFF
 
