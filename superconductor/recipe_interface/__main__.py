@@ -10,9 +10,9 @@ class RecipeInterface:
         on_recipe_change=None,
     ):
         self.recipe = {
-            "Rock": 0.6,
-            "Guitar": 0.8,
-            "Jazz": 0.3
+            "Piano": 0.6,
+            "Flute": 0.8,
+            "Trumpet": 0.3
         }
         self.slider_up_gesture = slider_up_gesture
         self.slider_down_gesture = slider_down_gesture
@@ -22,9 +22,9 @@ class RecipeInterface:
         self.bar_positions = {k: (None,None) for k in self.recipe.keys()}
         self.bar_colors = {
             # note: color channels are flipped RGB -> BGR
-            "Rock": (78, 166, 216)[::-1],
-            "Guitar": (250, 162, 75)[::-1],
-            "Jazz": (150, 187, 136)[::-1]
+            "Piano": (78, 166, 216)[::-1],
+            "Flute": (250, 162, 75)[::-1],
+            "Trumpet": (150, 187, 136)[::-1]
         }
     
     def draw_bars(self, webcam_frame, overlay_mask):
@@ -86,6 +86,7 @@ class RecipeInterface:
     def update_positions(self, pointer_x, pointer_y, gesture):
         closest_bar = None
         min_distance = float('inf')
+        print(f"current gesture: {gesture}")
         
         for prompt, (bar_x, bar_y) in self.bar_positions.items():
             if bar_x is None:
@@ -102,7 +103,7 @@ class RecipeInterface:
                 self.bar_positions[closest_bar] = (self.bar_positions[closest_bar][0], pointer_y)
                 self.adjust_recipe(closest_bar, pointer_y)
             
-            elif gesture == self.slider_down_gesture and pointer_y > current_y:
+            if gesture == self.slider_down_gesture and pointer_y > current_y:
                 self.bar_positions[closest_bar] = (self.bar_positions[closest_bar][0], pointer_y)
                 self.adjust_recipe(closest_bar, pointer_y)
     

@@ -1,18 +1,18 @@
-gesture_detection/hands_dataset/
-gesture_detection/hands_dataset.zip
-gesture_detection/hands_dataset_processed/
-gesture_detection/palm_hold_release/palm_hold
-gesture_detection/palm_hold_release/palm_release*
-gesture_detection/palm_hold_release_processed
-gesture_detection/palm_up_down*
 __pycache__/
 hand_landmarker.task
-gesture_detection/finger_pointing
+
+# gesture recognition training examples
+*.pt
+superconductor/gesture_recognition/palm_hold_release/palm_hold
+superconductor/gesture_recognition/palm_hold_release/palm_release
+superconductor/gesture_recognition/palm_hold_release/0_palm_hold_records.csv
+superconductor/gesture_recognition/palm_hold_release/1_palm_release_records.csv
+superconductor/gesture_recognition/palm_hold_release_processed
+
 
 var
 var/log
 superconductor.log
-
 
 superconductor.egg-info
 

@@ -2,28 +2,76 @@
 
 ![diagram](media/diagram.jpeg)
 
-## Start SuperConductor
-```bash
-# first activate conda environment:
-conda activate sc_env
+Start SuperConductor
+--------------------
 
-# Two seperate processes
-# sc-laptop: laptop.py
-# sc-server: mock_local_server.py
+The system consists of three parts:
 
-# this calls superconductor/launcher.py to run
-# bash commands for start|stop|status|restart
-superconductor --start
+1.  **Server (Lighthouse GPU)**
+    
+2.  **SSH tunnel (connect server → local)**
+    
+3.  **Client (local laptop)**
+    
 
-# this sends a shutdown request to sc-laptop,
-# which then shuts down sc-server 
-# (can be modified to keep server running)
-superconductor --stop
+### 1\. Start the Server (Lighthouse)
+
+Log in to your Lighthouse account. The model is located at:
+
+`/scratch/aimusic_project_root/aimusic_project/shared_data/magenta_native`
+
+#### Step 1: Allocate GPU
+
+`salloc --account=aimusic_project --partition=aimusic_project --gpus=1 --mem=64G --cpus-per-task=4 --time=00:15:00   `
+
+*   Adjust --time based on how long you need the server
+    
+*   The job will stop automatically after the time expires
+    
+*   You can also run exit to release resources early
+    
+
+#### Step 2: Activate environment
+
+`source magenta-realtime/.venv/bin/activate   `
+
+#### Step 3: Run the server
+
+`   python -m magenta_rt.server --tag large --device gpu --port 8000   `
+
+*   Use Ctrl + C to stop the server manually
+    
+
+### 2\. Start SSH Tunnel (on your laptop)
+
+Open a **new local terminal** and run:
+
+`   ssh -N -L 9000:lh2300:8000 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu   `
+
+This forwards:
+
+`   localhost:9000 → lighthouse:8000   `
+
+### 3\. Start the Client (local)
+
+In your local project:
+
+`   conda activate sc_env `
+`python3 superconductor/laptop.py   `
+
+*   A window will open with the camera + UI
+    
+*   **Press q (while the window is focused) to exit**
+
+  
+
+Current state of music playback:
 ```
-
-Whenever recipe is updated via on-screen slider controls, a request is made to the mock backend running locally, which sends a sequence of mp3 files (5 segments of the beginning of No Idea - Don Toliver). These are loaded into a playback queue by the laptop code and played sequentially to a specified audio device.
-
-Note: current playback method is naive; doesn't support timing modulation down the road, processing lag between segments, doesn't send audio to other processes (TouchDesigner, Max/MSP, ChucK)
+The server pre-loads the MP3s into RAM as raw float32 numpy arrays and continuously streams small 1024-frame chunks over a new socket. 
+The frontend has am audio stream that pulls from the buffer and  receivies these raw chunks as they arrive.
+When a user gestures to change the recipe, the server instantly swaps the memory pointer for the stream track, so there might not be any gap
+have to see if it still works when we integrate magenta in the backend
+```
 
 ## Setup
 

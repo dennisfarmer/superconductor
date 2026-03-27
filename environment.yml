@@ -2,57 +2,64 @@ name: sc_env
 channels:
   - conda-forge
 dependencies:
-  - bzip2=1.0.8
-  - ca-certificates=2026.2.25
-  - icu=78.2
-  - libexpat=2.7.4
-  - libffi=3.5.2
-  - liblzma=5.8.2
-  - libsqlite=3.52.0
-  - libzlib=1.3.1
-  - ncurses=6.5
-  - openssl=3.6.1
-  - packaging=26.0
-  - pip=26.0.1
-  - python=3.12.13
-  - readline=8.3
-  - tk=8.6.13
-  - tzdata=2025c
-  - wheel=0.46.3
+  - ca-certificates=2026.2.25=hbd8a1cb_0
+  - tk=8.6.13=h010d191_3
+  - libzlib=1.3.1=h8359307_2
+  - bzip2=1.0.8=hd037594_9
+  - openssl=3.6.1=hd24854e_1
+  - libffi=3.5.2=hcf2aa1b_0
+  - pip=26.0.1=pyh8b19718_0
+  - python=3.12.13=h8561d8f_0_cpython
+  - tzdata=2025c=hc9c84f9_1
+  - wheel=0.46.3=pyhd8ed1ab_0
+  - libsqlite=3.52.0=h1ae2325_0
+  - packaging=26.0=pyhcf101f3_0
+  - liblzma=5.8.2=h8088a28_0
+  - readline=8.3=h46df422_0
+  - icu=78.2=hef89b57_0
+  - setuptools=82.0.1=pyh332efcf_0
+  - libexpat=2.7.4=hf6b4638_0
+  - ncurses=6.5=h5e97a16_3
   - pip:
       - absl-py==2.4.0
+      - attrs==25.4.0
       - cffi==2.0.0
       - click==8.3.1
       - contourpy==1.3.3
       - cycler==0.12.1
-      - filelock==3.24.3
+      - filelock==3.25.2
       - flatbuffers==25.12.19
-      - fonttools==4.61.1
+      - fonttools==4.62.1
       - fsspec==2026.2.0
+      - jax
+      - jaxlib
       - jinja2==3.1.6
       - joblib==1.5.3
-      - kiwisolver==1.4.9
+      - kiwisolver==1.5.0
       - markupsafe==3.0.3
       - matplotlib==3.10.8
-      - mediapipe==0.10.32
+      - mediapipe==0.10.21
+      - ml-dtypes==0.5.4
       - mpmath==1.3.0
       - networkx==3.6.1
-      - numpy==2.4.2
-      - opencv-contrib-python==4.13.0.92
-      - opencv-python==4.13.0.92
+      - numpy==1.26.4
+      - opencv-contrib-python==4.11.0.86
+      - opencv-python==4.11.0.86
+      - opt-einsum==3.4.0
       - pandas==3.0.1
       - pillow==12.1.1
+      - protobuf==4.25.8
       - pycparser==3.0
       - pydub==0.25.1
       - pyparsing==3.3.2
       - python-dateutil==2.9.0.post0
       - scikit-learn==1.8.0
-      - scipy==1.17.0
-      - setuptools==82.0.0
+      - scipy==1.17.1
+      - sentencepiece==0.2.1
       - six==1.17.0
       - sounddevice==0.5.5
-      - superconductor==0.1.0
       - sympy==1.14.0
       - threadpoolctl==3.6.0
-      - torch==2.10.0
+      - torch
       - typing-extensions==4.15.0
+

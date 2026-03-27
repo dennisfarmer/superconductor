@@ -19,6 +19,7 @@ from custom_dataset import CustomDatasetCreator, CustomDatasetProcessor
 if __name__ == "__main__":
     data_creator = CustomDatasetCreator(dataset_name="palm_hold_release")
     data_creator(gesture_name = "palm_hold")
-    data_creator(gesture_name = "palm_release_up")
-    data_creator(gesture_name = "palm_release_down")
+    data_creator(gesture_name = "palm_release")
+    #data_creator(gesture_name = "palm_release_up")
+    #data_creator(gesture_name = "palm_release_down")
     processor = CustomDatasetProcessor(dataset_name = "palm_hold_release")
