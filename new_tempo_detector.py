@@ -16,7 +16,7 @@ from filterpy.kalman import KalmanFilter as FilterPyKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 from typing import overload
 from scipy.interpolate import Akima1DInterpolator
-from vibe import VIBE_FOURFOUR,VIBE_DOWN,VIBE_UP,VIBE_LEFT,VIBE_RIGHT,Vibe
+from vibe import VIBE_FOURFOUR,VIBE_DOWN, VIBE_TWOFOUR,VIBE_UP,VIBE_LEFT,VIBE_RIGHT,Vibe
 # pip install mediapipe opencv-python filterpy
 NS_TO_SECONDS = 1e-9
 MIN_DT_SECONDS = 1e-3
@@ -249,7 +249,7 @@ def get_physics_series(pos_buffer, speed_buffer):
     }
 
 class BeatTracker:
-    def __init__(self, size=20, vibe_pattern=VIBE_FOURFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2):
+    def __init__(self, size=20, vibe_pattern=VIBE_TWOFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2):
         self.size = size
         self.data = np.zeros((size, 3))  # [x, y, timestamp]
         self.ptr = 0
@@ -423,7 +423,7 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    position_kf = Kalman2D(pos_var=1e-4, vel_var=1e-3, meas_var=1e-4)
+    position_kf = Kalman2D(pos_var=1e-4, vel_var=1.5e-3, meas_var=2e-5)
     tempo_kf = Kalman1D(meas_var=3.0)
     tracker = BeatTracker(100, max_beats=3000)
 
