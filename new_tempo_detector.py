@@ -240,7 +240,7 @@ def get_physics_series(pos_buffer, speed_buffer):
     }
 
 class BeatTracker:
-    def __init__(self, size=100, vibe_pattern=VIBE_FOURFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2):
+    def __init__(self, size=20, vibe_pattern=VIBE_FOURFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2):
         self.size = size
         self.data = np.zeros((size, 3))  # [x, y, timestamp]
         self.ptr = 0
@@ -425,7 +425,7 @@ def main():
 #     Cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25) 
 # # Set a fast exposure value (higher = darker but faster)
 #     Cap.set(cv2.CAP_PROP_EXPOSURE, -5)
-    Cap = cv2.VideoCapture(0)
+    Cap = cv2.VideoCapture("/home/danny-wenjue-zhang/Videos/Webcam/video_fixed.mp4")
     plt.ion()
     fig, axes = plt.subplots(3, 2, figsize=(12, 8))
     axes = axes.flatten()
