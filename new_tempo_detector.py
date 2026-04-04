@@ -468,7 +468,7 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
         }
 
         if landmarks:
-            raw_x, raw_y = 1 - landmarks[0][8].x, landmarks[0][8].y
+            raw_x, raw_y = 1 - landmarks[0][12].x, landmarks[0][12].y
             filt_x, filt_y = position_kf.update(raw_x, raw_y, timestamp_ns)
             tracker.add_sample(filt_x, filt_y, timestamp_ns)
 
