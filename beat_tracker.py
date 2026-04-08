@@ -1,3 +1,18 @@
+"""
+Beat detection module using spline interpolation and directional patterns.
+
+This module provides the BeatTracker class which detects beats from hand movement
+by analyzing velocity zero-crossings along specific directional axes defined by a
+"vibe" pattern. The system follows a directional goal and detects when hand motion
+reaches peaks/troughs in that direction.
+
+Directional Goals (vibe):
+    - VIBE_UP (2): Look for upward movement peaks
+    - VIBE_DOWN (-2): Look for downward movement troughs
+    - VIBE_LEFT (-1): Look for leftward movement peaks
+    - VIBE_RIGHT (1): Look for rightward movement troughs
+"""
+
 from __future__ import annotations
 
 from collections import deque
