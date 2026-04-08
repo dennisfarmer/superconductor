@@ -12,8 +12,7 @@ from mediapipe.tasks.python import vision
 
 
 def frame(cap, hand_landmarker, show_preview=False):
-    for _ in range(1):
-        cap.grab()
+   
 
     success, img = cap.read()
     _ = cv2.waitKey(1) & 0xFF
