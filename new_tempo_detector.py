@@ -45,15 +45,18 @@ def main():
     # - Calculate tempo (BPM) from beat intervals
     # - Annotate video with beat markers and overlay info
     # - Save metadata to JSON and CSV files
-    run_tempo_pipeline(
-        cap=cap,
-        source_name="./42test.mp4",
-        output_video_path=None,  # Default: 42test_annotated.mp4
-        output_json_path=None,   # Default: 42test_frame_data.json
-        output_csv_path=None,    # Default: 42test_frame_data.csv
-        show_preview=False,      # Set True to see live preview during processing
-        release_cap=True,        # Release VideoCapture when done
-    )
+    try:
+        run_tempo_pipeline(
+            cap=cap,
+            source_name="./camera",
+            output_video_path=None,  # Default: camera_annotated.mp4
+            output_json_path=None,   # Default: camera_frame_data.json
+            output_csv_path=None,    # Default: camera_frame_data.csv
+            show_preview=True,       # Required for q-key stop (focus the preview window)
+            release_cap=True,        # Release VideoCapture when done
+        )
+    except KeyboardInterrupt:
+        print("Interrupted by user. Exiting cleanly.")
 
 
 # Entry point: Run the main function when this script is executed directly

@@ -31,7 +31,7 @@ class BeatTracker:
     applies Akima spline interpolation to find smooth trajectories. Beats are detected
     at velocity zero-crossings that match the current directional goal.
     """
-    def __init__(self, size=20, vibe_pattern=VIBE_TWOFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2,mirror_pattern=False):
+    def __init__(self, size=20, vibe_pattern=VIBE_FOURFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2,mirror_pattern=False):
         """Initialize BeatTracker with circular buffer and directional pattern.
 
         Args:
@@ -48,6 +48,8 @@ class BeatTracker:
         self.is_full = False
 
         self.vibe = Vibe(vibe_pattern) if not mirror_pattern else Vibe(mirror_vibe_pattern(vibe_pattern))
+        for i in self.vibe.pattern:
+           print(f"Vibe pattern direction: {self.vibe.pattern[i]}")
         self.current_goal = self.vibe.next()
         self.last_beat_ts = 0
         self.beat_timestamps = deque(maxlen=max_beats)

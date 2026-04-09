@@ -79,9 +79,6 @@ def frame(cap, hand_landmarker, show_preview=False):
     # Read the next frame from the video capture
     success, img = cap.read()
 
-    # Short wait for OpenCV's event loop (does nothing if no window)
-    _ = cv2.waitKey(1) & 0xFF
-
     if not success:
         return False, [], 0, None
 
@@ -164,6 +161,9 @@ def frame(cap, hand_landmarker, show_preview=False):
     # Display preview if requested
     if show_preview:
         cv2.imshow("Image", img)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("q"):
+            return False, [], frame_timestamp_ns, img
 
     return True, hand_landmarks_list, frame_timestamp_ns, img
 

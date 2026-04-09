@@ -44,7 +44,7 @@ VIBE_TWOFOUR=[VIBE_DOWN, VIBE_UP]
 VIBE_THREEFOUR=[VIBE_DOWN, VIBE_RIGHT, VIBE_UP]  
 VIBE_FOURFOUR=[VIBE_DOWN, VIBE_LEFT, VIBE_RIGHT, VIBE_UP]
 def mirror_vibe(vibe):
-    """Mirror a directional code (flip up/down, left/right).
+    """Mirror a directional code (flip  left/right, NOT up/down).
 
     Args:
         vibe: Direction code to mirror
@@ -53,9 +53,9 @@ def mirror_vibe(vibe):
         int: Mirrored direction code
     """
     if vibe == VIBE_DOWN:
-        return VIBE_UP
-    elif vibe == VIBE_UP:
         return VIBE_DOWN
+    elif vibe == VIBE_UP:
+        return VIBE_UP
     elif vibe == VIBE_LEFT:
         return VIBE_RIGHT
     elif vibe == VIBE_RIGHT:

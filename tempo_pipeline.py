@@ -30,8 +30,29 @@ from beat_tracker import BeatTracker
 from hand_tracking import create_hand_landmarker, ensure_task_file, frame
 from kalman_filters import Kalman1D, Kalman2D
 from tempo_constants import MIN_DT_SECONDS, NS_TO_SECONDS
-from video_output import save_frame_metadata, write_annotated_video
+from video_output import render_annotated_frame, save_frame_metadata, write_annotated_video
 from filterconst import TEMPO_VARIANCE, POS_VARIANCE, VEL_VARIANCE, MEAS_VARIANCE
+
+
+def estimate_effective_fps(frame_records, fallback_fps: float) -> float:
+    """Estimate real FPS from frame timestamps to avoid playback speed mismatch."""
+    if not frame_records or len(frame_records) < 2:
+        return float(fallback_fps)
+
+    timestamps = np.array([row["timestamp_ns"] for row in frame_records], dtype=np.int64)
+    dt_ns = np.diff(timestamps)
+    dt_ns = dt_ns[dt_ns > 0]
+    if dt_ns.size == 0:
+        return float(fallback_fps)
+
+    median_dt_ns = float(np.median(dt_ns))
+    if median_dt_ns <= 0:
+        return float(fallback_fps)
+
+    effective_fps = 1e9 / median_dt_ns
+    if effective_fps < 1.0 or effective_fps > 240.0:
+        return float(fallback_fps)
+    return float(effective_fps)
 
 
 def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: bool = False, release_cap: bool = False):
@@ -103,107 +124,118 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
 
     # Main processing loop - process each frame
     frame_index = 0
-    while True:
-        # Get next frame with hand landmarks
-        ok, landmarks, timestamp_ns, frame_img = frame(cap, hand_landmarker_input, show_preview=show_preview)
-        if not ok:
-            break  # End of video
+    try:
+        while True:
+            # Get next frame with hand landmarks
+            ok, landmarks, timestamp_ns, frame_img = frame(cap, hand_landmarker_input, show_preview=False)
+            if not ok:
+                break  # End of video or user requested stop (q)
 
-        # Store raw frame for later video writing
-        captured_frames.append(frame_img.copy() if frame_img is not None else None)
+            # Store raw frame for later video writing
+            captured_frames.append(frame_img.copy() if frame_img is not None else None)
 
-        # Check for missed beats (backup switching logic)
-        # This handles cases where the beat tracker might miss detection
-        did_backup_switch = tracker.apply_missed_beat_backup(timestamp_ns)
-        if did_backup_switch:
-            print("Backup: interval too long, assuming a missed beat and switching direction.")
+            # Check for missed beats (backup switching logic)
+            # This handles cases where the beat tracker might miss detection
+            did_backup_switch = tracker.apply_missed_beat_backup(timestamp_ns)
+            if did_backup_switch:
+                print("Backup: interval too long, assuming a missed beat and switching direction.")
 
-        # Initialize frame record with default values
-        record = {
-            "frame_index": frame_index,
-            "timestamp_ns": int(timestamp_ns),
-            "x": None,
-            "y": None,
-            "vx": None,
-            "vy": None,
-            "ax": None,
-            "ay": None,
-            "tempo_bpm": last_tempo_bpm,
-            "is_beat_frame": False,
-            "closest_beat_timestamp_ns": None,
-            "closest_beat_frame_index": None,
-            "closest_beat_dt_ms": None,
-            "vibe_direction": tracker.get_current_goal_direction(),
-        }
+            # Initialize frame record with default values
+            record = {
+                "frame_index": frame_index,
+                "timestamp_ns": int(timestamp_ns),
+                "x": None,
+                "y": None,
+                "vx": None,
+                "vy": None,
+                "ax": None,
+                "ay": None,
+                "tempo_bpm": last_tempo_bpm,
+                "is_beat_frame": False,
+                "closest_beat_timestamp_ns": None,
+                "closest_beat_frame_index": None,
+                "closest_beat_dt_ms": None,
+                "vibe_direction": tracker.get_current_goal_direction(),
+            }
 
-        # Process hand landmarks if detected
-        if landmarks:
-            # Extract wrist position (landmark 12), apply horizontal flip
-            raw_x, raw_y = 1 - landmarks[0][12].x, landmarks[0][12].y
+            # Process hand landmarks if detected
+            if landmarks:
+                # Extract wrist position (landmark 12), apply horizontal flip
+                raw_x, raw_y = 1 - landmarks[0][12].x, landmarks[0][12].y
 
-            # Apply Kalman filter to smooth position and track velocity
-            filt_x, filt_y = position_kf.update(raw_x, raw_y, timestamp_ns)
+                # Apply Kalman filter to smooth position and track velocity
+                filt_x, filt_y = position_kf.update(raw_x, raw_y, timestamp_ns)
 
-            # Add filtered position to beat tracker
-            tracker.add_sample(filt_x, filt_y, timestamp_ns)
+                # Add filtered position to beat tracker
+                tracker.add_sample(filt_x, filt_y, timestamp_ns)
 
-            # Calculate kinematics (velocity and acceleration)
-            vx = 0.0
-            vy = 0.0
-            ax = 0.0
-            ay = 0.0
-            if prev_ts is not None:
-                # Calculate time difference in seconds
-                dt = max((timestamp_ns - prev_ts) * NS_TO_SECONDS, MIN_DT_SECONDS)
+                # Calculate kinematics (velocity and acceleration)
+                vx = 0.0
+                vy = 0.0
+                ax = 0.0
+                ay = 0.0
+                if prev_ts is not None:
+                    # Calculate time difference in seconds
+                    dt = max((timestamp_ns - prev_ts) * NS_TO_SECONDS, MIN_DT_SECONDS)
 
-                # Velocity = (current_pos - prev_pos) / dt
-                vx = (filt_x - prev_x) / dt
-                vy = (filt_y - prev_y) / dt
+                    # Velocity = (current_pos - prev_pos) / dt
+                    vx = (filt_x - prev_x) / dt
+                    vy = (filt_y - prev_y) / dt
 
-                # Acceleration = (current_vel - prev_vel) / dt
-                ax = (vx - prev_vx) / dt
-                ay = (vy - prev_vy) / dt
+                    # Acceleration = (current_vel - prev_vel) / dt
+                    ax = (vx - prev_vx) / dt
+                    ay = (vy - prev_vy) / dt
 
-            # Update previous state for next iteration
-            prev_ts = int(timestamp_ns)
-            prev_x = float(filt_x)
-            prev_y = float(filt_y)
-            prev_vx = float(vx)
-            prev_vy = float(vy)
+                # Update previous state for next iteration
+                prev_ts = int(timestamp_ns)
+                prev_x = float(filt_x)
+                prev_y = float(filt_y)
+                prev_vx = float(vx)
+                prev_vy = float(vy)
 
-            # Store kinematic data in record
-            record["x"] = float(filt_x)
-            record["y"] = float(filt_y)
-            record["vx"] = float(vx)
-            record["vy"] = float(vy)
-            record["ax"] = float(ax)
-            record["ay"] = float(ay)
+                # Store kinematic data in record
+                record["x"] = float(filt_x)
+                record["y"] = float(filt_y)
+                record["vx"] = float(vx)
+                record["vy"] = float(vy)
+                record["ax"] = float(ax)
+                record["ay"] = float(ay)
 
-            # Analyze hand movement for beat detection
-            beat_ts, _, counted_for_tempo = tracker.analyze_vibe_beat()
-            if beat_ts is not None:
-                detected_beat_timestamps.append(int(beat_ts))
+                # Analyze hand movement for beat detection
+                beat_ts, _, counted_for_tempo = tracker.analyze_vibe_beat()
+                if beat_ts is not None:
+                    detected_beat_timestamps.append(int(beat_ts))
+                    record["is_beat_frame"] = True
 
-            # Calculate tempo from beat intervals
-            if counted_for_tempo and len(tracker.get_recent_beats()) >= 2:
-                beat_times = tracker.get_recent_beats()
-                # BPM = 60 seconds / beat_interval in nanoseconds * 1e9
-                measured_bpm = 60 * 1e9 / (beat_times[-1] - beat_times[-2])
+                # Calculate tempo from beat intervals
+                if counted_for_tempo and len(tracker.get_recent_beats()) >= 2:
+                    beat_times = tracker.get_recent_beats()
+                    # BPM = 60 seconds / beat_interval in nanoseconds * 1e9
+                    measured_bpm = 60 * 1e9 / (beat_times[-1] - beat_times[-2])
 
-                # Apply Kalman filter to smooth tempo measurements
-                filtered_bpm = tempo_kf.update(float(measured_bpm), int(beat_times[-1]))
-                last_tempo_bpm = float(filtered_bpm)
-                record["tempo_bpm"] = last_tempo_bpm
+                    # Apply Kalman filter to smooth tempo measurements
+                    filtered_bpm = tempo_kf.update(float(measured_bpm), int(beat_times[-1]))
+                    last_tempo_bpm = float(filtered_bpm)
+                    record["tempo_bpm"] = last_tempo_bpm
 
-        # Store frame record
-        frame_records.append(record)
-        frame_index += 1
+            # Store frame record
+            frame_records.append(record)
 
-    # Cleanup
-    if release_cap:
-        cap.release()
-    if show_preview:
-        cv2.destroyAllWindows()
+            # Live annotated preview (camera mode): show exactly what will be saved
+            if show_preview and frame_img is not None:
+                rendered_preview = render_annotated_frame(frame_img, record, width, height)
+                captured_frames[-1] = rendered_preview.copy()
+                cv2.imshow("Annotated Preview", rendered_preview)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q"):
+                    break
+
+            frame_index += 1
+    finally:
+        if release_cap:
+            cap.release()
+        if show_preview:
+            cv2.destroyAllWindows()
 
     return frame_records, detected_beat_timestamps, captured_frames, float(fps), width, height
 
@@ -364,8 +396,20 @@ def run_tempo_pipeline(
     # Attach beat metadata to each frame record
     attach_closest_beat_info_to_frames(frame_records, beat_frame_mappings, beat_frame_indices)
 
+    # Estimate effective FPS from timestamps to keep output speed aligned with capture cadence
+    output_fps = estimate_effective_fps(frame_records, fps)
+
     # Write annotated video output
-    write_annotated_video(captured_frames, output_video_path, frame_records, fps, width, height)
+    write_annotated_video(
+        captured_frames,
+        output_video_path,
+        frame_records,
+        output_fps,
+        width,
+        height,
+        show_output_preview=False,
+        frames_are_annotated=show_preview,
+    )
 
     # Save metadata files (JSON and CSV)
     save_frame_metadata(frame_records, beat_frame_mappings, Path(output_json_path), Path(output_csv_path))
@@ -374,4 +418,5 @@ def run_tempo_pipeline(
     print(f"Annotated video: {output_video_path}")
     print(f"Metadata JSON: {output_json_path}")
     print(f"Metadata CSV: {output_csv_path}")
+    print(f"Video FPS used: {output_fps:.2f} (capture reported: {fps:.2f})")
     print(f"Frames processed: {len(frame_records)} | Beats mapped: {len(beat_frame_mappings)}")

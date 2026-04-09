@@ -59,7 +59,43 @@ def draw_direction_arrow(
     cv2.putText(frame_img, direction_str, (center_x - 20, center_y + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
 
 
-def write_annotated_video(captured_frames, output_video_path: str, frame_records, fps: float, width: int, height: int):
+def render_annotated_frame(frame_img, row, width: int, height: int):
+    """Render full overlay for a single frame and return the annotated copy."""
+    rendered = frame_img.copy()
+
+    cv2.putText(rendered, f"frame={row['frame_index']} t_ns={row['timestamp_ns']}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(rendered, f"x={_fmt_num(row['x'])} y={_fmt_num(row['y'])}", (10, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(rendered, f"vx={_fmt_num(row['vx'])} vy={_fmt_num(row['vy'])}", (10, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(rendered, f"ax={_fmt_num(row['ax'])} ay={_fmt_num(row['ay'])}", (10, 96), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(rendered, f"tempo_bpm={_fmt_num(row['tempo_bpm'], 2)}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 210, 0), 1, cv2.LINE_AA)
+    cv2.putText(rendered, f"closest_beat_frame={row['closest_beat_frame_index']} dt_ms={_fmt_num(row['closest_beat_dt_ms'], 2)}", (10, 144), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 200, 100), 1, cv2.LINE_AA)
+
+    if row.get("is_beat_frame", False):
+        cv2.circle(rendered, (24, 24), 12, (0, 0, 255), thickness=-1)
+        cv2.putText(rendered, "BEAT", (42, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2, cv2.LINE_AA)
+
+    vibe_dir = row.get("vibe_direction", "UNKNOWN")
+    draw_direction_arrow(rendered, vibe_dir, center_x=width - 80, center_y=80, arrow_length=50, color=(100, 200, 255), thickness=3)
+
+    if row.get("x") is not None and row.get("y") is not None:
+        finger_x = int(row["x"] * width)
+        finger_y = int(row["y"] * height)
+        cv2.circle(rendered, (finger_x, finger_y), 15, (0, 255, 0), thickness=2)
+        cv2.circle(rendered, (finger_x, finger_y), 5, (0, 255, 0), thickness=-1)
+
+    return rendered
+
+
+def write_annotated_video(
+    captured_frames,
+    output_video_path: str,
+    frame_records,
+    fps: float,
+    width: int,
+    height: int,
+    show_output_preview: bool = False,
+    frames_are_annotated: bool = False,
+):
     """Write video with beat markers, overlay text, and visual indicators.
 
     Adds to each frame:
@@ -77,6 +113,8 @@ def write_annotated_video(captured_frames, output_video_path: str, frame_records
         fps: Frame rate
         width: Frame width
         height: Frame height
+        show_output_preview: If True, show exactly the rendered frame being written
+        frames_are_annotated: If True, frames already contain overlays and are written as-is
     """
     writer = cv2.VideoWriter(
         output_video_path,
@@ -92,27 +130,18 @@ def write_annotated_video(captured_frames, output_video_path: str, frame_records
         if frame_img is None:
             continue
 
-        cv2.putText(frame_img, f"frame={row['frame_index']} t_ns={row['timestamp_ns']}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(frame_img, f"x={_fmt_num(row['x'])} y={_fmt_num(row['y'])}", (10, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(frame_img, f"vx={_fmt_num(row['vx'])} vy={_fmt_num(row['vy'])}", (10, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(frame_img, f"ax={_fmt_num(row['ax'])} ay={_fmt_num(row['ay'])}", (10, 96), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(frame_img, f"tempo_bpm={_fmt_num(row['tempo_bpm'], 2)}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 210, 0), 1, cv2.LINE_AA)
-        cv2.putText(frame_img, f"closest_beat_frame={row['closest_beat_frame_index']} dt_ms={_fmt_num(row['closest_beat_dt_ms'], 2)}", (10, 144), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 200, 100), 1, cv2.LINE_AA)
+        if frames_are_annotated:
+            rendered = frame_img
+        else:
+            rendered = render_annotated_frame(frame_img, row, width, height)
+        writer.write(rendered)
 
-        if row.get("is_beat_frame", False):
-            cv2.circle(frame_img, (24, 24), 12, (0, 0, 255), thickness=-1)
-            cv2.putText(frame_img, "BEAT", (42, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2, cv2.LINE_AA)
-
-        vibe_dir = row.get("vibe_direction", "UNKNOWN")
-        draw_direction_arrow(frame_img, vibe_dir, center_x=width - 80, center_y=80, arrow_length=50, color=(100, 200, 255), thickness=3)
-
-        if row.get("x") is not None and row.get("y") is not None:
-            finger_x = int(row["x"] * width)
-            finger_y = int(row["y"] * height)
-            cv2.circle(frame_img, (finger_x, finger_y), 15, (0, 255, 0), thickness=2)
-            cv2.circle(frame_img, (finger_x, finger_y), 5, (0, 255, 0), thickness=-1)
-
-        writer.write(frame_img)
+        if show_output_preview:
+            cv2.imshow("Annotated Output", rendered)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                show_output_preview = False
+                cv2.destroyWindow("Annotated Output")
 
     writer.release()
 
