@@ -1,3 +1,11 @@
+"""
+Mathematics utility functions for kinematic calculations.
+
+Functions:
+    - xytopolar: Convert Cartesian coordinates to polar
+    - get_physics_series: Compute velocity and acceleration arrays from position data
+"""
+
 from __future__ import annotations
 
 import numpy as np
@@ -6,6 +14,15 @@ from tempo_constants import MIN_DT_SECONDS, NS_TO_SECONDS
 
 
 def xytopolar(x, y):
+    """Convert Cartesian coordinates to polar (radius, angle).
+
+    Args:
+        x: X coordinate
+        y: Y coordinate
+
+    Returns:
+        tuple: (radius in pixels, angle in radians)
+    """
     r = np.sqrt(x**2 + y**2)
     theta = np.arctan2(y, x)
     return r, theta

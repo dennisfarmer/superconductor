@@ -1,3 +1,17 @@
+"""
+Kalman filters for smoothing position and tempo measurements.
+
+Classes:
+    - Kalman2D: Filters 2D hand position (x, y) with velocity tracking
+    - Kalman1D: Filters 1D tempo (BPM) measurements
+    - ConstantVelocityKalman: N-dimensional base implementation
+
+The filters use a constant velocity motion model:
+    State vector: [position, velocity] for each dimension
+    Measurement: position only
+    The filter estimates both position and velocity from noisy measurements.
+"""
+
 from __future__ import annotations
 
 import numpy as np
@@ -8,10 +22,13 @@ from tempo_constants import MIN_DT_SECONDS, NS_TO_SECONDS
 
 
 class ConstantVelocityKalman:
-    """N-dimensional constant-velocity Kalman filter backed by FilterPy.
+    """N-dimensional constant-velocity Kalman filter.
 
-    State: [p0, v0, p1, v1, ...]
-    Measurement: [p0, p1, ...]
+    State vector: [p0, v0, p1, v1, ...] where p=position, v=velocity
+    Measurement: [p0, p1, ...] (positions only)
+
+    The filter estimates velocity from noisy position measurements using
+    a constant velocity motion model.
     """
 
     def __init__(self, dimensions: int, pos_var=1e-4, vel_var=1e-3, meas_var=1e-3):
@@ -83,6 +100,8 @@ class ConstantVelocityKalman:
 
 
 class Kalman1D(ConstantVelocityKalman):
+    """1D Kalman filter for smoothing scalar values (e.g., tempo/BPM)."""
+
     def __init__(self, pos_var=1e-4, vel_var=1e-3, meas_var=1e-3):
         super().__init__(dimensions=1, pos_var=pos_var, vel_var=vel_var, meas_var=meas_var)
 
@@ -91,6 +110,8 @@ class Kalman1D(ConstantVelocityKalman):
 
 
 class Kalman2D(ConstantVelocityKalman):
+    """2D Kalman filter for smoothing (x, y) position with velocity tracking."""
+
     def __init__(self, pos_var=1e-4, vel_var=1e-3, meas_var=1e-3):
         super().__init__(dimensions=2, pos_var=pos_var, vel_var=vel_var, meas_var=meas_var)
 

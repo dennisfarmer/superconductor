@@ -1,6 +1,7 @@
 """
 Main entry point for the SuperConductor tempo detection system.
 
+
 This module provides a simple command-line interface to run the tempo detection
 pipeline on a video file. It captures hand movements, tracks beats, calculates
 tempo (BPM), and outputs annotated videos with beat markers and metadata files.
@@ -33,7 +34,7 @@ def main():
         RuntimeError: If the video file cannot be opened
     """
     # Open the source video file
-    cap = cv2.VideoCapture("./42test.mp4")
+    cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         raise RuntimeError("Could not open video source in main().")
 

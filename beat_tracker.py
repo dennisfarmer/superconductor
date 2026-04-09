@@ -24,7 +24,24 @@ from vibe import VIBE_DOWN, VIBE_LEFT, VIBE_RIGHT, VIBE_TWOFOUR,VIBE_FOURFOUR, V
 
 
 class BeatTracker:
+    """
+    Detects beats from hand movement using spline interpolation and directional goals.
+
+    The tracker uses a circular buffer to collect recent hand position samples and
+    applies Akima spline interpolation to find smooth trajectories. Beats are detected
+    at velocity zero-crossings that match the current directional goal.
+    """
     def __init__(self, size=20, vibe_pattern=VIBE_TWOFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2,mirror_pattern=False):
+        """Initialize BeatTracker with circular buffer and directional pattern.
+
+        Args:
+            size: Number of samples in circular buffer (needs >=10 for analysis)
+            vibe_pattern: Directional pattern (VIBE_TWOFOUR, VIBE_THREEFOUR, VIBE_FOURFOUR)
+            max_beats: Maximum beats to store for tempo calculation
+            decay_factor: Weight for tempo smoothing (0-1, lower = more smoothing)
+            miss_threshold: Factor for missed beat detection (1.2 = 120% of expected)
+            mirror_pattern: Mirror pattern for alternating directions
+        """
         self.size = size
         self.data = np.zeros((size, 3))
         self.ptr = 0
@@ -40,12 +57,20 @@ class BeatTracker:
         self.pending_expected_interval_ns = None
 
     def add_sample(self, x, y, ts):
+        """Add hand position sample to circular buffer.
+
+        Args:
+            x: Normalized X position (0-1)
+            y: Normalized Y position (0-1)
+            ts: Timestamp in nanoseconds
+        """
         self.data[self.ptr] = [x, y, ts]
         self.ptr = (self.ptr + 1) % self.size
         if self.ptr == 0:
             self.is_full = True
 
     def get_linear_view(self):
+        """Get circular buffer data as linear array sorted by time."""
         if not self.is_full:
             return self.data[:self.ptr]
         return np.roll(self.data, -self.ptr, axis=0)
@@ -67,6 +92,11 @@ class BeatTracker:
         return f"Anticipation: what direction is the beat looking for? {direction}"
 
     def get_smoothed_bpm(self):
+        """Calculate smoothed tempo (BPM) using exponential moving average.
+
+        Returns:
+            float: Smoothed BPM or None if insufficient data
+        """
         if len(self.beat_timestamps) < 2:
             return None
 
@@ -88,6 +118,11 @@ class BeatTracker:
         return float(np.sum(bpm_series * weights) / weights_sum)
 
     def get_expected_interval_ns(self):
+        """Calculate expected time between beats using exponential smoothing.
+
+        Returns:
+            float: Expected interval in nanoseconds or None
+        """
         if len(self.beat_timestamps) < 2:
             return None
 
@@ -107,6 +142,13 @@ class BeatTracker:
         return float(np.sum(valid_intervals_ns * weights) / weights_sum)
 
     def apply_missed_beat_backup(self, current_ts):
+        """Check for missed beats and advance direction if needed.
+
+        If elapsed time exceeds miss_threshold * expected_interval, assumes missed beat.
+
+        Returns:
+            bool: True if missed beat detected and direction advanced
+        """
         if self.pending_missed_confirmation:
             return False
         if self.last_beat_ts <= 0:
@@ -127,6 +169,14 @@ class BeatTracker:
         return False
 
     def analyze_vibe_beat(self):
+        """Analyze hand movement to detect a beat based on current directional goal.
+
+        Fits Akima spline to position data, finds velocity zero-crossings,
+        and verifies acceleration matches expected direction.
+
+        Returns:
+            tuple: (beat_timestamp_ns, linear_view, counted_for_tempo)
+        """
         view = self.get_linear_view()
         if len(view) < 10:
             return None, view, False

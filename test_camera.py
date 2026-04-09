@@ -1,12 +1,34 @@
 #!/usr/bin/env python3
 """
-Quick camera test to verify camera is working and detect its properties.
-Press 'q' to exit."""
+Camera test utility for verifying webcam connectivity.
+
+This script opens the default camera and displays a live preview with overlay
+information including resolution, frame rate, and metrics.
+
+Usage:
+    python test_camera.py
+
+Controls:
+    - Press 'q' to exit
+
+Features:
+    - Auto-detects working camera (tries indices 0, 1, 2)
+    - Displays camera properties (resolution, FPS)
+    - Shows live preview with real-time metrics
+"""
 
 import cv2
 
 
 def test_camera(camera_index=0):
+    """Test camera at specified index and display preview.
+
+    Args:
+        camera_index: Camera device index to try (default: 0)
+
+    Returns:
+        bool: True if camera was opened successfully
+    """
     print(f"Opening camera at index {camera_index}...")
     cap = cv2.VideoCapture(camera_index)
 

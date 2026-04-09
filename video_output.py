@@ -1,3 +1,14 @@
+"""
+Video output and metadata file generation.
+
+This module handles writing annotated video files with overlay information
+and saving frame-by-frame metadata to JSON and CSV formats.
+
+Functions:
+    - write_annotated_video: Creates video with beat markers and overlay info
+    - save_frame_metadata: Exports metadata to JSON and CSV files
+"""
+
 from __future__ import annotations
 
 import csv
@@ -49,6 +60,24 @@ def draw_direction_arrow(
 
 
 def write_annotated_video(captured_frames, output_video_path: str, frame_records, fps: float, width: int, height: int):
+    """Write video with beat markers, overlay text, and visual indicators.
+
+    Adds to each frame:
+    - Frame index and timestamp
+    - Position (x, y), velocity, acceleration
+    - Tempo (BPM)
+    - Beat indicators (red circle + "BEAT" text on beat frames)
+    - Direction arrow showing current vibe goal
+    - Green circle at detected hand position
+
+    Args:
+        captured_frames: List of frame images
+        output_video_path: Output file path (.mp4)
+        frame_records: Frame metadata with kinematic data
+        fps: Frame rate
+        width: Frame width
+        height: Frame height
+    """
     writer = cv2.VideoWriter(
         output_video_path,
         cv2.VideoWriter_fourcc(*"mp4v"),
@@ -89,6 +118,19 @@ def write_annotated_video(captured_frames, output_video_path: str, frame_records
 
 
 def save_frame_metadata(frame_records, beat_frame_mappings, json_path: Path, csv_path: Path):
+    """Save frame metadata to JSON and CSV files.
+
+    JSON structure:
+        - frame_count: Total number of frames
+        - beat_count: Number of beats detected
+        - beat_frame_mappings: List of beat-to-frame associations
+        - frames: Array of frame records with kinematic data
+
+    CSV columns:
+        frame_index, timestamp_ns, x, y, vx, vy, ax, ay,
+        tempo_bpm, is_beat_frame, closest_beat_timestamp_ns,
+        closest_beat_frame_index, closest_beat_dt_ms, vibe_direction
+    """
     payload = {
         "frame_count": len(frame_records),
         "beat_count": len(beat_frame_mappings),
