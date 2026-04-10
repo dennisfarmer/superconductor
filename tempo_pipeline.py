@@ -107,7 +107,7 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
     tempo_kf = Kalman1D(meas_var=TEMPO_VARIANCE)
 
     # Initialize beat tracker with mirror pattern for alternating directional beats
-    tracker = BeatTracker(100, max_beats=3000, mirror_pattern=True)
+    tracker = BeatTracker(100, max_beats=3000, mirror_pattern=False)
 
     # Storage for processing results
     frame_records = []  # Metadata for each frame
