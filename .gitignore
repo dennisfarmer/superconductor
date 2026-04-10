@@ -9,6 +9,8 @@ superconductor/gesture_recognition/palm_hold_release/0_palm_hold_records.csv
 superconductor/gesture_recognition/palm_hold_release/1_palm_release_records.csv
 superconductor/gesture_recognition/palm_hold_release_processed
 
+magenta_client_withqueue.py
+superconductor_server.py
 
 var
 var/log

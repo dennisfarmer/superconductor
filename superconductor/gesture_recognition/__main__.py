@@ -77,7 +77,13 @@ class GestureRecognition:
         if isolated_hand == "Left":
             return torch.cat((tensor, torch.zeros(63)))
         elif isolated_hand == "Right":
-            return torch.cat((torch.zeros(63), tensor))
+            return torch.cat((tensor, torch.zeros(63)))
+
+    def _flip_hand_to_left_space(self, hand_tensor: torch.Tensor) -> torch.Tensor:
+        """Mirror a single hand horizontally (x only) to match left-hand training space."""
+        flipped = hand_tensor.clone()
+        flipped[0::3] = 1.0 - flipped[0::3]
+        return flipped
 
 
     def landmarks_to_tensor(self, left_hand_coords: list[(int, float, float, float)] = None, right_hand_coords: list[(int, float, float, float)] = None, isolated_hand=None) -> torch.Tensor:
@@ -108,14 +114,14 @@ class GestureRecognition:
                 return output_tensor[:63]
             else:
                 # flip right hand to be left, assumes that coordinates are normalized to 0-1
-                return torch.tensor([0,1,0]).repeat(21) - output_tensor[63:]
+                return self._flip_hand_to_left_space(output_tensor[63:])
 
         elif isolated_hand == "Right":
             if output_tensor[63:].sum() > 0:
-                return output_tensor[63:]
+                # flip right hand to left-hand space for a model trained on left hands
+                return self._flip_hand_to_left_space(output_tensor[63:])
             else:
-                # flip left hand to right, assumes that coordinates are normalized to 0-1
-                return torch.tensor([0,1,0]).repeat(21) - output_tensor[:63]
+                return output_tensor[:63]
         else:
             return output_tensor
 
