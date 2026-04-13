@@ -105,7 +105,7 @@ class Frontend:
         self.magenta_client.start()
 
         # ---- vision ----
-        self.webcam = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+        self.webcam = cv2.VideoCapture(0)
         print("Camera opened:", self.webcam.isOpened())
         if not self.webcam.isOpened():
             raise RuntimeError("Cannot open webcam")
@@ -138,7 +138,7 @@ class Frontend:
             return
 
         now = time.time()
-        if now - self.last_update < 0.1:
+        if now - self.last_update < 0.5:
             return
 
         self.last_update = now
@@ -181,7 +181,6 @@ class Frontend:
                 time.sleep(0.05)
                 continue
 
-            key = cv2.waitKey(1) & 0xFF
 
             h, w, _ = frame.shape
             overlay = np.zeros_like(frame)
@@ -220,6 +219,8 @@ class Frontend:
             frame = cv2.add(frame, overlay)
 
             cv2.imshow("SuperConductor", frame)
+
+            key = cv2.waitKey(1) & 0xFF
 
             if key == ord("q"):
                 self.stop()
