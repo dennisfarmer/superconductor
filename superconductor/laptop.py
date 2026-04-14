@@ -187,31 +187,68 @@ class Frontend:
 
             handedness, landmarks = self.landmarker(frame)
 
-            gesture_name = None
-            confidence = 0
+            lh_gesture_name = None
+            lh_confidence = 0
 
             if landmarks:
-                tensor = self.gesture_recognition.mediapipe_to_tensor(
-                    handedness, landmarks, "Left"
-                )
-                tensor = self.gesture_recognition.expand_one_hand_to_two_hands(
-                    tensor, "Left"
-                )
+                # find which landmark index corresponds to which hand
+                hand_indices = {}
+                for i, hand in enumerate(handedness):
+                    label = hand.classification[0].label
+                    hand_indices["Right" if label == "Left" else "Left"] = i
+                
+                # left hand gesture detection
+                if "Left" in hand_indices:
+                    lh_tensor = self.gesture_recognition.mediapipe_to_tensor(
+                        handedness, landmarks, "Left"
+                    )
+                    lh_tensor = self.gesture_recognition.expand_one_hand_to_two_hands(
+                        lh_tensor, "Left"
+                    )
 
-                gesture_name, confidence = self.gesture_recognition(tensor)
+                    lh_gesture_name, lh_confidence = self.gesture_recognition(lh_tensor)
 
-                finger = landmarks[0][12]
-                x = int((1 - finger.x) * w)
-                y = int(finger.y * h)
+                    lh_finger = landmarks[hand_indices["Left"]][12]
+                    lh_x = int((1 - lh_finger.x) * w)
+                    lh_y = int(lh_finger.y * h)
 
-                self.recipe_interface.update_positions(
-                    pointer_x=x,
-                    pointer_y=y,
-                    gesture=gesture_name
-                )
+                    self.recipe_interface.update_positions(
+                        pointer_x=lh_x,
+                        pointer_y=lh_y,
+                        gesture=lh_gesture_name,
+                        hand="left"
+                    )
+
+                # right hand
+                if "Right" in hand_indices:
+                    rh_tensor = self.gesture_recognition.mediapipe_to_tensor(
+                        handedness, landmarks, "Right"
+                    )
+                    rh_tensor = self.gesture_recognition.expand_one_hand_to_two_hands(
+                        rh_tensor, "Right"
+                    )
+
+                    rh_gesture_name, rh_confidence = self.gesture_recognition(rh_tensor)
+
+                    rh_finger = landmarks[hand_indices["Right"]][12]
+                    rh_x = int((1 - rh_finger.x) * w)
+                    rh_y = int(rh_finger.y * h)
+
+                    if rh_gesture_name == "palm_hold":
+                        self.recipe_interface.update_positions(
+                            pointer_x=rh_x,
+                            pointer_y=rh_y,
+                            gesture=rh_gesture_name,
+                            hand="right"
+                        )
+
+                    both_fists = lambda lhg, rhg: lhg == "palm_hold" and rhg == "palm_hold"
+                    if "Left" in hand_indices and both_fists(lh_gesture_name, rh_gesture_name):
+                        print("both hands are fists")
+
 
             # draw
-            label = f"{gesture_name} ({confidence:.1f}%)" if gesture_name else "no label"
+            label = f"{lh_gesture_name} ({lh_confidence:.1f}%)" if lh_gesture_name else "no label"
             self.landmarker.draw(frame, overlay, label)
             self.recipe_interface.draw_bars(frame, overlay)
 
