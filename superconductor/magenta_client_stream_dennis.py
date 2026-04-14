@@ -16,16 +16,6 @@ from collections import deque
 SAMPLE_RATE = 48000
 CHANNELS = 2
 
-# TODO:
-# try just dropping everything in the queue see if there's inconsistency
-
-
-# when i call update_recipe, client finish playing the current chunk AND the next chunk, then drop everything after that
-# when i call update_recipe, scheduler rewind the internal state of the model back to the next next chunk and keeps generating
-# what if new ones come in but it;s not the updated version
-# do i need to store ID so that it's easier? if so what ID do we use? uuid?
-
-
 #########################################
 #########################################
 #########################################
@@ -198,6 +188,7 @@ class MagentaClient:
     def _audio_callback(self, outdata, frames, time, status):
 
         if len(self.audio_buffer) == 0:
+            self._playback_position = None 
             outdata.fill(0)
             return
 
