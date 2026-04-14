@@ -10,7 +10,7 @@ from pathlib import Path
 
 from superconductor.gesture_recognition import GestureRecognition
 from superconductor.recipe_interface import RecipeInterface
-from superconductor.magenta_client import MagentaClient
+from superconductor.magenta_client_stream_dennis import MagentaClient
 
 # =========================
 # CONFIG
