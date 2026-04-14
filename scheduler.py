@@ -12,12 +12,14 @@ truncate the queue past that point, and let the worker refill it.
 
 import asyncio
 import base64
+import json
 import pickle
 import threading
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Optional
+
 
 import numpy as np
 import requests
@@ -273,14 +275,24 @@ class Scheduler:
 
 
 class SchedulerServer:
-    """HTTP front-end for a ``Scheduler``.
+    """Base front-end for a ``Scheduler``.
 
-    Runs on the compute cluster. The laptop client reaches it through an SSH
-    tunnel and only ever sees audio samples and chunk ids — never the raw
-    MagentaRT state. The server is also responsible for converting recipes
-    (weighted prompt dicts) into style embeddings by talking to the Magenta
-    server's ``/style`` endpoint, so the client does not need its own link
-    to the Magenta server.
+    Owns the aiohttp application, the recipe->embedding cache, and the
+    methods that drive the underlying ``Scheduler``. Subclasses register
+    their own routes (HTTP endpoints or a websocket) and translate
+    wire-protocol messages into calls on the protected methods defined
+    here. All embedding creation lives in this class so it always runs on
+    the cluster — laptop clients only ever send recipes, never embeddings,
+    via the new endpoints. (The legacy ``UpdateControl`` websocket message
+    that ships a pre-computed embedding is still accepted for backwards
+    compatibility, but new code should use the recipe-based path.)
+
+    Runs on the compute cluster. The laptop client reaches it through an
+    SSH tunnel and only ever sees audio samples and chunk ids — never the
+    raw MagentaRT state. Recipes (weighted prompt dicts) are converted to
+    style embeddings here by talking to the Magenta server's ``/style``
+    endpoint, so the client does not need its own link to the Magenta
+    server.
     """
 
     def __init__(
@@ -296,11 +308,13 @@ class SchedulerServer:
         self._started = False
 
         self._app = web.Application()
-        self._app.router.add_post("/start", self._handle_start)
-        self._app.router.add_post("/next_chunk", self._handle_next_chunk)
-        self._app.router.add_post("/report_progress", self._handle_report_progress)
-        self._app.router.add_post("/update_recipe", self._handle_update_recipe)
-        self._app.router.add_post("/stop", self._handle_stop)
+        self._register_routes()
+
+    # ---------- subclass hook ----------
+
+    def _register_routes(self):
+        """Subclasses must register their endpoints on ``self._app``."""
+        raise NotImplementedError
 
     def run(self):
         web.run_app(self._app, port=self._port)
@@ -309,7 +323,9 @@ class SchedulerServer:
 
     def _get_cached_embedding(self, prompt: str) -> np.ndarray:
         if prompt not in self._embedding_cache:
-            r = requests.post(f"{self._magenta_url}/style", data=prompt, timeout=30)
+            r = requests.post(
+                f"{self._magenta_url}/style", data=prompt, timeout=30
+            )
             r.raise_for_status()
             self._embedding_cache[prompt] = np.array(r.json(), dtype=np.float32)
         return self._embedding_cache[prompt]
@@ -329,31 +345,72 @@ class SchedulerServer:
         w = w / w.sum()
         return np.sum(stacked * w[:, None], axis=0)
 
-    async def _embed_in_executor(self, recipe: dict) -> Optional[np.ndarray]:
+    async def _embed_recipe(self, recipe: dict) -> Optional[np.ndarray]:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._recipe_to_embedding, recipe)
+
+    # ---------- scheduler operations ----------
+
+    @property
+    def is_started(self) -> bool:
+        return self._started
+
+    def _start_scheduler(self, recipe: dict, style: np.ndarray):
+        self._scheduler.start(recipe, style)
+        self._started = True
+
+    def _stop_scheduler(self):
+        if self._started:
+            self._scheduler.stop()
+            self._started = False
+
+    def _update_recipe(self, recipe: dict, style: np.ndarray):
+        self._scheduler.update_recipe(recipe, style)
+
+    def _start_or_update(self, recipe: dict, style: np.ndarray):
+        """Start the scheduler if it isn't running, otherwise live-update."""
+        if self._started:
+            self._update_recipe(recipe, style)
+        else:
+            self._start_scheduler(recipe, style)
+
+    def _report_progress(self, chunk_id: str, offset: float):
+        self._scheduler.report_playback_progress(chunk_id, offset)
+
+    async def _pop_next_chunk_async(
+        self, timeout: float = 30.0
+    ) -> Optional[Chunk]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._scheduler.pop_next_chunk(wait=True, timeout=timeout),
+        )
+
+
+class SchedulerServerHTTP(SchedulerServer):
+    """JSON-over-HTTP front-end for a ``Scheduler``."""
+
+    def _register_routes(self):
+        self._app.router.add_post("/start", self._handle_start)
+        self._app.router.add_post("/next_chunk", self._handle_next_chunk)
+        self._app.router.add_post("/report_progress", self._handle_report_progress)
+        self._app.router.add_post("/update_recipe", self._handle_update_recipe)
+        self._app.router.add_post("/stop", self._handle_stop)
 
     # ---------- handlers ----------
 
     async def _handle_start(self, request: web.Request) -> web.Response:
         data = await request.json()
         recipe = data.get("recipe") or {}
-        emb = await self._embed_in_executor(recipe)
+        emb = await self._embed_recipe(recipe)
         if emb is None:
             return web.json_response({"error": "empty recipe"}, status=400)
-        if self._started:
-            self._scheduler.update_recipe(recipe, emb)
-        else:
-            self._scheduler.start(recipe, emb)
-            self._started = True
+        self._start_or_update(recipe, emb)
         return web.json_response({"ok": True})
 
     async def _handle_next_chunk(self, request: web.Request) -> web.Response:
         del request
-        loop = asyncio.get_running_loop()
-        chunk = await loop.run_in_executor(
-            None, lambda: self._scheduler.pop_next_chunk(wait=True, timeout=30.0)
-        )
+        chunk = await self._pop_next_chunk_async()
         if chunk is None:
             return web.json_response({"error": "timeout"}, status=504)
         samples = np.asarray(chunk.audio, dtype=np.float32)
@@ -370,7 +427,7 @@ class SchedulerServer:
         chunk_id = data.get("chunk_id")
         offset = float(data.get("offset_seconds", 0.0))
         if chunk_id:
-            self._scheduler.report_playback_progress(chunk_id, offset)
+            self._report_progress(chunk_id, offset)
         return web.json_response({"ok": True})
 
     async def _handle_update_recipe(self, request: web.Request) -> web.Response:
@@ -379,18 +436,241 @@ class SchedulerServer:
         chunk_id = data.get("chunk_id")
         offset = data.get("offset_seconds")
         if chunk_id is not None and offset is not None:
-            self._scheduler.report_playback_progress(chunk_id, float(offset))
-        emb = await self._embed_in_executor(recipe)
+            self._report_progress(chunk_id, float(offset))
+        emb = await self._embed_recipe(recipe)
         if emb is None:
             return web.json_response({"error": "empty recipe"}, status=400)
-        self._scheduler.update_recipe(recipe, emb)
+        self._update_recipe(recipe, emb)
         return web.json_response({"ok": True})
 
     async def _handle_stop(self, request: web.Request) -> web.Response:
         del request
-        self._scheduler.stop()
-        self._started = False
+        self._stop_scheduler()
         return web.json_response({"ok": True})
+
+
+class SchedulerServerWebsocket(SchedulerServer):
+    """Websocket front-end for a ``Scheduler``.
+
+    Speaks a JSON-over-websocket protocol modeled on the original Magenta
+    RealTime server, but with all style-embedding logic moved server-side:
+    clients send recipes (weighted prompt dicts), the scheduler builds the
+    embedding on the cluster, and the client never needs its own link to
+    the Magenta server.
+
+    The client drives generation with a pull model:
+
+      * ``StartSession``    — reset any prior session state
+      * ``UpdateRecipe``    — ``body == {recipe, chunk_id?, offset_seconds?}``,
+                              identical semantics to the HTTP
+                              ``/update_recipe`` endpoint. The scheduler
+                              builds the style embedding from the recipe
+                              and forks the queue.
+      * ``UpdateProgress``  — ``body == {chunk_id, offset_seconds}``.
+                              Push-only playback-position update; same
+                              chunk_id/offset_seconds fields as
+                              ``UpdateRecipe`` but without the recipe,
+                              for clients that want to keep the fork
+                              point accurate between recipe changes.
+      * ``UpdatePlayback``  — ``body.state == "PLAYING"`` boots the
+                              scheduler worker and immediately sends the
+                              first audio chunk.
+      * ``ReceivedChunk``   — "please send one more chunk"; the server
+                              pops the next chunk from the scheduler and
+                              sends it as a binary frame.
+      * ``EndSession``      — tear down the scheduler worker.
+
+    Each audio frame starts with the 16-byte binary UUID of the chunk
+    (``uuid.UUID(chunk.id).bytes``), followed by raw little-endian
+    float32 samples shaped ``(num_samples, num_channels)`` row-major.
+    The client decodes with
+    ``cid = uuid.UUID(bytes=msg[:16])`` and
+    ``np.frombuffer(msg[16:], dtype="<f4").reshape(-1, 2)``.
+    """
+
+    def __init__(
+        self,
+        scheduler: "Scheduler",
+        magenta_server_url: str = "http://localhost:8000",
+        port: int = 9100,
+    ):
+        # Session state. There is only ever one active client at a time,
+        # matching the original Magenta server's assumption.
+        self._session_ws: Optional[web.WebSocketResponse] = None
+        self._pending_recipe: Optional[dict] = None
+        self._style_embedding: Optional[np.ndarray] = None
+        self._session_lock = asyncio.Lock()
+        super().__init__(
+            scheduler=scheduler,
+            magenta_server_url=magenta_server_url,
+            port=port,
+        )
+
+    def _register_routes(self):
+        self._app.router.add_get("/stream", self._handle_ws)
+
+    # ---------- websocket ----------
+
+    async def _send_next_chunk(self, ws: web.WebSocketResponse):
+        """Pop one chunk from the scheduler and send it as a binary frame.
+
+        The frame layout is ``[16-byte UUID][float32 LE samples...]`` — the
+        first 16 bytes are the raw binary form of the chunk's UUID, and the
+        rest is the audio as row-major ``(num_samples, num_channels)``. The
+        client uses the id to report playback progress back via
+        ``UpdateProgress`` / ``UpdateRecipe`` so the scheduler can pick fork
+        points relative to the real playback bar.
+        """
+        chunk = await self._pop_next_chunk_async()
+        if chunk is None:
+            return
+        samples = np.asarray(chunk.audio, dtype=np.float32)
+        # Ensure little-endian float32, row-major (num_samples, channels).
+        if samples.dtype.byteorder == ">":
+            samples = samples.astype("<f4")
+        id_bytes = uuid.UUID(chunk.id).bytes
+        buf = id_bytes + np.ascontiguousarray(samples).tobytes()
+        if not ws.closed:
+            try:
+                await ws.send_bytes(buf)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                print(f"send_bytes failed: {e}")
+
+    async def _handle_start_session(self):
+        async with self._session_lock:
+            self._stop_scheduler()
+            self._pending_recipe = None
+            self._style_embedding = None
+
+    async def _handle_update_progress(self, body: dict):
+        """Report the playback bar without changing the recipe.
+
+        Mirrors the ``chunk_id`` / ``offset_seconds`` portion of
+        ``UpdateRecipe``, but for clients that just want to push progress
+        updates periodically so future fork points are accurate.
+        """
+        if not body:
+            return
+        chunk_id = body.get("chunk_id")
+        offset = body.get("offset_seconds")
+        if chunk_id is None or offset is None:
+            return
+        self._report_progress(chunk_id, float(offset))
+
+    async def _handle_update_recipe(self, body: dict):
+        """Caller supplies a recipe; embedding is built on the cluster.
+
+        Mirrors the HTTP ``/update_recipe`` endpoint, including the
+        optional ``chunk_id`` / ``offset_seconds`` playback-position fields
+        used to pick the fork point.
+        """
+        if not body:
+            return
+        recipe = body.get("recipe") or {}
+        chunk_id = body.get("chunk_id")
+        offset = body.get("offset_seconds")
+        if chunk_id is not None and offset is not None:
+            self._report_progress(chunk_id, float(offset))
+        emb = await self._embed_recipe(recipe)
+        if emb is None:
+            print("UpdateRecipe: empty recipe; ignoring")
+            return
+        async with self._session_lock:
+            self._pending_recipe = dict(recipe)
+            self._style_embedding = emb
+            if self._started:
+                self._update_recipe(recipe, emb)
+
+    async def _handle_update_playback(
+        self, body: dict, ws: web.WebSocketResponse
+    ):
+        if not body:
+            return
+        state = body.get("state")
+        if state != "PLAYING":
+            return
+        async with self._session_lock:
+            if self._style_embedding is None:
+                print("UpdatePlayback PLAYING without a recipe; ignoring")
+                return
+            if not self._started:
+                self._start_scheduler(
+                    self._pending_recipe or {}, self._style_embedding
+                )
+        # Send the first chunk immediately so the client's ring buffer has
+        # something to play while its audio callback primes.
+        await self._send_next_chunk(ws)
+
+    async def _handle_end_session(self):
+        async with self._session_lock:
+            self._stop_scheduler()
+            self._pending_recipe = None
+            self._style_embedding = None
+
+    async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+
+        async with self._session_lock:
+            if self._session_ws is not None and not self._session_ws.closed:
+                await ws.close(message=b"Session already active")
+                return ws
+            self._session_ws = ws
+
+        client_id = f"{request.remote}"
+        print(f"WS connected: {client_id}")
+
+        try:
+            async for msg in ws:
+                if msg.type != web.WSMsgType.TEXT:
+                    if msg.type == web.WSMsgType.ERROR:
+                        print(f"WS error from {client_id}: {ws.exception()}")
+                        break
+                    continue
+                try:
+                    data = json.loads(msg.data)
+                except json.JSONDecodeError:
+                    print(f"WS bad json: {msg.data!r}")
+                    continue
+
+                msg_type = data.get("type")
+                body = data.get("body") or {}
+
+                if msg_type == "StartSession":
+                    await self._handle_start_session()
+                elif msg_type == "UpdateRecipe":
+                    await self._handle_update_recipe(body)
+                elif msg_type == "UpdateProgress":
+                    await self._handle_update_progress(body)
+                elif msg_type == "UpdatePlayback":
+                    await self._handle_update_playback(body, ws)
+                elif msg_type == "ReceivedChunk":
+                    await self._send_next_chunk(ws)
+                elif msg_type == "EndSession":
+                    await self._handle_end_session()
+                    break
+                else:
+                    print(f"WS unknown message type: {msg_type}")
+        finally:
+            async with self._session_lock:
+                self._stop_scheduler()
+                self._pending_recipe = None
+                self._style_embedding = None
+                if self._session_ws is ws:
+                    self._session_ws = None
+            if not ws.closed:
+                await ws.close()
+            print(f"WS disconnected: {client_id}")
+
+        return ws
+
+
+
+SERVER_TYPES = {
+    "http": SchedulerServerHTTP,
+    "websocket": SchedulerServerWebsocket,
+}
+DEFAULT_PORTS = {"http": 9100, "websocket": 9100}
 
 
 def main():
@@ -400,7 +680,18 @@ def main():
     magenta_url = flags.DEFINE_string(
         "magenta_url", "http://localhost:8000", "URL of the Magenta RT server."
     )
-    port = flags.DEFINE_integer("port", 9100, "Port to listen on.")
+    server_type = flags.DEFINE_enum(
+        "server_type",
+        "websocket",
+        list(SERVER_TYPES.keys()),
+        "Front-end protocol: 'http' for the JSON HTTP API, 'websocket' for "
+        "the Magenta-compatible streaming protocol.",
+    )
+    port = flags.DEFINE_integer(
+        "port",
+        -1,
+        "Port to listen on. -1 picks the default of 9100.",
+    )
     buffer_chunks = flags.DEFINE_integer(
         "buffer_chunks", default_buffer_chunks, "Chunks to keep generated ahead."
     )
@@ -409,8 +700,17 @@ def main():
         scheduler = Scheduler(
             server_url=magenta_url.value, buffer_chunks=buffer_chunks.value
         )
-        server = SchedulerServer(
-            scheduler=scheduler, magenta_server_url=magenta_url.value, port=port.value
+        server_cls = SERVER_TYPES[server_type.value]
+        chosen_port = (
+            port.value if port.value >= 0 else DEFAULT_PORTS[server_type.value]
+        )
+        server = server_cls(
+            scheduler=scheduler,
+            magenta_server_url=magenta_url.value,
+            port=chosen_port,
+        )
+        print(
+            f"Starting {server_type.value} scheduler server on port {chosen_port}"
         )
         server.run()
 
