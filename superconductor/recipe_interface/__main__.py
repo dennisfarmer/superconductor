@@ -83,7 +83,7 @@ class RecipeInterface:
         if self.on_recipe_change is not None:
             self.on_recipe_change(dict(self.recipe))
 
-    def update_positions(self, pointer_x, pointer_y, gesture):
+    def update_positions(self, pointer_x, pointer_y, gesture, hand):
         closest_bar = None
         min_distance = float('inf')
         print(f"current gesture: {gesture}")
