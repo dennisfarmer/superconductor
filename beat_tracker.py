@@ -16,10 +16,11 @@ Directional Goals (vibe):
 from __future__ import annotations
 
 from collections import deque
+from lzma import FILTER_DELTA
 
 import numpy as np
 from scipy.interpolate import Akima1DInterpolator
-
+from scipy.signal import butter, filtfilt, find_peaks
 from vibe import VIBE_DOWN, VIBE_LEFT, VIBE_RIGHT, VIBE_TWOFOUR,VIBE_FOURFOUR, VIBE_UP, Vibe, mirror_vibe_pattern
 
 
@@ -169,36 +170,92 @@ class BeatTracker:
 
         return False
 
-    def analyze_vibe_beat(self):
+    def analyze_vibe_beat(self, sample_rate):
         """Analyze hand movement to detect a beat based on current directional goal.
 
-        Fits Akima spline to position data, finds velocity zero-crossings,
-        and verifies acceleration matches expected direction.
+        Pipeline:
+            1. Get raw position (x, y) from circular buffer
+            2. Compute raw velocity by differentiating position
+            3. Apply Butterworth low-pass filter to VELOCITY (removes noise)
+            4. Find zero-crossings using LINEAR INTERPOLATION
+
+        Direction handling:
+            - VIBE_UP (2):    Y velocity negative→positive (upward peak)
+            - VIBE_DOWN (-2): Y velocity positive→negative (downward trough)
+            - VIBE_RIGHT (1): X velocity negative→positive (rightward peak)
+            - VIBE_LEFT (-1): X velocity positive→negative (leftward trough)
+
+        Linear interpolation formula:
+            t_zero = t[i] + (0 - v[i]) * (t[i+1] - t[i]) / (v[i+1] - v[i])
 
         Returns:
             tuple: (beat_timestamp_ns, linear_view, counted_for_tempo)
         """
+        # Step 1: Get raw position data from circular buffer
         view = self.get_linear_view()
         if len(view) < 10:
             return None, view, False
 
-        ts = view[:, 2]
-        ix = Akima1DInterpolator(ts, view[:, 0])
-        iy = Akima1DInterpolator(ts, view[:, 1])
+        pos_x = view[:, 0]
+        pos_y = view[:, 1]
+        timestamps = view[:, 2]
 
-        target_spline = iy if abs(self.current_goal) == 2 else ix
+        # Step 2: Compute VELOCITY (derivative of position)
+        dt_ns = np.diff(timestamps)
+        dt_ns = dt_ns[dt_ns > 0]
+        if len(dt_ns) == 0:
+            return None, view, False
 
-        dy = target_spline.derivative()
-        roots = dy.roots()
+        velocity_x = np.diff(pos_x) / (dt_ns * 1e-9)
+        velocity_y = np.diff(pos_y) / (dt_ns * 1e-9)
+        timestamps_vel = timestamps[1:len(velocity_x)+1]
 
-        valid_roots = roots[(roots > ts[0]) & (roots <= ts[-1])]
+        # Step 3: Apply LOW-PASS FILTER to VELOCITY (not position)
+        butter_filter = butter(3, 5, btype='low', fs=sample_rate, output='sos')
+        filtered_vel_x = filtfilt(butter_filter, velocity_x)
+        filtered_vel_y = filtfilt(butter_filter, velocity_y)
 
+        # Step 4: Find zero-crossings with LINEAR INTERPOLATION
+        def find_zero_crossings(velocity, time_arr,direction='x'):
+            """Find zero-crossings with linear interpolation for X axis."""
+            crossings = []
+            for i in range(len(velocity) - 1):
+                v_curr, v_next = velocity[i], velocity[i + 1]
+                if v_curr * v_next < 0:
+                    t_zero = time_arr[i] + (0 - v_curr) * (time_arr[i + 1] - time_arr[i]) / (v_next - v_curr)
+                    crossings.append(t_zero)
+            return crossings
+
+        
+
+        # Select axis and crossing direction based on current_goal
+        if self.current_goal in (VIBE_UP, VIBE_DOWN):
+            all_crossings = find_zero_crossings(filtered_vel_y, timestamps_vel)
+            valid_roots = []
+            for ts in all_crossings:
+                idx = np.searchsorted(timestamps_vel, ts)
+                if 0 < idx < len(filtered_vel_y):
+                    v_before, v_after = filtered_vel_y[idx - 1], filtered_vel_y[idx]
+                    if self.current_goal == VIBE_UP and v_before < 0 and v_after > 0:
+                        valid_roots.append(ts)
+                    elif self.current_goal == VIBE_DOWN and v_before > 0 and v_after < 0:
+                        valid_roots.append(ts)
+        else:
+            all_crossings = find_zero_crossings(filtered_vel_x, timestamps_vel)
+            valid_roots = []
+            for ts in all_crossings:
+                idx = np.searchsorted(timestamps_vel, ts)
+                if 0 < idx < len(filtered_vel_x):
+                    v_before, v_after = filtered_vel_x[idx - 1], filtered_vel_x[idx]
+                    if self.current_goal == VIBE_RIGHT and v_before < 0 and v_after > 0:
+                        valid_roots.append(ts)
+                    elif self.current_goal == VIBE_LEFT and v_before > 0 and v_after < 0:
+                        valid_roots.append(ts)
+
+        # Process valid zero-crossings
         if len(valid_roots) > 0:
             potential_ts = valid_roots[-1]
-            accel = target_spline.derivative(2)(potential_ts)
-            is_correct_extreme = (accel > 0) if self.current_goal < 0 else (accel < 0)
-
-            if is_correct_extreme and (potential_ts > self.last_beat_ts + 0.2 * 1e9):
+            if potential_ts > self.last_beat_ts + 0.2 * 1e9:
                 self.last_beat_ts = potential_ts
                 actual_beat_ts = potential_ts
 
@@ -209,7 +266,6 @@ class BeatTracker:
                         interval_ns = actual_beat_ts - self.beat_timestamps[-1]
                         if interval_ns >= self.miss_threshold * self.pending_expected_interval_ns:
                             should_count_for_tempo = True
-
                     self.pending_missed_confirmation = False
                     self.pending_expected_interval_ns = None
 

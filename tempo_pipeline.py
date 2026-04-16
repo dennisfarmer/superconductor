@@ -21,6 +21,7 @@ Kalman Filter Architecture:
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import cv2
@@ -114,6 +115,12 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
     detected_beat_timestamps = []  # Raw beat detection timestamps
     captured_frames = []  # Raw frame images for video output
 
+    # Real-time FPS tracking: use perf_counter for accurate elapsed time measurement
+    # This gives process_video_collect_kinematics access to live FPS during processing
+    frame_count = 0
+    loop_start_ns = time.perf_counter_ns()
+    current_fps = fps  # Start with reported FPS, update in real-time
+
     # Previous frame state for kinematic calculations
     prev_ts = None  # Previous frame timestamp
     prev_x = None  # Previous X position
@@ -140,10 +147,19 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
             if did_backup_switch:
                 print("Backup: interval too long, assuming a missed beat and switching direction.")
 
+            # Real-time FPS calculation: track elapsed time and frames processed
+            frame_count += 1
+            elapsed_ns = time.perf_counter_ns() - loop_start_ns
+            if elapsed_ns > 500_000_000:  # Update FPS every 0.5 seconds minimum
+                current_fps = frame_count / (elapsed_ns / 1e9)
+                loop_start_ns = time.perf_counter_ns()
+                frame_count = 0
+
             # Initialize frame record with default values
             record = {
                 "frame_index": frame_index,
                 "timestamp_ns": int(timestamp_ns),
+                "fps": current_fps,  # Real-time FPS accessible here
                 "x": None,
                 "y": None,
                 "vx": None,
@@ -202,7 +218,7 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
                 record["ay"] = float(ay)
 
                 # Analyze hand movement for beat detection
-                beat_ts, _, counted_for_tempo = tracker.analyze_vibe_beat()
+                beat_ts, _, counted_for_tempo = tracker.analyze_vibe_beat(curr)
                 if beat_ts is not None:
                     detected_beat_timestamps.append(int(beat_ts))
                     record["is_beat_frame"] = True
@@ -237,7 +253,7 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
         if show_preview:
             cv2.destroyAllWindows()
 
-    return frame_records, detected_beat_timestamps, captured_frames, float(fps), width, height
+    return frame_records, detected_beat_timestamps, captured_frames, float(current_fps), width, height
 
 
 def map_beats_to_closest_frames(frame_records, beat_timestamps):
