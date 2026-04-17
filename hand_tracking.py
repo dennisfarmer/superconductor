@@ -33,12 +33,41 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from urllib.request import urlretrieve
+from contextlib import contextmanager
 
 import cv2
 import mediapipe as mp
 import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+
+# Profiling: Global timing stats
+_PROF_STATS = {}
+
+
+@contextmanager
+def profile_section(name):
+    """Context manager for timing code sections. Usage: with profile_section('name'): ..."""
+    start = time.perf_counter_ns()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter_ns() - start
+        if name not in _PROF_STATS:
+            _PROF_STATS[name] = {"count": 0, "total_ns": 0}
+        _PROF_STATS[name]["count"] += 1
+        _PROF_STATS[name]["total_ns"] += elapsed
+
+
+def get_profiling_summary():
+    """Return profiling summary as string."""
+    lines = ["=" * 60, "PROFILING SUMMARY", "=" * 60]
+    for name, stats in sorted(_PROF_STATS.items(), key=lambda x: -x[1]["total_ns"]):
+        total_s = stats["total_ns"] / 1e9
+        avg_ms = (stats["total_ns"] / stats["count"]) / 1e6 if stats["count"] > 0 else 0
+        lines.append(f"{name:40s} | calls: {stats['count']:4d} | total: {total_s:6.2f}s | avg: {avg_ms:6.2f}ms")
+    lines.append("=" * 60)
+    return "\n".join(lines)
 
 
 def frame(cap, hand_landmarker, show_preview=False):
@@ -76,8 +105,9 @@ def frame(cap, hand_landmarker, show_preview=False):
         - After flip: Image is mirrored horizontally for natural interaction
         - Wrist detection: Uses landmark 12 from detected hands
     """
-    # Read the next frame from the video capture
-    success, img = cap.read()
+    with profile_section("frame: cap.read"):
+        # Read the next frame from the video capture
+        success, img = cap.read()
 
     if not success:
         return False, [], 0, None
@@ -92,65 +122,68 @@ def frame(cap, hand_landmarker, show_preview=False):
         # Fall back to monotonic clock for cameras or unsupported sources
         frame_timestamp_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
 
-    # Convert BGR (OpenCV default) to RGB (MediaPipe expects RGB)
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    height, width, n_channels = img.shape
+    with profile_section("frame: cvtColor"):
+        # Convert BGR (OpenCV default) to RGB (MediaPipe expects RGB)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        height, width, n_channels = img.shape
 
-    # Create MediaPipe Image object
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
+    with profile_section("frame: MediaPipe detect"):
+        # Create MediaPipe Image object
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
 
-    # Detect hand landmarks (VIDEO mode expects timestamp in milliseconds)
-    # This uses internal tracking across frames for better accuracy
-    results = hand_landmarker.detect_for_video(mp_image, int(frame_timestamp_ns / 1e6))
+        # Detect hand landmarks (VIDEO mode expects timestamp in milliseconds)
+        # This uses internal tracking across frames for better accuracy
+        results = hand_landmarker.detect_for_video(mp_image, int(frame_timestamp_ns / 1e6))
 
-    hand_landmarks_list = results.hand_landmarks
-    handedness_list = results.handedness
+        hand_landmarks_list = results.hand_landmarks
+        handedness_list = results.handedness
 
-    # Create a blank mask for text rendering
-    # This allows text to be rendered before the image is flipped, preventing mirrored text
-    text_mask = np.zeros((height, width, n_channels), dtype="uint8")
+    with profile_section("frame: drawing"):
+        # Create a blank mask for text rendering
+        # This allows text to be rendered before the image is flipped, preventing mirrored text
+        text_mask = np.zeros((height, width, n_channels), dtype="uint8")
 
-    # Draw landmarks and handedness labels for each detected hand
-    for idx in range(len(results.hand_landmarks)):
-        # Get wrist coordinates (landmark 0 is wrist in MediaPipe)
-        wrist_coordinates = hand_landmarks_list[idx][0]
-        wrist_x = wrist_coordinates.x  # Normalized X coordinate (0-1)
-        wrist_y = wrist_coordinates.y  # Normalized Y coordinate (0-1)
-        wrist_handedness = handedness_list[idx][0].category_name  # "Left" or "Right"
+        # Draw landmarks and handedness labels for each detected hand
+        for idx in range(len(results.hand_landmarks)):
+            # Get wrist coordinates (landmark 0 is wrist in MediaPipe)
+            wrist_coordinates = hand_landmarks_list[idx][0]
+            wrist_x = wrist_coordinates.x  # Normalized X coordinate (0-1)
+            wrist_y = wrist_coordinates.y  # Normalized Y coordinate (0-1)
+            wrist_handedness = handedness_list[idx][0].category_name  # "Left" or "Right"
 
-        hand_landmarks = hand_landmarks_list[idx]
+            hand_landmarks = hand_landmarks_list[idx]
 
-        # Calculate text position (mirrored horizontally for pre-flip rendering)
-        # Since image will be flipped, we mirror the X coordinate here
-        hand_label = wrist_handedness
-        text_x = width - int(wrist_x * width)
-        text_y = int(wrist_y * height)
+            # Calculate text position (mirrored horizontally for pre-flip rendering)
+            # Since image will be flipped, we mirror the X coordinate here
+            hand_label = wrist_handedness
+            text_x = width - int(wrist_x * width)
+            text_y = int(wrist_y * height)
 
-        # Text styling
-        font_scale = 1
-        font_thickness = 1
-        font_color = (88, 205, 54)  # Vibrant green
+            # Text styling
+            font_scale = 1
+            font_thickness = 1
+            font_color = (88, 205, 54)  # Vibrant green
 
-        # Render handedness label onto the text mask
-        cv2.putText(
-            text_mask,
-            hand_label,
-            (text_x, text_y),
-            cv2.FONT_HERSHEY_DUPLEX,
-            font_scale,
-            font_color,
-            font_thickness,
-            cv2.LINE_AA,
-        )
+            # Render handedness label onto the text mask
+            cv2.putText(
+                text_mask,
+                hand_label,
+                (text_x, text_y),
+                cv2.FONT_HERSHEY_DUPLEX,
+                font_scale,
+                font_color,
+                font_thickness,
+                cv2.LINE_AA,
+            )
 
-        # Draw hand landmarks and connections on the image
-        vision.drawing_utils.draw_landmarks(
-            img,
-            hand_landmarks,
-            vision.HandLandmarksConnections.HAND_CONNECTIONS,
-            vision.drawing_styles.get_default_hand_landmarks_style(),
-            vision.drawing_styles.get_default_hand_connections_style(),
-        )
+            # Draw hand landmarks and connections on the image
+            vision.drawing_utils.draw_landmarks(
+                img,
+                hand_landmarks,
+                vision.HandLandmarksConnections.HAND_CONNECTIONS,
+                vision.drawing_styles.get_default_hand_landmarks_style(),
+                vision.drawing_styles.get_default_hand_connections_style(),
+            )
 
     # Horizontally flip the image for mirror effect (more natural interaction)
     img = cv2.flip(img, 1)
@@ -187,7 +220,11 @@ def create_hand_landmarker(task_path: Path):
         VIDEO mode is important for temporal consistency - the landmarker maintains
         state across frames, which improves tracking accuracy and reduces jitter.
     """
-    base_options = python.BaseOptions(model_asset_path=str(task_path))
+    # Enable GPU acceleration via delegate enum
+    base_options = python.BaseOptions(
+        model_asset_path=str(task_path),
+        delegate=python.BaseOptions.Delegate.GPU
+    )
     options = vision.HandLandmarkerOptions(
         base_options=base_options,
         num_hands=2,  # Detect up to 2 hands simultaneously

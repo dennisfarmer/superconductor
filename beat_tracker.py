@@ -211,7 +211,7 @@ class BeatTracker:
         timestamps_vel = timestamps[1:len(velocity_x)+1]
 
         # Step 3: Apply LOW-PASS FILTER to VELOCITY (not position)
-        butter_filter = butter(3, min(5, sample_rate/2), btype='low', fs=sample_rate, output='sos')
+        butter_filter = butter(3, min(5, sample_rate/2-0.0001), btype='low', fs=sample_rate, output='sos')
         if(len(velocity_x) <= 12):  # Need at least 6 samples for 3rd order filter
             filtered_vel_x = velocity_x
             filtered_vel_y = velocity_y

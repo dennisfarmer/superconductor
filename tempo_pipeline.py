@@ -28,7 +28,7 @@ import cv2
 import numpy as np
 
 from beat_tracker import BeatTracker
-from hand_tracking import create_hand_landmarker, ensure_task_file, frame
+from hand_tracking import create_hand_landmarker, ensure_task_file, frame, get_profiling_summary, profile_section
 from kalman_filters import Kalman1D, Kalman2D
 from tempo_constants import MIN_DT_SECONDS, NS_TO_SECONDS
 from video_output import render_annotated_frame, save_frame_metadata, write_annotated_video
@@ -252,6 +252,9 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
             cap.release()
         if show_preview:
             cv2.destroyAllWindows()
+
+    # Print profiling summary
+    print(get_profiling_summary())
 
     return frame_records, detected_beat_timestamps, captured_frames, float(current_fps), width, height
 
