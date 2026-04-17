@@ -20,8 +20,8 @@ from lzma import FILTER_DELTA
 
 import numpy as np
 from scipy.interpolate import Akima1DInterpolator
-from scipy.signal import butter, filtfilt, find_peaks
-from vibe import VIBE_DOWN, VIBE_LEFT, VIBE_RIGHT, VIBE_TWOFOUR,VIBE_FOURFOUR, VIBE_UP, Vibe, mirror_vibe_pattern
+from scipy.signal import butter, sosfiltfilt, find_peaks
+from vibe import VIBE_DOWN, VIBE_LEFT, VIBE_RIGHT, VIBE_TWOFOUR,VIBE_THREEFOUR,VIBE_FOURFOUR, VIBE_UP, Vibe, mirror_vibe_pattern
 
 
 class BeatTracker:
@@ -32,7 +32,7 @@ class BeatTracker:
     applies Akima spline interpolation to find smooth trajectories. Beats are detected
     at velocity zero-crossings that match the current directional goal.
     """
-    def __init__(self, size=20, vibe_pattern=VIBE_TWOFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2,mirror_pattern=False):
+    def __init__(self, size=20, vibe_pattern=VIBE_THREEFOUR, max_beats=5, decay_factor=0.8, miss_threshold=1.2,mirror_pattern=False):
         """Initialize BeatTracker with circular buffer and directional pattern.
 
         Args:
@@ -211,12 +211,16 @@ class BeatTracker:
         timestamps_vel = timestamps[1:len(velocity_x)+1]
 
         # Step 3: Apply LOW-PASS FILTER to VELOCITY (not position)
-        butter_filter = butter(3, 5, btype='low', fs=sample_rate, output='sos')
-        filtered_vel_x = filtfilt(butter_filter, velocity_x)
-        filtered_vel_y = filtfilt(butter_filter, velocity_y)
+        butter_filter = butter(3, min(5, sample_rate/2), btype='low', fs=sample_rate, output='sos')
+        if(len(velocity_x) <= 12):  # Need at least 6 samples for 3rd order filter
+            filtered_vel_x = velocity_x
+            filtered_vel_y = velocity_y
+        else:
+            filtered_vel_x = sosfiltfilt(butter_filter, velocity_x)
+            filtered_vel_y = sosfiltfilt(butter_filter, velocity_y)
 
         # Step 4: Find zero-crossings with LINEAR INTERPOLATION
-        def find_zero_crossings(velocity, time_arr,direction='x'):
+        def find_zero_crossings(velocity, time_arr):
             """Find zero-crossings with linear interpolation for X axis."""
             crossings = []
             for i in range(len(velocity) - 1):

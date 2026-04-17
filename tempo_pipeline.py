@@ -218,7 +218,7 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
                 record["ay"] = float(ay)
 
                 # Analyze hand movement for beat detection
-                beat_ts, _, counted_for_tempo = tracker.analyze_vibe_beat(curr)
+                beat_ts, _, counted_for_tempo = tracker.analyze_vibe_beat(current_fps)
                 if beat_ts is not None:
                     detected_beat_timestamps.append(int(beat_ts))
                     record["is_beat_frame"] = True
