@@ -1,0 +1,20 @@
+# BoT-SORT tuned for SuperConductor (static webcam, few objects, frequent occlusion
+# by hands / people walking in front). Based on ultralytics/cfg/trackers/botsort.yaml.
+
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.3 # plushies often score 0.3-0.4; spurious tracks are filtered by identity.py (min_hits)
+track_buffer: 300 # ~10s at 30fps: keep lost tracks alive through occlusions (identity.py re-attaches after that)
+match_thresh: 0.8
+fuse_score: True
+
+gmc_method: none # webcam is static, skip global motion compensation (saves ~5ms/frame)
+
+# ReID off: it runs an extra classifier per detection, and re-association after
+# occlusion is handled by object_tracking/identity.py (color fingerprints) instead.
+# If enabled, keep model: yolo11n-cls.pt ("auto" = detector features breaks with YOLOE).
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: False
+model: yolo11n-cls.pt
