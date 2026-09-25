@@ -1,0 +1,10 @@
+{
+ "name": "bulbasaur",
+ "mappings": [],
+ "detected_as": {
+  "toy": 17.01
+ },
+ "embedder": "yolo11n-cls.pt@128",
+ "views": 1,
+ "saved": "2026-09-25 01:08:28"
+}

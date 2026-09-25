@@ -20,3 +20,24 @@ superconductor.egg-info
 
 .venv
 .DS_Store
+# model weights downloaded by ultralytics / YOLOE
+*.ts
+
+# MRT2 checkpoints / quantized exports (multi-GB)
+quantized/
+
+# other model weights / exports (MRT2 .mlxfn, ONNX, safetensors, ...)
+*.mlxfn
+*.onnx
+*.engine
+*.safetensors
+*.ckpt
+*.npz
+
+# recordings (scripts/simulate_tracking.py writes var/sim/sim.mp4)
+*.mp4
+*.mov
+*.avi
+
+# objects removed with the "forget" command
+library/.trash/

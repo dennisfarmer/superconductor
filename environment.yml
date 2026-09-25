@@ -21,6 +21,7 @@ dependencies:
   - libexpat=2.7.4=hf6b4638_0
   - ncurses=6.5=h5e97a16_3
   - pip:
+      # --- core / vision ---
       - absl-py==2.4.0
       - attrs==25.4.0
       - cffi==2.0.0
@@ -31,24 +32,23 @@ dependencies:
       - flatbuffers==25.12.19
       - fonttools==4.62.1
       - fsspec==2026.2.0
-      - jax
-      - jaxlib
       - jinja2==3.1.6
       - joblib==1.5.3
       - kiwisolver==1.5.0
+      - lap==0.5.13 # BoT-SORT assignment (ultralytics auto-installs it otherwise)
       - markupsafe==3.0.3
       - matplotlib==3.10.8
-      - mediapipe==0.10.21
+      - mediapipe==1.0.1
       - ml-dtypes==0.5.4
       - mpmath==1.3.0
       - networkx==3.6.1
-      - numpy==1.26.4
+      - numpy==2.3.5
       - opencv-contrib-python==4.11.0.86
-      - opencv-python==4.11.0.86
+      - opencv-python==4.11.0.86 # required by ultralytics; same version as contrib so both provide the same cv2
       - opt-einsum==3.4.0
       - pandas==3.0.1
       - pillow==12.1.1
-      - protobuf==4.25.8
+      - protobuf==7.36.2
       - pycparser==3.0
       - pydub==0.25.1
       - pyparsing==3.3.2
@@ -61,5 +61,30 @@ dependencies:
       - sympy==1.14.0
       - threadpoolctl==3.6.0
       - torch
+      - torchvision
       - typing-extensions==4.15.0
-
+      - ultralytics==8.4.162 # YOLO + BoT-SORT (AGPL-3.0)
+      - websockets
+      # --- magenta-rt 2 (MRT2, MLX backend) dependencies ---
+      # magenta-rt itself + recurrentgemma are installed with --no-deps by
+      # scripts/setup_env.sh: recurrentgemma pins absl-py<2 (only uses
+      # absl.logging) which conflicts with mediapipe>=0.10.30 (absl-py~=2.3),
+      # and mediapipe<0.10.30 requires numpy<2 which conflicts with jax.
+      - ai-edge-litert==2.2.0
+      - einops==0.8.2
+      - flax==0.12.10
+      - google-cloud-storage==3.15.0
+      - huggingface-hub==1.16.1
+      - jax==0.11.2
+      - jaxlib==0.11.2
+      - jaxtyping==0.3.11
+      - librosa==0.11.0
+      - mlx==0.31.2 # exported .mlxfn models fail to load on mlx 0.32.2 ("Invalid string size")
+      - mlx-metal==0.31.2
+      - optax==0.2.8
+      - orbax-checkpoint==0.12.5
+      - resampy==0.4.3
+      - safetensors==0.8.0
+      - simple-term-menu==1.6.6
+      - soundfile==0.13.1
+      - typeguard==2.13.3

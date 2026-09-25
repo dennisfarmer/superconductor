@@ -1,0 +1,10 @@
+{
+ "name": "chimchar",
+ "mappings": [],
+ "detected_as": {
+  "stuffed toy": 11.76
+ },
+ "embedder": "yolo11n-cls.pt@128",
+ "views": 1,
+ "saved": "2026-09-25 01:06:00"
+}

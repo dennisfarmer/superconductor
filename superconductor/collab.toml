@@ -1,0 +1,106 @@
+# SuperConductor collaborative mode: physical objects -> Magenta RealTime 2 parameters
+# run with: sc-collab   (or: sc-collab --config path/to/other.toml)
+
+[camera]
+name = "C920"                 # Logitech HD Pro Webcam C920; substring of the macOS camera name
+resolution = [1280, 720]
+
+[music]
+model = "mrt2_small"          # local testing; mrt2_base needs an M-series Max for realtime (streamed from the server later)
+# model_dir = "quantized"     # load <model_dir>/<model>/<model>.mlxfn instead of the stock export (see QUANTIZE.md)
+base_prompt = "ambient electronic"
+base_weight = 0.3             # style weight that is always present
+frames_per_block = 5          # 5 x 40ms = 200ms per generation call
+max_buffered_blocks = 3       # generation lead over playback (~latency)
+update_interval = 0.25        # seconds between recipe / control updates
+
+[tracking]
+# "unsupervised": every object gets an id when it first appears; objects in the
+#   library are recognized by name; save / map / combine them with typed commands.
+# "calibration": "touch the bulbasaur", ... at startup; only those are tracked.
+mode = "unsupervised"
+# Class-agnostic by default: a generic YOLOE prompt only has to *find* objects;
+# each object's identity comes from its appearance (see object_tracking/identity.py).
+# Specific prompts also work ("green plush toy"), and yoloe-11l-seg.pt is more
+# accurate but ~3x slower (competes with MRT2 for the GPU).
+# Add "hand" to classes to let hands claim parameters too.
+model = "yoloe-11s-seg.pt"
+classes = ["stuffed toy", "toy", "hand"]   # "hand" detections: calibration and "held" triggers
+conf = 0.25
+imgsz = 480
+device = "cpu"                # "cpu" leaves the GPU to MRT2; "mps" is faster for vision alone
+# identities (and a crop image of each) persist here across sessions; set "label"
+# in identities.json to name an object, then link the label to a parameter in [assign]
+identity_dir = "var/identities"   # calibration mode only
+# appearance model used to classify each object when it first appears (and to
+# re-check it about once a second): ~3 ms per crop on CPU, at most
+# embeds_per_frame crops per frame. Remove to use color histograms only.
+embedder = "yolo11n-cls.pt"
+embed_imgsz = 128
+embeds_per_frame = 2
+# known objects: library/<name>/ (object.json with its mappings, views/*.jpg,
+# embeddings.npy). Add to it with "save #3 bulbasaur" while running.
+library_dir = "library"
+
+[identity]
+# score = 0.7 * appearance-embedding similarity + 0.3 * color similarity (0..1)
+match_threshold = 0.55        # a reappearing object is re-attached to a known one above this
+new_threshold = 0.45          # ... and becomes a new object below this (ambiguous in between)
+min_hits = 8                  # frames of evidence before deciding who a new track is
+max_hits = 45                 # ambiguous tracks are decided anyway after this many frames
+coast_seconds = 1.0           # a vanished object keeps its last box this long...
+coast_near = 0.06             # ...or as long as it is this close to a detected object (objects together)
+
+[mapping]
+reference = [0.5, 0.5]        # normalized, as displayed (mirrored); click in the window to move
+max_distance = 0.6            # distance (fraction of frame) at which influence reaches 0
+smoothing = 0.3
+hold_seconds = 1.5            # keep value while an object is occluded, then fade out
+# release_after = 30.0        # free an object's parameter after this long unseen (default: never)
+
+# ---------------------------------------------------------------------------
+# What an object IS (identity + label) lives in var/identities/identities.json.
+# What a parameter DOES is defined in [[parameters]] below.
+# [assign] links the two: object label (or "#<identity id>") -> parameter name.
+# Mappings can also live in the library (library/<name>/object.json, or typed:
+# "map bulbasaur held epic strings"); triggers: near (distance to the crosshair),
+# held (a hand on it), visible.
+# In calibration mode, labels come from calibration: on startup (and with the c key)
+# the app asks you to touch each object in [assign], in order (--skip-calibration
+# reuses the last). Unassigned objects claim any free parameter not reserved in
+# [assign] or [[combos]]. Objects keep their parameter for the whole session and
+# are recognized by appearance when they come back.
+# ---------------------------------------------------------------------------
+
+[assign]
+bulbasaur = "nature flute"
+chimchar = "fire taiko drum"
+
+[[parameters]]
+name = "nature flute"
+kind = "prompt"
+prompt = "airy wooden nature flute melody"
+color = [80, 200, 80]
+
+[[parameters]]
+name = "fire taiko drum"
+kind = "prompt"
+prompt = "thundering fiery taiko drums"
+color = [40, 140, 255]
+
+[[parameters]]
+name = "friendly jungle beat"
+kind = "prompt"
+prompt = "friendly upbeat jungle percussion groove with marimba"
+color = [60, 220, 220]
+
+# Objects that come together (every pair within `distance`, box edge to box edge,
+# as a fraction of the frame width) play the combo's parameter *instead of* their
+# own, until they are more than distance * release_factor apart. Tune live with
+# [ and ] or "distance 0.08"; add more with "combine a b <prompt>".
+[[combos]]
+objects = ["bulbasaur", "chimchar"]
+parameter = "friendly jungle beat"   # a [[parameters]] name (or: prompt = "...")
+distance = 0.05
+release_factor = 1.5
+trigger = "near"                     # of the two together: near | held | visible
