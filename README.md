@@ -1,3 +1,41 @@
+Setup
+-----
+
+```bash
+git clone https://github.com/dennisfarmer/superconductor.git superconductor_client
+cd superconductor_client
+make worktrees    # server and describe branches into ../superconductor_server, ../superconductor_describe
+```
+
+### Quick test: new-object flow
+
+With Ollama running, use three terminals: `make server`, `make describe`, `make client-iphone` (or `make client`). The objects page opens at http://localhost:8467/objects.
+
+What should happen:
+1. A new object shows a dashed "? new" box, then `#1`. A card appears on the page and `library/1/` is created.
+2. After about 5–10 s the card shows a description and an instrument, and you hear it.
+3. Out of frame and back again: still `#1`.
+4. After quitting (`q`) and restarting: still `#1`, with the same description and instrument.
+5. A second object becomes `#2`.
+
+### Quick test: tempo / conducting
+
+Run `make server`, then `make client` (music only plays while a client is connected).
+
+| Link | What it shows |
+|---|---|
+| http://localhost:8467/objects | Objects page (names, descriptions, instruments) |
+| http://localhost:9100/tempo | Tempo test page: make the music match a bpm, see the current bpm |
+| http://localhost:9100/conduct | Conductor window: space bar = one beat (also opens from the tempo page) |
+
+With `make client-remote`, use port `9000` instead of `9100` (the SSH tunnel).
+
+What should happen:
+1. After about 4 s, "Model bpm" on the tempo page shows MRT2's tempo.
+2. **Match this bpm** gradually brings "Heard bpm" to that bpm, without skips.
+3. Tapping steadily in the conductor window makes the music drift toward your tempo; when you stop, it holds.
+4. **Stop tempo control** eases the music back to MRT2's own tempo.
+
 Start SuperConductor
 --------------------
 
