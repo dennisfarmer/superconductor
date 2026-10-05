@@ -1,137 +1,69 @@
 # SuperConductor Server
 
-# First-time Setup (already done on Lighthouse)
+### Setup
+
+`environment.yml` is a verbatim copy of `superconductor_client/environment.yml`.
+
+- **Mac (MLX):** `make env` builds the `sc_env` conda env (the same one the client uses), then `make models` downloads `mrt2_small` (`make models MODEL=mrt2_base` for base).
+- **Lighthouse (JAX):** in a Python 3.12 venv (create it once; activate it in every new terminal):
+    ```
+    git clone https://github.com/dennisfarmer/superconductor.git
+    cd superconductor
+    git checkout server
+    python3.12 -m venv .venv
+    source .venv/bin/activate
+    pip install "magenta-rt[jax]==2.0.3" "jax[cuda12]" aiohttp
+    ```
+    - use `jax[cuda12]`, not cuda13: CUDA 13 dropped Volta (V100) support
+    - download the weights on a login node, into scratch: `MAGENTA_HOME=<scratch dir> make models BACKEND=jax MODEL=mrt2_base` (`MAGENTA_HOME` defaults to `~/Documents/Magenta`; set it the same way when starting the server)
+    - this path hasn't been run yet; ms/frame on the V100 must stay under 40ms (watch `gen_ms_per_frame` in the `Stats` messages)
+
+### Startup Sequence
+
+- locally: `make server` (from here or from `superconductor_client`), leave it running, then `make client` in `superconductor_client`
+- on Lighthouse:
+    - allocate a gpu if not on a gpu session: `salloc --account=aimusic_project --partition=aimusic_project --gpus=1 --mem=64G --cpus-per-task=4 --time=00:15:00`
+        - adjust `--time` based on how long you need the server; the job stops when it expires, or run `exit` to release it early
+    - activate the venv, then `make server BACKEND=jax MODEL=mrt2_base` (listens on port 9100)
+    - on the laptop, start the ssh tunnel: `ssh -N -L 9000:<gpu node, e.g. lh2300>:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
+    - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9000/stream`)
+
+Other flags: `make server PORT=... ARGS="--frames_per_block 5"`, or `python mrt2_server.py --help`.
+
+### What it sends to the client
+
+MRT2 state stays in the server process. The client receives:
+
+- one `Ready` JSON text frame after the model has loaded: `{"type": "Ready", "body": {"model", "backend", "sample_rate", "frames_per_block", "host"}}`
+- a `Stats` JSON text frame about once a second: `{"type": "Stats", "body": {"rtf", "gen_ms_per_frame"}}` (`rtf` > 1 means generating faster than real time)
+- audio as binary frames, one per block (`frames_per_block` × 40ms, default 5 = 200ms, 48kHz stereo):
 
 ```
-git clone https://github.com/dennisfarmer/superconductor.git
-cd superconductor
-git checkout server
-
-# ------------------------------------------------------------
-# if fresh install, setup magenta realtime
-# (remove .git so magenta-realtime/ can be gitignored and not
-# added as a submodule)
-
-git clone https://github.com/magenta/magenta-realtime.git
-rm -rf magenta-realtime/.git
-# (or) mv magenta-realtime/.git ../.git_magenta_realtime
-# then follow installation steps in magenta-realtime/README.md
-# ------------------------------------------------------------
-
-cp scheduler.py magenta-realtime/
-cp superconductor_server.py magenta-realtime/
+[4 bytes: uint32 LE block sequence number][rest: float32 LE samples, row-major (num_samples, 2)]
 ```
 
+### Websocket protocol
 
-### Startup Sequence:
+The client opens a websocket at `GET /stream` (one client at a time; a second one is closed with "Session already active"). Flow control is credit-based: the server only generates while it has credits, so the client's sound card paces generation. All client → server messages are JSON text frames `{"type": ..., "body": ...}`:
 
-- login to Lighthouse
-- run `cd /scratch/aimusic_project_root/aimusic_project/shared_data/magenta_native/magenta-realtime`
-- allocate gpu if not on a gpu session: `salloc --account=aimusic_project --partition=aimusic_project --gpus=1 --mem=64G --cpus-per-task=4 --time=00:15:00`
-    - Adjust --time based on how long you need the server
-    - The job will stop automatically after the time expires
-    - You can also run exit to release resources early
-- then, in seperate terminals, start the server and then the scheduler
-    - for each terminal, activate environment with `source .venv/bin/activate`
-    - `python superconductor_server.py` - runs on localhost:8000 by default
-    - `python scheduler.py` - runs on localhost:9100 by default
-- on client-side (laptop), start ssh tunnel:
-    - `ssh -N -L 9000:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
-    - this forwards: `localhost:9000 → lighthouse:9100`
-- on client-side (laptop) in a seperate terminal, activate environment and start laptop.py
-    - `conda activate sc_env`
-    - `python3 superconductor/laptop.py`
-    - a window will open with the camera + UI
-    - **press q (while the window is focused) to exit**
+| `type`           | `body`                                              | Effect |
+|------------------|-----------------------------------------------------|--------|
+| `StartSession`   | `{"recipe"?: {...}, "controls"?: {...}, "credits": int}` | Reset the state and start generating, with `credits` blocks in flight (default recipe `{"jazz": 1.0}`). |
+| `UpdateRecipe`   | `{"recipe": {"jazz": 0.6, "flute": 0.3}}`           | Weighted blend of the prompts' MusicCoCa embeddings (cached), used from the next block on. |
+| `UpdateControls` | `{"temperature"?: float, "top_k"?: int, "cfg_musiccoca"?: float}` | Sampling controls, used from the next block on. |
+| `ReceivedChunk`  | `null`                                              | One more block of credit (sent when the client finishes playing a block). |
+| `EndSession`     | `null`                                              | Stop generating and close the session. |
 
+### Tempo (adaptive playback speed)
 
-# Scheduler Server
+`tempo.py` time-stretches every block toward a target tempo before it is sent (speed changes, pitch doesn't), so audio blocks are `200ms / speed` long. It also measures the tempo MRT2 is generating ("model bpm") from the last 8s of audio, and moves the speed gradually (time constant 1.5s, clamped to 0.75–1.3) toward `target / model bpm`, matching up to half/double time.
 
-`scheduler.py` runs on the cluster between `superconductor_server.py` (the Magenta RT server) and the laptop client.
+- **Test page:** `http://localhost:9100/tempo` (or `:9000` through the tunnel): set an exact bpm, watch the model / heard bpm, and open the conductor window.
+- **Conductor window:** `http://localhost:9100/conduct`: each space bar press sends one beat. The beat period is smoothed with a 1-D Kalman filter; if no beat arrives for 3s, the current tempo is held.
 
-`scheduler.py` supports two wire protocols, selected with the
-`--server_type` flag:
-
-- **`websocket` (default)** — a push-based JSON/binary protocol for the streaming client `superconductor/magenta_client_stream.py`, which provides an interface very similar to the original magenta-realtime `server.py`.
-- **`http`** — a request/response JSON API for `superconductor/magenta_client.py`.
-
-Everything below focuses on the websocket variant since it is what the current client code is using.
-
-## What it manages
-
-- **A linked list of generated chunks.** Each node holds the audio
-  samples, the MagentaRT generation state *after* that chunk, the recipe
-  and style embedding used to generate it, and a UUID. The list is the
-  playback queue.
-- **A background generation worker.** Keeps the queue filled
-  `--buffer_chunks` chunks ahead of the playback bar by POSTing to the
-  Magenta server's `/generate_chunk` endpoint, passing the current tail's
-  state so the next chunk continues seamlessly.
-- **Recipe → style embedding on the cluster.** Clients send weighted
-  prompt dicts (e.g. `{"Rock": 0.6, "Guitar": 0.8}`); the scheduler
-  resolves each prompt via the Magenta server's `/style` endpoint,
-  caches the result, and mixes the weighted sum. The laptop never makes
-  its own call to `/style` and never handles embeddings directly.
-- **Fork-on-recipe-change.** When the recipe changes, the scheduler
-  picks the last chunk it can safely keep (far enough ahead of the
-  playback bar that there are at least 2s of audio left to mask the
-  worst-case generation time, plus a one-chunk safety margin), truncates
-  the queue past that point, and lets the worker refill from the new
-  style. In-flight generations that started before the fork are detected
-  via a `_generation_id` counter and discarded so stale audio is never
-  appended.
-
-## What it sends to the client
-
-Only **audio samples, tagged with a chunk UUID**. MagentaRT state stays on the cluster. Each audio frame is a single binary websocket message with the layout:
-
-```
-[16 bytes: chunk UUID (uuid.UUID.bytes)][rest: float32 LE samples, row-major (num_samples, num_channels)]
-```
-
-The client decodes it with:
-
-```python
-chunk_id = str(uuid.UUID(bytes=msg[:16]))
-audio = np.frombuffer(msg[16:], dtype="<f4").reshape(-1, 2)
-```
-
-The UUID lets the client tell the scheduler which chunk it is currently playing (via `UpdateRecipe` or `UpdateProgress`) so that fork points can be picked relative to the real playback bar.
-
-## Websocket protocol
-
-The client opens a websocket at `GET /stream` and drives generation with
-a pull model. All client → server messages are JSON text frames:
-
-| `type`           | `body`                                                                | Effect |
-|------------------|-----------------------------------------------------------------------|--------|
-| `StartSession`   | `null`                                                                | Reset any prior session; arm for a new one. |
-| `UpdateRecipe`   | `{"recipe": {...}, "chunk_id"?: "...", "offset_seconds"?: float}`     | Set (or change) the recipe. Before the first `UpdatePlayback PLAYING`, this arms the scheduler with an initial recipe (the `chunk_id` / `offset_seconds` fields are ignored, and should be omitted, when no audio has been played yet). After playback has started, the scheduler builds the new embedding and forks the queue using the optional `chunk_id` / `offset_seconds` fields to pick the fork point. |
-| `UpdateProgress` | `{"chunk_id": "...", "offset_seconds": float}`                        | Push-only playback-position update. Same `chunk_id` / `offset_seconds` fields as `UpdateRecipe`, but without touching the recipe — for clients that want to keep the fork point accurate between recipe changes. |
-| `UpdatePlayback` | `{"state": "PLAYING"}`                                                | Boots the scheduler worker and immediately sends the first audio chunk. Requires a prior `UpdateRecipe`. |
-| `ReceivedChunk`  | `null`                                                                | "Send me one more chunk" — server replies with a binary audio frame. |
-| `EndSession`     | `null`                                                                | Stop the scheduler and close the session. |
-
-Server -> client messages are all binary audio frames (see above); the server never sends JSON back.
-
-## How to run it on Lighthouse
-
-On the cluster, pointed at the Magenta server:
-
-```
-python scheduler.py --magenta_url=http://localhost:8000 --port=9100 --buffer_chunks=5
-```
-
-On the laptop, forward port `9100` and launch `laptop.py`:
-
-```
-ssh -N -L 9000:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
-python3 superconductor/laptop.py
-```
-
-The SSH tunnel maps `localhost:9000 → lh2300:9100`, which is where the
-laptop-side client expects the scheduler.
-
-### HTTP variant
-
-If you want the JSON request/response API instead (for debugging or for the non-streaming `magenta_client.py`), run the same binary with `--server_type=http`. It exposes `POST /start`, `POST /next_chunk`, `POST /update_recipe`, `POST /report_progress`, and `POST /stop` with JSON-encoded audio in the `/next_chunk` response. 
+| Request | Body | Effect |
+|---|---|---|
+| `POST /tempo/beat` | `{"t"?: seconds}` | one conductor beat (`t` on the sender's clock, so network delay doesn't affect intervals) |
+| `POST /tempo/target` | `{"bpm": 120}` | exact target tempo |
+| `POST /tempo/free` | `null` | no target (speed 1) |
+| `GET /tempo/status` | | `mode, speed, model_bpm, heard_bpm, measured_output_bpm, target_bpm, conductor_bpm` |

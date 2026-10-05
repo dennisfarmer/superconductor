@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Conductor</title>
+<style>
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column; align-items: center;
+         justify-content: center; font-family: -apple-system, system-ui, sans-serif;
+         background: #111; color: #eee; user-select: none; cursor: pointer; }
+  #dot { width: 90px; height: 90px; border-radius: 50%; background: #333; transition: background 0.15s; }
+  #dot.on { background: #f5b301; transition: none; }
+  #bpm { font-size: 28px; margin-top: 16px; font-variant-numeric: tabular-nums; }
+  #hint { font-size: 12px; color: #888; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="dot"></div>
+<div id="bpm">-- bpm</div>
+<div id="hint">space bar (or click) = beat</div>
+<script>
+// One beat per space bar press. `t` is this page's clock, so network delay
+// doesn't change the intervals the server sees.
+const dot = document.getElementById("dot"), bpm = document.getElementById("bpm");
+async function beat() {
+  dot.classList.add("on");
+  setTimeout(() => dot.classList.remove("on"), 60);
+  try {
+    const r = await fetch("/tempo/beat", { method: "POST", headers: { "Content-Type": "application/json" },
+                                           body: JSON.stringify({ t: performance.now() / 1000 }) });
+    const s = await r.json();
+    bpm.textContent = s.conductor_bpm ? `${s.conductor_bpm.toFixed(1)} bpm` : "-- bpm";
+  } catch (e) { bpm.textContent = "server unreachable"; }
+}
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && !e.repeat) { e.preventDefault(); beat(); }
+});
+document.addEventListener("mousedown", beat);
+</script>
+</body>
+</html>

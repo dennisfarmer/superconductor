@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Tempo Test</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; background: #111; color: #eee;
+         max-width: 520px; margin: 32px auto; padding: 0 16px; }
+  h1 { font-size: 18px; font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  input[type=number] { width: 80px; font-size: 16px; padding: 4px; }
+  input[type=range] { flex: 1; min-width: 160px; }
+  button { font-size: 14px; padding: 6px 12px; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-variant-numeric: tabular-nums; }
+  td { padding: 6px 0; border-bottom: 1px solid #333; }
+  td:last-child { text-align: right; font-size: 18px; }
+  .note { color: #888; font-size: 12px; }
+  #heard { color: #f5b301; font-size: 28px; }
+</style>
+</head>
+<body>
+<h1>Tempo test</h1>
+<div class="row">
+  <input type="range" id="slider" min="50" max="200" step="1" value="120">
+  <input type="number" id="bpm" min="30" max="240" step="0.5" value="120">
+  <button id="set">Match this bpm</button>
+  <button id="free">Stop tempo control</button>
+</div>
+<p class="note"><b>Match this bpm</b>: gradually speed up / slow down the music until it plays at this bpm.<br>
+<b>Stop tempo control</b>: forget the target and the conductor's beats; the music eases back to the tempo MRT2 is generating on its own.<br>
+Tapping in the conductor window takes over from a set bpm.</p>
+<div class="row">
+  <button id="conduct">Open conductor window</button>
+</div>
+<table>
+  <tr><td>Heard bpm (model bpm × speed)</td><td id="heard">--</td></tr>
+  <tr><td>Model bpm (what MRT2 generates)</td><td id="model_bpm">--</td></tr>
+  <tr><td>Measured output bpm <span class="note">(check, lags ~5s)</span></td><td id="measured_output_bpm">--</td></tr>
+  <tr><td>Target bpm</td><td id="target_bpm">--</td></tr>
+  <tr><td>Conductor bpm</td><td id="conductor_bpm">--</td></tr>
+  <tr><td>Speed</td><td id="speed">--</td></tr>
+  <tr><td>Tempo control</td><td id="mode">--</td></tr>
+</table>
+<p class="note">The model bpm needs ~4s of audio before the speed starts to move (calibration).
+Tempos are matched up to half/double time.</p>
+<script>
+const $ = id => document.getElementById(id);
+const post = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                           body: JSON.stringify(body ?? null) });
+$("slider").oninput = () => { $("bpm").value = $("slider").value; };
+$("bpm").oninput = () => { $("slider").value = $("bpm").value; };
+$("slider").onchange = () => post("/tempo/target", { bpm: +$("slider").value });
+$("set").onclick = () => post("/tempo/target", { bpm: +$("bpm").value });
+$("bpm").onkeydown = e => { if (e.key === "Enter") $("set").click(); };
+$("free").onclick = () => post("/tempo/free");
+$("conduct").onclick = () => window.open("/conduct", "conductor", "width=320,height=260");
+
+const MODES = { free: "off (MRT2's own tempo)", target: "matching the set bpm", conduct: "following the conductor" };
+const fmt = (v, d = 1) => v == null ? "--" : (typeof v === "number" ? v.toFixed(d) : v);
+async function poll() {
+  try {
+    const s = await (await fetch("/tempo/status")).json();
+    $("heard").textContent = fmt(s.heard_bpm);
+    for (const k of ["model_bpm", "measured_output_bpm", "target_bpm", "conductor_bpm"]) $(k).textContent = fmt(s[k]);
+    $("speed").textContent = fmt(s.speed, 3);
+    $("mode").textContent = MODES[s.mode] ?? s.mode;
+  } catch (e) { $("mode").textContent = "server unreachable"; }
+}
+setInterval(poll, 250);
+poll();
+</script>
+</body>
+</html>
