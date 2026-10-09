@@ -11,7 +11,10 @@
 #                     passed on to ../superconductor_server/Makefile
 #   make describe     describe server (../superconductor_describe/Makefile): one-time
 #                     VLM descriptions of new objects; needs Ollama running
-#   make worktrees    server / describe branches into ../superconductor_server, ../superconductor_describe
+#   make midi         MIDI player (../superconductor_midi/Makefile): plays .mid files through
+#                     the running client's notes input, page on http://localhost:8475
+#   make worktrees    server / describe / superconductor_midi branches into ../superconductor_server,
+#                     ../superconductor_describe, ../superconductor_midi
 #   make vision       webcam tracking only, no music
 #   make test         unit tests for tracking / library / combos
 
@@ -22,13 +25,15 @@ IN_ENV := PATH="$(ENV_PREFIX)/bin:$$PATH" CONDA_PREFIX="$(ENV_PREFIX)"
 ARGS ?=
 SERVER_DIR := ../superconductor_server
 DESCRIBE_DIR := ../superconductor_describe
+MIDI_DIR := ../superconductor_midi
 
-.PHONY: worktrees server describe client client-iphone client-remote client-remote-iphone vision test check-env
+.PHONY: worktrees server describe midi client client-iphone client-remote client-remote-iphone vision test check-env
 
 worktrees:
 	@git fetch origin
 	@test -e $(SERVER_DIR) || git worktree add $(SERVER_DIR) server
 	@test -e $(DESCRIBE_DIR) || git worktree add $(DESCRIBE_DIR) describe
+	@test -e $(MIDI_DIR) || git worktree add $(MIDI_DIR) superconductor_midi
 	@git worktree list
 
 # command-line variables (MODEL=..., ARGS=...) reach the sub-make through MAKEFLAGS
@@ -37,6 +42,9 @@ server:
 
 describe:
 	$(MAKE) -C $(DESCRIBE_DIR) describe ENV_NAME=$(ENV_NAME)
+
+midi:
+	$(MAKE) -C $(MIDI_DIR) player ENV_NAME=$(ENV_NAME)
 
 client: check-env
 	$(IN_ENV) sc-collab $(ARGS)

@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperConductor Objects</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #deded8;
+    --accent: #2f6fdb; --live: #1f9d55; --danger: #c2412d; --field: #fbfbf9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --card: #20201e; --text: #ececea; --muted: #9a9a94; --line: #34342f;
+      --accent: #6c9cf0; --live: #4cc47f; --danger: #ef7a62; --field: #1a1a18;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { padding: 20px 16px 8px; max-width: 1100px; margin: 0 auto;
+           display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  #status { color: var(--muted); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 8px 16px 40px;
+         display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
+          display: grid; grid-template-columns: 96px 1fr; gap: 12px; }
+  .card.away { opacity: .72; }
+  .card { position: relative; }
+  .swatch { position: absolute; top: 10px; right: 10px; width: 22px; height: 22px; padding: 0;
+            border-radius: 50%; border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--line); cursor: pointer; }
+  .swatch:hover { box-shadow: 0 0 0 2px var(--accent); }
+  .swatch.none { background: transparent; border: 1px dashed var(--muted); box-shadow: none; }
+  .picker { position: absolute; z-index: 20; width: 212px; padding: 12px; border-radius: 10px;
+            background: var(--card); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(0, 0, 0, .25); }
+  .picker[hidden] { display: none; }
+  .wheel { position: relative; width: 186px; height: 186px; border-radius: 50%; cursor: crosshair; touch-action: none;
+           background: radial-gradient(circle closest-side, #fff, transparent),
+                       conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+  .wheel .shade { position: absolute; inset: 0; border-radius: 50%; background: #000; pointer-events: none; }
+  .wheel .dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+                border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); pointer-events: none; }
+  .picker input[type=range] { width: 100%; margin: 10px 0 8px; padding: 0; }
+  .picker .foot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .picker .foot span { flex: 1; font-variant-numeric: tabular-nums; }
+  .thumb { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--line); }
+  .top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-right: 28px; }
+  .id { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .badge { font-size: 12px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.live { color: var(--live); border-color: var(--live); }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
+  input { width: 100%; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+          background: var(--field); color: var(--text); }
+  textarea { width: 100%; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+             background: var(--field); color: var(--text); resize: none; overflow: hidden; display: block; }
+  input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .desc { grid-column: 1 / -1; font-size: 13px; color: var(--muted); margin: 0; }
+  .desc.pending { font-style: italic; }
+  .card select { width: 100%; }
+  .row { display: flex; gap: 6px; align-items: center; }
+  .row input { flex: 1; }
+  .meter { height: 4px; background: var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .meter div { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+  .actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--field); color: var(--text); }
+  button:hover { border-color: var(--accent); }
+  button.danger { color: var(--danger); margin-left: auto; }
+  .empty { color: var(--muted); grid-column: 1 / -1; padding: 40px 0; text-align: center; }
+  select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+           background: var(--field); color: var(--text); }
+  #play { min-width: 76px; }
+  #play.paused { color: var(--live); border-color: var(--live); }
+  section.models { max-width: 1100px; margin: 0 auto; padding: 0 16px 6px; }
+  #models { font-size: 12.5px; color: var(--muted); border-collapse: collapse; }
+  #models td { padding: 1px 14px 1px 0; vertical-align: top; }
+  #models td:first-child { color: var(--text); white-space: nowrap; }
+  #models .remote { color: var(--accent); }
+  section.combos { max-width: 1100px; margin: 0 auto; padding: 4px 16px 12px; }
+  h2 { font-size: 15px; margin: 8px 0; }
+  .combo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+           display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .combo .who { font-weight: 600; min-width: 140px; }
+  .combo input[data-key=prompt] { flex: 1; min-width: 180px; width: auto; }
+  .combo input[type=number] { width: 80px; }
+  .combo.active { border-color: var(--live); }
+  .dist { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .help { position: relative; display: inline-flex; align-items: center; justify-content: center;
+          width: 15px; height: 15px; border: 1px solid var(--muted); border-radius: 50%;
+          font-size: 10.5px; font-weight: 600; line-height: 1; cursor: help; }
+  .help::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%;
+                 transform: translateX(-50%); width: 260px; padding: 7px 9px; border-radius: 6px;
+                 background: var(--text); color: var(--bg); font-size: 12px; font-weight: 400; line-height: 1.4;
+                 white-space: normal; z-index: 10; pointer-events: none; opacity: 0; visibility: hidden;
+                 transition: opacity .12s; }
+  .help:hover::after, .help:focus::after { opacity: 1; visibility: visible; }
+  .picks { display: flex; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+  .picks label { display: inline-flex; gap: 4px; align-items: center; margin: 0; color: var(--text); font-size: 14px; }
+  .picks input { width: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Objects</h1>
+  <span id="status">connecting…</span>
+  <button id="play" disabled title="pause / resume music generation on the server">Pause</button>
+</header>
+<section class="models"><table id="models"></table></section>
+<section class="combos">
+  <h2>Combos <span id="combo-hint" style="font-weight:400;color:var(--muted);font-size:13px">
+    objects close together play this instead of their own instruments</span></h2>
+  <div id="combos"></div>
+  <div class="combo" id="new-combo">
+    <div class="picks" id="picks"></div>
+    <input data-key="prompt" placeholder="what they play together">
+    <span class="dist">join distance <span class="help" tabindex="0" data-tip="How close the objects must be to play together: the gap between their boxes (edge to edge), as a fraction of the frame width. 0.05 = 5% of the frame width; 0 = touching. They separate again beyond 1.5x this distance.">?</span>
+      <input type="number" step="0.01" min="0" value="0.05"></span>
+    <button id="add-combo">Add combo</button>
+  </div>
+</section>
+<main id="list"><p class="empty">No objects yet. Show something to the camera.</p></main>
+<script>
+const list = document.getElementById("list");
+const status = document.getElementById("status");
+const cards = new Map();  // id -> card element
+const viewCounts = new Map();
+
+async function post(path, body, method = "POST") {
+  await fetch(path, { method, headers: { "Content-Type": "application/json" },
+                      body: body ? JSON.stringify(body) : undefined });
+}
+
+function field(card, key, id, placeholder) {
+  const input = card.querySelector(`[data-key=${key}]`);
+  input.placeholder = placeholder;
+  const save = () => {
+    if (input.value === input.dataset.saved) return;
+    input.dataset.saved = input.value;
+    post(`/api/objects/${id}`, { [key]: input.value.trim() });
+  };
+  input.addEventListener("change", save);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+  return input;
+}
+
+// trigger values stay "near" / "held" / "visible"; only the labels are spelled out
+const TRIGGER_OPTIONS = `
+  <option value="near">close to the crosshair (louder the closer it is)</option>
+  <option value="held">a hand is holding it</option>
+  <option value="visible">it is in view</option>`;
+
+// grow a textarea to fit its text, so long prompts are fully readable
+function fit(textarea) {
+  textarea.style.height = "auto";
+  textarea.style.height = `${textarea.scrollHeight + 2}px`;
+}
+
+function makeCard(o) {
+  const card = document.createElement("article");
+  card.className = "card";
+  card.innerHTML = `
+    <button class="swatch" title="color: click to pick"></button>
+    <img class="thumb" alt="">
+    <div>
+      <div class="top"><span class="id">#${o.id}</span><span class="badge"></span></div>
+      <label>Name</label>
+      <input data-key="name">
+      <label>Instrument</label>
+      <textarea data-key="instrument" rows="1"></textarea>
+      <label>Plays when</label>
+      <select data-key="trigger">${TRIGGER_OPTIONS}</select>
+      <div class="meter"><div></div></div>
+    </div>
+    <p class="desc"></p>
+    <div class="actions">
+      <button data-act="describe">Describe again</button>
+      <button data-act="suggest">Suggest instrument</button>
+      <button data-act="delete" class="danger">Delete</button>
+    </div>`;
+  field(card, "name", o.id, "unnamed");
+  const instrument = field(card, "instrument", o.id, "none yet: silent");
+  instrument.addEventListener("input", () => fit(instrument));
+  const trigger = card.querySelector("[data-key=trigger]");
+  trigger.onchange = () => post(`/api/objects/${o.id}`, { trigger: trigger.value });
+  card.querySelector(".swatch").onclick = e => { e.stopPropagation(); openPicker(card, o.id); };
+  card.querySelector("[data-act=describe]").onclick = () => post(`/api/objects/${o.id}/describe`);
+  card.querySelector("[data-act=suggest]").onclick = () => post(`/api/objects/${o.id}/suggest`);
+  card.querySelector("[data-act=delete]").onclick = () => {
+    if (confirm(`Delete #${o.id}${o.name ? " " + o.name : ""}? It moves to library/.trash.`))
+      post(`/api/objects/${o.id}`, null, "DELETE");
+  };
+  return card;
+}
+
+// Put `el` at position `index` of `parent`, moving it only if it is elsewhere.
+// Moving an element blurs a text box inside it, so never move the one being typed in.
+function place(parent, el, index) {
+  if (parent.children[index] === el) return;
+  if (el.parentNode && el.contains(document.activeElement)) return;
+  parent.insertBefore(el, parent.children[index] || null);
+}
+
+function setInput(input, value) {
+  value = value || "";
+  if (document.activeElement === input || input.value !== (input.dataset.saved ?? input.value)) return;
+  input.value = value;
+  input.dataset.saved = value;
+}
+
+function render(objects) {
+  const seen = new Set();
+  objects.forEach((o, i) => {
+    seen.add(o.id);
+    let card = cards.get(o.id);
+    if (!card) { card = makeCard(o); cards.set(o.id, card); }
+    place(list, card, i);  // server order: in view first
+    card.classList.toggle("away", !o.in_view);
+    const badge = card.querySelector(".badge");
+    badge.textContent = o.in_view ? "in view" : o.last_seen;
+    badge.classList.toggle("live", o.in_view);
+    setInput(card.querySelector("[data-key=name]"), o.name);
+    const instrument = card.querySelector("[data-key=instrument]");
+    setInput(instrument, o.instrument);
+    fit(instrument);
+    const trig = card.querySelector("[data-key=trigger]");
+    if (document.activeElement !== trig) trig.value = o.trigger || "near";
+    card.querySelector(".meter div").style.width = `${Math.round(100 * (o.value || 0))}%`;
+    card.querySelector(".meter").title = o.parameter ? `${o.parameter}: ${(o.value || 0).toFixed(2)}` : "";
+    const desc = card.querySelector(".desc");
+    desc.textContent = o.describing ? "describing…" : (o.description || "no description yet");
+    desc.classList.toggle("pending", o.describing || !o.description);
+    const swatch = card.querySelector(".swatch");
+    card.dataset.color = o.color || "";
+    if (picker.card !== card) {
+      swatch.style.background = o.color || "";
+      swatch.classList.toggle("none", !o.color);
+    }
+    swatch.title = !o.color ? "no color yet (it is measured when the object is in view); click to pick one"
+      : o.color_picked ? `color ${o.color} (picked); click to change` : `color ${o.color} (average of the object's pixels); click to change`;
+    if (viewCounts.get(o.id) !== o.views) {
+      viewCounts.set(o.id, o.views);
+      card.querySelector(".thumb").src = `/api/objects/${o.id}/view.jpg?v=${o.views}`;
+    }
+  });
+  for (const [id, card] of cards) if (!seen.has(id)) { card.remove(); cards.delete(id); }
+  const empty = list.querySelector(".empty");
+  if (empty) empty.style.display = objects.length ? "none" : "";
+}
+
+// color wheel for an object's color: angle = hue, distance from the center = saturation,
+// slider = brightness. Sends the color when you let go; "Auto" goes back to the average color.
+const picker = (() => {
+  const el = document.createElement("div");
+  el.className = "picker";
+  el.hidden = true;
+  el.innerHTML = `<div class="wheel"><div class="shade"></div><div class="dot"></div></div>
+    <input type="range" min="0" max="100" title="brightness">
+    <div class="foot"><span></span><button data-act="auto" title="the average color of the object's pixels">Auto</button></div>`;
+  document.body.appendChild(el);
+  return { el, wheel: el.querySelector(".wheel"), shade: el.querySelector(".shade"), dot: el.querySelector(".dot"),
+           range: el.querySelector("input"), label: el.querySelector(".foot span"), card: null, id: null,
+           hsv: [0, 0, 1] };
+})();
+
+function hsvToHex([h, s, v]) {
+  const f = n => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return "#" + [f(5), f(3), f(1)].map(x => Math.round(x * 255).toString(16).padStart(2, "0")).join("");
+}
+
+function hexToHsv(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const v = Math.max(r, g, b), d = v - Math.min(r, g, b);
+  const h = d === 0 ? 0 : v === r ? ((g - b) / d + 6) % 6 : v === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, v ? d / v : 0, v];
+}
+
+function showPicker() {
+  const [h, s, v] = picker.hsv, r = 93;  // wheel radius (px)
+  picker.dot.style.left = `${r + s * r * Math.sin(h * Math.PI / 180)}px`;
+  picker.dot.style.top = `${r - s * r * Math.cos(h * Math.PI / 180)}px`;
+  picker.shade.style.opacity = 1 - v;
+  picker.range.value = Math.round(v * 100);
+  const hex = hsvToHex(picker.hsv);
+  picker.dot.style.background = hex;
+  picker.label.textContent = hex;
+  const swatch = picker.card.querySelector(".swatch");
+  swatch.style.background = hex;
+  swatch.classList.remove("none");
+}
+
+function openPicker(card, id) {
+  if (picker.card === card) { closePicker(); return; }
+  picker.card = card;
+  picker.id = id;
+  picker.hsv = card.dataset.color ? hexToHsv(card.dataset.color) : [0, 0, 1];
+  const box = card.querySelector(".swatch").getBoundingClientRect();
+  picker.el.style.top = `${box.bottom + window.scrollY + 6}px`;
+  picker.el.style.left = `${Math.max(8, box.right + window.scrollX - 212 - 24)}px`;
+  picker.el.hidden = false;
+  showPicker();
+}
+
+function closePicker() {
+  picker.el.hidden = true;
+  picker.card = null;
+}
+
+const sendColor = () => post(`/api/objects/${picker.id}`, { color: hsvToHex(picker.hsv) });
+
+function pickAt(e) {
+  const box = picker.wheel.getBoundingClientRect();
+  const dx = e.clientX - box.left - box.width / 2, dy = e.clientY - box.top - box.height / 2;
+  picker.hsv[0] = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;  // clockwise from the top, like the gradient
+  picker.hsv[1] = Math.min(1, Math.hypot(dx, dy) / (box.width / 2));
+  showPicker();
+}
+
+picker.wheel.addEventListener("pointerdown", e => { picker.wheel.setPointerCapture(e.pointerId); pickAt(e); });
+picker.wheel.addEventListener("pointermove", e => { if (picker.wheel.hasPointerCapture(e.pointerId)) pickAt(e); });
+picker.wheel.addEventListener("pointerup", sendColor);
+picker.range.addEventListener("input", () => { picker.hsv[2] = picker.range.value / 100; showPicker(); });
+picker.range.addEventListener("change", sendColor);
+picker.el.querySelector("[data-act=auto]").onclick = () => {
+  post(`/api/objects/${picker.id}`, { color: null });
+  closePicker();
+};
+document.addEventListener("pointerdown", e => {
+  if (picker.card && !picker.el.contains(e.target) && !picker.card.querySelector(".swatch").contains(e.target))
+    closePicker();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && picker.card) closePicker(); });
+
+const combosEl = document.getElementById("combos");
+const picks = document.getElementById("picks");
+const comboRows = new Map();  // "1+2" -> row
+
+function objName(objects, id) {
+  const o = objects.find(o => o.id === id);
+  return o && o.name ? o.name : `#${id}`;
+}
+
+function renderCombos(combos, objects) {
+  const seen = new Set();
+  combos.forEach((c, i) => {
+    const key = c.objects.join("+");
+    seen.add(key);
+    let row = comboRows.get(key);
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "combo";
+      row.innerHTML = `<span class="who"></span><input data-key="prompt">
+        <span class="dist">join distance <span class="help" tabindex="0" data-tip="How close the objects must be to play together: the gap between their boxes (edge to edge), as a fraction of the frame width. 0.05 = 5% of the frame width; 0 = touching. They separate again beyond 1.5x this distance.">?</span>
+          <input type="number" step="0.01" min="0"></span>
+        <select title="plays when">${TRIGGER_OPTIONS}</select>
+        <span class="badge"></span><button class="danger">Delete</button>`;
+      const [prompt, dist] = row.querySelectorAll("input");
+      const sel = row.querySelector("select");
+      const idx = () => Number(row.dataset.index);
+      prompt.onchange = () => post(`/api/combos/${idx()}`, { prompt: prompt.value.trim() });
+      dist.onchange = () => post(`/api/combos/${idx()}`, { distance: dist.value });
+      sel.onchange = () => post(`/api/combos/${idx()}`, { trigger: sel.value });
+      row.querySelector("button").onclick = () => post(`/api/combos/${idx()}`, null, "DELETE");
+      comboRows.set(key, row);
+    }
+    place(combosEl, row, i);
+    row.dataset.index = c.index;
+    row.classList.toggle("active", c.active);
+    row.querySelector(".who").textContent = c.objects.map(id => objName(objects, id)).join(" + ");
+    const [prompt, dist] = row.querySelectorAll("input");
+    if (document.activeElement !== prompt) prompt.value = c.prompt;
+    if (document.activeElement !== dist) dist.value = c.distance;
+    const sel = row.querySelector("select");
+    if (document.activeElement !== sel) sel.value = c.trigger;
+    const badge = row.querySelector(".badge");
+    badge.textContent = c.active ? "combined" : "apart";
+    badge.classList.toggle("live", c.active);
+  });
+  for (const [key, row] of comboRows) if (!seen.has(key)) { row.remove(); comboRows.delete(key); }
+
+  // object checkboxes for a new combo (keep what is ticked)
+  const ticked = new Set([...picks.querySelectorAll("input:checked")].map(i => Number(i.value)));
+  const ids = objects.map(o => o.id).sort((a, b) => a - b);
+  if (picks.dataset.ids !== ids.join(",") + "|" + objects.map(o => o.name).join(",")) {
+    picks.dataset.ids = ids.join(",") + "|" + objects.map(o => o.name).join(",");
+    picks.innerHTML = ids.length < 2 ? '<span style="color:var(--muted)">needs at least two objects</span>' : "";
+    if (ids.length >= 2) ids.forEach(id => {
+      const l = document.createElement("label");
+      l.innerHTML = `<input type="checkbox" value="${id}"${ticked.has(id) ? " checked" : ""}> `;
+      l.append(objName(objects, id));
+      picks.appendChild(l);
+    });
+  }
+}
+
+document.getElementById("add-combo").onclick = () => {
+  const form = document.getElementById("new-combo");
+  const objects = [...picks.querySelectorAll("input:checked")].map(i => Number(i.value));
+  const prompt = form.querySelector("[data-key=prompt]");
+  const dist = form.querySelector("input[type=number]");
+  if (objects.length < 2 || !prompt.value.trim()) { alert("Tick at least two objects and type what they play."); return; }
+  post("/api/combos", { objects, prompt: prompt.value.trim(), distance: dist.value });
+  prompt.value = "";
+  picks.querySelectorAll("input:checked").forEach(i => { i.checked = false; });
+};
+
+// play / pause: the server stops generating; what it already sent (well under a second) still plays
+const play = document.getElementById("play");
+play.onclick = () => post("/api/music", { paused: !play.classList.contains("paused") });
+
+function renderMusic(music) {
+  const paused = !!(music && music.paused);
+  play.disabled = !(music && music.connected);
+  play.classList.toggle("paused", paused);
+  play.textContent = paused ? "▶ Play" : "❚❚ Pause";
+}
+
+async function poll() {
+  try {
+    const state = await (await fetch("/api/objects")).json();
+    const objects = state.objects;
+    render(objects);
+    renderCombos(state.combos, objects);
+    renderMusic(state.music);
+    const models = document.getElementById("models");
+    const rows = (state.models || []).map(m =>
+      `<tr><td>${m.task}</td><td>${m.model}</td><td class="${m.where.startsWith("remote") ? "remote" : ""}">${m.where}</td></tr>`).join("");
+    if (models.dataset.rows !== rows) { models.innerHTML = rows; models.dataset.rows = rows; }
+    const live = objects.filter(o => o.in_view).length;
+    status.textContent = `${objects.length} objects, ${live} in view`;
+  } catch {
+    status.textContent = "not connected (is sc-collab running?)";
+  }
+  setTimeout(poll, 1000);
+}
+poll();
+</script>
+</body>
+</html>

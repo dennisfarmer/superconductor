@@ -23,9 +23,6 @@ superconductor.egg-info
 # model weights downloaded by ultralytics / YOLOE
 *.ts
 
-# MRT2 checkpoints / quantized exports (multi-GB)
-quantized/
-
 # other model weights / exports (MRT2 .mlxfn, ONNX, safetensors, ...)
 *.mlxfn
 *.onnx
