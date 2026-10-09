@@ -27,6 +27,8 @@ Websocket protocol (`GET /stream`, one client at a time):
     UpdateRecipe    {recipe}                        e.g. {"jazz": 0.6, "flute": 0.3}
     UpdateControls  {temperature?, top_k?, cfg_musiccoca?}
     ReceivedChunk   null                            one more block of credit
+    Pause           null                            stop generating (session and state kept)
+    Resume          null                            continue from where it paused
     EndSession      null
   server -> client:
     JSON text  {"type": "Ready", "body": {model, backend, sample_rate, frames_per_block, host}}
@@ -141,25 +143,26 @@ class Generator:
             self.loaded.set()
         emit = None  # callback of the active session; None = no session
         style, controls, state = None, {}, None
+        paused = False
         credits, seq = 0, 0
         gen_time = gen_audio = 0.0
         last_stats = time.time()
         while True:
             # apply all pending control messages (latest wins); block while idle
-            idle = emit is None or credits <= 0 or style is None
+            idle = emit is None or credits <= 0 or style is None or paused
             try:
                 while True:
                     msg = self.control_q.get(timeout=0.5) if idle else self.control_q.get_nowait()
                     idle = False  # drain the rest without blocking
                     kind = msg["type"]
                     if kind == "start":
-                        emit, state, seq = msg["emit"], None, 0
+                        emit, state, seq, paused = msg["emit"], None, 0, False
                         self.tempo.reset()
                         credits = msg["credits"]
                         controls = msg["controls"]
                         style = _blend_styles(self._embed, self._cache, msg["recipe"])
                     elif kind == "end":
-                        emit, state, credits = None, None, 0
+                        emit, state, credits, paused = None, None, 0, False
                     elif kind == "recipe":
                         new_style = _blend_styles(self._embed, self._cache, msg["recipe"])
                         if new_style is not None:
@@ -168,9 +171,14 @@ class Generator:
                         controls = msg["controls"]
                     elif kind == "credit":
                         credits += 1
+                    elif kind == "pause":
+                        # the state is kept, so Resume continues the music; credits keep
+                        # coming in while the client plays out its buffer, so Resume
+                        # starts with the full lead again
+                        paused = msg["paused"]
             except queue.Empty:
                 pass
-            if emit is None or credits <= 0 or style is None:
+            if emit is None or credits <= 0 or style is None or paused:
                 continue
 
             t0 = time.time()
@@ -313,6 +321,8 @@ class MRT2Server:
                     self._post({"type": "controls", "controls": dict(body)})
                 elif msg_type == "ReceivedChunk":
                     self._post({"type": "credit"})
+                elif msg_type in ("Pause", "Resume"):
+                    self._post({"type": "pause", "paused": msg_type == "Pause"})
                 elif msg_type == "EndSession":
                     break
                 else:
