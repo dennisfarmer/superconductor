@@ -8,6 +8,8 @@ description = "artsengine.engin.umich.edu - SuperConductor: Exploring Playful Hu
 version = "0.1.0"
 dependencies = [
       "absl-py==2.4.0",
+      "aiohttp",  # mrt2_server.py (make server)
+      "mido",  # ../superconductor_midi (make midi)
       "attrs==25.4.0",
       "cffi==2.0.0",
       "click==8.3.1",

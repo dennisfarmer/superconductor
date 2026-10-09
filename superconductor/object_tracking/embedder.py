@@ -1,28 +1,43 @@
-"""Cheap appearance embeddings for re-identifying objects.
+"""Appearance embeddings for recognizing objects (and re-recognizing them when
+they come back).
 
-A small ImageNet classifier (yolo11n-cls, ~3 ms per 128px crop on CPU) gives a
-256-d feature per object crop. Raw features of any two crops are very similar
-(cosine ~0.75-0.95 even for unrelated objects), so they are centered on the mean
-feature of random crops of the current scene before comparing: after that,
-different plushies score ~0.4 and the same plushie ~0.7-0.9, even across
-sessions and lighting changes.
+Default: DINOv2 ViT-S/14 (self-supervised, 384-d CLS feature, ~5.5 ms per crop
+on MPS, ~26 ms on CPU). Its features separate individual objects, not just
+ImageNet classes, so two different plushies of the same kind still differ.
+"yolo11n-cls.pt" (a 256-d ImageNet classifier feature, ~3 ms on CPU) is still
+supported for comparison (scripts/eval_reid.py).
 
-Raw (uncentered) features are what gets stored in the object library; they are
-centered with the current scene mean at comparison time.
+Raw features of any two crops can be fairly similar, so with `center=True` they
+are centered on the mean feature of random crops of the current scene before
+comparing. Raw (uncentered) features are what gets stored in the object library.
 """
+import cv2
 import numpy as np
 
 import torch
-from ultralytics import YOLO
+
+DINO_MEAN = np.array([0.485, 0.456, 0.406], np.float32)
+DINO_STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 
 class Embedder:
-    def __init__(self, model="yolo11n-cls.pt", imgsz=128, device="cpu",
+    def __init__(self, model="dinov2_vits14", imgsz=224, device=None, center=True,
                  background_crops=32, seed=0):
-        self.name = f"{model}@{imgsz}"
-        self.model = YOLO(model)
+        """`model`: "dinov2_vits14" (torch.hub, cached after the first download)
+        or an ultralytics classifier like "yolo11n-cls.pt". `imgsz`: crop size
+        (a multiple of 14 for DINOv2). `center`: compare features centered on the
+        scene mean (see module docstring)."""
+        self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
         self.imgsz = imgsz
-        self.device = device
+        self.name = f"{model}@{imgsz}"
+        self.dino = model.startswith("dinov2")
+        if self.dino:
+            self.model = torch.hub.load("facebookresearch/dinov2", model, trust_repo=True,
+                                        skip_validation=True).eval().to(self.device)
+        else:
+            from ultralytics import YOLO
+            self.model = YOLO(model)
+        self.center = center
         self.background_crops = background_crops
         self._rng = np.random.default_rng(seed)
         self._background = []
@@ -30,15 +45,24 @@ class Embedder:
 
     @property
     def ready(self):
-        return self.mean is not None
+        return self.mean is not None or not self.center
 
     def __call__(self, crops):
         """(n, d) float32 raw features for a list of BGR crops"""
         if not crops:
             return np.zeros((0, 0), np.float32)
         with torch.inference_mode():
-            feats = self.model.embed(crops, imgsz=self.imgsz, device=self.device, verbose=False)
-        return np.stack([f.cpu().numpy() for f in feats]).astype(np.float32)
+            if not self.dino:
+                feats = self.model.embed(crops, imgsz=self.imgsz, device=self.device, verbose=False)
+                return np.stack([f.cpu().numpy() for f in feats]).astype(np.float32)
+            batch = np.stack([self._prep(c) for c in crops])
+            feats = self.model(torch.from_numpy(batch).to(self.device))
+            return feats.float().cpu().numpy()
+
+    def _prep(self, crop):
+        rgb = cv2.cvtColor(cv2.resize(crop, (self.imgsz, self.imgsz), interpolation=cv2.INTER_AREA),
+                           cv2.COLOR_BGR2RGB)
+        return ((rgb.astype(np.float32) / 255 - DINO_MEAN) / DINO_STD).transpose(2, 0, 1)
 
     def observe_background(self, frame, n=8):
         """Collect random crops of the scene (a few per frame, spread over the
@@ -57,9 +81,9 @@ class Embedder:
             self._background = []
 
     def normalize(self, feats):
-        """center on the scene mean and L2-normalize (works on (d,) or (n, d))"""
+        """center on the scene mean (if enabled) and L2-normalize (works on (d,) or (n, d))"""
         feats = np.asarray(feats, np.float32)
-        if self.mean is not None:
+        if self.center and self.mean is not None:
             feats = feats - self.mean
         return feats / np.maximum(np.linalg.norm(feats, axis=-1, keepdims=True), 1e-8)
 

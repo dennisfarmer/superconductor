@@ -1,0 +1,17 @@
+{
+ "id": 7,
+ "name": "chimchar plush",
+ "description": "This is a plush toy of a character with a yellow and white color scheme. The character has a round, fluffy head with a tuft of hair on top, large expressive eyes, and a small mouth. The character's body is covered in soft, fluffy fur, and it has a small, round belly. The toy appears to be made of soft, plush material, likely cotton or a similar fabric. The character's expression is neutral, with a hint of curiosity or alertness. The mood suggested by the toy is playful and endearing, appealing to children and collectors of plush toys.",
+ "instrument": "fast melodic xylophone",
+ "trigger": "near",
+ "detected_as": {
+  "toy": 14179.31,
+  "stuffed toy": 10761.38
+ },
+ "embedder": "dinov2_vits14@224",
+ "views": 24,
+ "color": "#998371",
+ "user_color": "#8c1f3d",
+ "created": "2026-10-09 11:26:49",
+ "saved": "2026-10-09 13:49:32"
+}

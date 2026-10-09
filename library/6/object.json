@@ -1,0 +1,17 @@
+{
+ "id": 6,
+ "name": "bulbasaur plush",
+ "description": "This plush toy is a Bulbasaur, a popular Pok\u00e9mon character. It is made of soft, light green fabric with a textured surface. Bulbasaur has large, expressive red eyes and a simple, friendly face. The toy's shape is rounded and rounded, with a small tail and a small, rounded body. The mood it suggests is playful and cute, with a hint of curiosity and friendliness.",
+ "instrument": "flute",
+ "trigger": "near",
+ "detected_as": {
+  "stuffed toy": 12711.56,
+  "toy": 5149.32
+ },
+ "embedder": "dinov2_vits14@224",
+ "views": 24,
+ "color": "#628289",
+ "user_color": "#33962d",
+ "created": "2026-10-02 12:59:07",
+ "saved": "2026-10-09 13:52:09"
+}

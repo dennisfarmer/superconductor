@@ -14,9 +14,10 @@ import torch
 from ultralytics import YOLO
 
 from superconductor.object_tracking.embedder import Embedder
-from superconductor.object_tracking.identity import IdentityRegistry, color_histogram
+from superconductor.object_tracking.identity import IdentityRegistry, color_histogram, mean_color
 
 TRACKER_CONFIG = Path(__file__).parent / "botsort_superconductor.yaml"
+HAND_OCCLUDED = 0.3  # fraction of an object's box covered by hands above which it counts as occluded
 
 
 @dataclass
@@ -28,17 +29,20 @@ class TrackedObject:
     center: tuple  # (x, y) normalized to [0, 1]
     box_normalized: tuple = None  # (x1, y1, x2, y2) in [0, 1]
     hist: np.ndarray = None  # color histogram (appearance fingerprint)
+    color: np.ndarray = None  # mean BGR inside its segmentation outline (None without one)
     identity: int = None  # persistent id, stable across track losses (see identity.py)
     embedding: np.ndarray = None  # appearance feature, only on frames it was computed
     crop: np.ndarray = None  # image of the object (set together with `embedding`)
     coasted: bool = False  # not detected this frame: last known position (see identity.py)
+    occluded: bool = False  # a hand covers much of it (its view isn't kept as a reference)
+    crowded: bool = False  # next to another object (its crop may show both, see identity.py)
 
 
 class ObjectTracker:
     def __init__(self, model="yoloe-11s-seg.pt", classes=("toy",), conf=0.3,
                  imgsz=480, tracker=TRACKER_CONFIG, device=None, identity_dir=None,
-                 hand_class="hand", embedder=None, embed_imgsz=128, embeds_per_frame=2,
-                 identity=None):
+                 hand_class="hand", embedder=None, embed_imgsz=224, embed_device=None,
+                 embeds_per_frame=2, identity=None):
         """
         `model`: any ultralytics detector. COCO models (yolo11n.pt, ...) have
             fixed class names ("sports ball", "teddy bear", ...). YOLOE models
@@ -50,9 +54,10 @@ class ObjectTracker:
         `hand_class`: detections of this class are returned in `self.hands`
             (used for "touch the ..." calibration and "held" triggers) instead
             of becoming identities
-        `embedder`: appearance model for re-identification (e.g. "yolo11n-cls.pt",
-            None = color only). At most `embeds_per_frame` crops are embedded per
-            frame (~3 ms each on CPU): new objects first, then periodic checks.
+        `embedder`: appearance model for re-identification ("dinov2_vits14", or
+            "yolo11n-cls.pt"; None = color only), on `embed_device` (default mps
+            if available). At most `embeds_per_frame` crops are embedded per frame
+            (DINOv2: ~5.5 ms each on MPS): new objects first, then periodic checks.
         `identity`: extra IdentityRegistry settings (thresholds, see identity.py)
         """
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
@@ -61,7 +66,7 @@ class ObjectTracker:
         self.imgsz = imgsz
         self.tracker = str(tracker)
         self.class_ids = None
-        self.embedder = Embedder(embedder, imgsz=embed_imgsz) if embedder else None
+        self.embedder = Embedder(embedder, imgsz=embed_imgsz, device=embed_device) if embedder else None
         self.embeds_per_frame = embeds_per_frame
         self.registry = IdentityRegistry(store_dir=identity_dir, embedder=self.embedder,
                                          **(identity or {}))
@@ -90,6 +95,7 @@ class ObjectTracker:
         boxes = result.boxes
         if boxes is not None and boxes.id is not None:
             # segmentation models (YOLOE -seg) give object outlines for cleaner color histograms
+            # and the mean color (background removed)
             polygons = result.masks.xy if result.masks is not None else [None] * len(boxes)
             for xyxy, track_id, cls, conf, polygon in zip(
                     boxes.xyxy.tolist(), boxes.id.int().tolist(),
@@ -108,8 +114,13 @@ class ObjectTracker:
                     center=((x1 + x2) / 2 / w, (y1 + y2) / 2 / h),
                     box_normalized=(x1 / w, y1 / h, x2 / w, y2 / h),
                     hist=color_histogram(frame, xyxy, polygon),
+                    color=mean_color(frame, xyxy, polygon),
                 ))
         self.hands = hands
+        for obj in objects:
+            area = (obj.box[2] - obj.box[0]) * (obj.box[3] - obj.box[1])
+            covered = sum(_overlap(obj.box, hand.box) for hand in hands)
+            obj.occluded = area > 0 and covered / area > HAND_OCCLUDED
         now = time.time() if now is None else now
         if self.embedder is not None:
             if not self.embedder.ready:
@@ -121,6 +132,13 @@ class ObjectTracker:
                 for (obj, crop), feat in zip(wanted, self.embedder([c for _, c in wanted])):
                     obj.embedding, obj.crop = feat, crop
         return self.registry.update(objects, now, frame)
+
+
+def _overlap(a, b):
+    """intersection area of two (x1, y1, x2, y2) boxes"""
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    h = min(a[3], b[3]) - max(a[1], b[1])
+    return max(w, 0) * max(h, 0)
 
 
 def _crop(frame, box):

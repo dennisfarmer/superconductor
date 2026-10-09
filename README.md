@@ -4,8 +4,65 @@ Setup
 ```bash
 git clone https://github.com/dennisfarmer/superconductor.git superconductor_client
 cd superconductor_client
-make worktrees    # server and describe branches into ../superconductor_server, ../superconductor_describe
+make worktrees    # server, describe and superconductor_midi branches into ../superconductor_server, ../superconductor_describe, ../superconductor_midi
+scripts/setup_env.sh                       # the sc_env conda env (client, MRT2 server, MIDI player) + MRT2 weights
+make -C ../superconductor_describe pull    # the describe server's VLM, into Ollama (~3 GB)
 ```
+
+Running everything
+------------------
+
+Each part is its own process, so use one terminal each. Run all `make` commands from `superconductor_client`.
+
+| Part | Command | Port | What it does | Needed? |
+|---|---|---|---|---|
+| MRT2 server | `make server` (or on Lighthouse, below) | 9100 (9000 through the tunnel) | generates the music | yes |
+| Describe server | `make describe` | 9200 | describes new objects and suggests their instruments and names (needs Ollama running) | optional |
+| Client | `make client` / `make client-iphone`, or `make client-remote` / `make client-remote-iphone` | 8467, 8470 | camera, tracking, objects page; sends the prompts and plays the audio | yes |
+| MIDI player | `make midi` | 8475 | plays `.mid` files through the music model (see `../superconductor_midi/README.md`) | optional |
+
+### Local (mrt2_small on this Mac)
+
+1. `make server`, and wait for `Serving mrt2_small (mlx) on port 9100`. The client connects once at startup and doesn't retry, so the server has to be up first.
+2. `make describe`, with Ollama running (the app, or `ollama serve`). Without it, objects still work but get no description, suggested instrument or default name.
+3. `make client` (Logitech C920) or `make client-iphone`. The objects page opens by itself.
+4. Optional: `make midi`, then open http://localhost:8475, pick a song and press Play.
+
+### Lighthouse (server on lh2300)
+
+The server runs in your Lighthouse session on lh2300; everything else runs on the laptop.
+
+1. On Lighthouse, in your session on lh2300:
+    ```bash
+    cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
+    source .venv/bin/activate
+    git pull                  # the server branch
+    make server               # mrt2_base; or make server MODEL=mrt2_small
+    ```
+    Wait for `Serving mrt2_base (jax) on port 9100`. First-time setup (venv, weights) is in `../superconductor_server/README.md`.
+2. On the laptop, open the tunnel and leave it running:
+    ```bash
+    ssh -N -L 9000:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
+    ```
+3. `make describe` (with Ollama running), as in the local steps.
+4. `make client-remote` (Logitech C920) or `make client-remote-iphone`. It connects to `ws://localhost:9000/stream`.
+5. Optional: `make midi`, as in the local steps.
+
+To stop: `q` in the camera window, `Ctrl-C` in the other terminals.
+
+| Link | What it is |
+|---|---|
+| http://localhost:8467/objects | objects page: names, instruments, combos, play / pause |
+| http://localhost:8475 | MIDI player: upload `.mid` files, play them at a chosen tempo |
+| http://localhost:9100/tempo | tempo test page from the server (`:9000` with Lighthouse) |
+| http://localhost:9100/conduct | conductor window: space bar = one beat (`:9000` with Lighthouse) |
+| http://localhost:8470/status | client_midi, where note sources like the MIDI player send patterns |
+
+### Troubleshooting
+
+- **The music ignores the objects (e.g. it sounds like jazz piano):** the camera loop isn't running, so the client never sends its prompts, and the server plays its default `jazz` prompt. Check that the camera window shows video and that the objects page's Music row shows `Magenta RealTime 2 ...` rather than `not connected`. If the camera window is frozen, another app (Zoom, Photo Booth, a browser tab) may be holding the C920. Quit it, or replug the camera, then restart the client. Or use the `-iphone` target instead.
+- **Notes from the MIDI player or Harmonic Atlas have no effect:** the server's terminal prints `WS unknown message type: Pattern`. That server is older than the notes input, so `git pull` and restart it.
+- **The client says connection failed:** start the server (and the tunnel) first, then restart the client.
 
 ### Quick test: new-object flow
 
@@ -36,59 +93,14 @@ What should happen:
 3. Tapping steadily in the conductor window makes the music drift toward your tempo; when you stop, it holds.
 4. **Stop tempo control** eases the music back to MRT2's own tempo.
 
-Start SuperConductor
---------------------
+### NOTES / DRUMS from another program (client_midi)
 
-The system consists of three parts:
-
-1.  **MagentaRT Server and Scheduler Interface (Lighthouse GPU)**
-    
-2.  **SSH tunnel (connect server → local)**
-    
-3.  **Client (local laptop)**
-    
-
-### 1\. Start the Server (Lighthouse)
-
-- login to Lighthouse
-- run `cd /scratch/aimusic_project_root/aimusic_project/shared_data/magenta_native/magenta-realtime`
-- allocate gpu if not on a gpu session: `salloc --account=aimusic_project --partition=aimusic_project --gpus=1 --mem=64G --cpus-per-task=4 --time=00:15:00`
-    - Adjust --time based on how long you need the server
-    - The job will stop automatically after the time expires
-    - You can also run exit to release resources early
-- then, in seperate terminals, start the server and then the scheduler
-    - for each terminal, activate environment with `source .venv/bin/activate`
-    - `python superconductor_server.py` - runs on localhost:8000 by default
-    - `python scheduler.py` - runs on localhost:9100 by default, client makes requests to scheduler
-
-### 2\. Start SSH Tunnel (on your laptop)
-
-Open a **new local terminal** and run:
-
-`ssh -N -L 9000:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
-
-This forwards:
-
-`localhost:9000 → lighthouse:9100`
-
-### 3\. Start the Client (local)
-
-In your local project:
-
-- `conda activate sc_env`
-- `python3 superconductor/laptop.py`
-- A window will open with the camera + UI
-- **Press q (while the window is focused) to exit**
-
-  
-
-## Setup
+While the client runs, it listens on http://localhost:8470 (`midi_port` in `collab.toml`). Other programs POST patterns of MRT2 NOTES / DRUMS input there, and the client forwards them to the server. The prompts still come from the objects. The protocol is in [MIDI_MSG_PROTOCOL.md](MIDI_MSG_PROTOCOL.md). Harmonic Atlas uses it with `make run-sc` (in `../harmonic_atlas`).
 
 ```bash
-conda env create -f environment.yml
-conda activate sc_env
-python -m pip install -e . --no-deps
-# chmod +x bin/superconductor
+curl -s localhost:8470/status
+curl -s -X POST localhost:8470/pattern -d '{"drums":{"loop":true,"steps":[{"frames":25,"first":1}]}}'   # a hit every second
+curl -s -X POST localhost:8470/pattern -d 'null'                                                         # back to free
 ```
 
 # Other Commands
