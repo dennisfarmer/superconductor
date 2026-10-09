@@ -29,11 +29,28 @@ Websocket protocol (`GET /stream`, one client at a time):
     ReceivedChunk   null                            one more block of credit
     Pause           null                            stop generating (session and state kept)
     Resume          null                            continue from where it paused
+    Pattern         {notes?, drums?, cfg_notes?, cfg_drums?, id?}   NOTES / DRUMS input, below
     EndSession      null
   server -> client:
     JSON text  {"type": "Ready", "body": {model, backend, sample_rate, frames_per_block, host}}
     JSON text  {"type": "Stats", "body": {rtf, gen_ms_per_frame}}   (about once a second)
+    JSON text  {"type": "Error", "body": {error}}   a message was rejected (e.g. a bad Pattern)
     binary     [uint32 LE seq][float32 LE samples, row-major (num_samples, 2)]
+
+NOTES / DRUMS (Pattern): besides the style, MRT2 takes two inputs per 40ms frame.
+  notes: 128 slots (MIDI pitch), each -1 model chooses, 0 off, 1 held,
+         2 onset (attack now), 3 on (model picks onset or held)
+  drums: 1 slot, -1 model chooses, 0 no hit, 1 hit now
+A Pattern sets either lane or both; each lane loops on its own:
+  {"notes": {"loop": true, "steps": [{"frames": 36, "pitches": {"36": 2, "60": -1}, "default": 0}]},
+   "drums": {"loop": true, "steps": [{"frames": 9, "first": 1, "rest": 0}]},
+   "cfg_notes": 3.0, "cfg_drums": 1.0}
+  notes step: `frames` x 40ms; `pitches` sets some slots, `default` (-1) the rest;
+      after the first frame an onset (2) becomes held (1)
+  drums step: `first` on its first frame, `rest` on the others (0 after a hit, else `first`)
+  loop false: play once, then back to the lane's last looping steps
+  a lane left out is unchanged; a lane set to null is cleared (all -1, as with no Pattern)
+A change applies from the next generated frame (heard after the client's lead).
 
 Tempo (see tempo.py): every block is time-stretched toward a target tempo
 before it is sent, so blocks are 200ms / speed long. Plain HTTP, any client:
@@ -108,6 +125,71 @@ def _blend_styles(embed, cache, recipe):
     return mix
 
 
+NOTE_STATES = (-1, 0, 1, 2, 3)
+DRUM_STATES = (-1, 0, 1)
+
+
+def _state(value, allowed, where):
+    value = int(value)
+    if value not in allowed:
+        raise ValueError(f"{where}: {value} is not one of {allowed}")
+    return value
+
+
+def expand_lane(kind, lane):
+    """Validate one Pattern lane and expand it to one value per frame.
+
+    Returns (frames, loop): for "notes" each frame is a 128-tuple, for "drums"
+    an int. Raises ValueError on bad input."""
+    if not isinstance(lane, dict) or not lane.get("steps"):
+        raise ValueError(f"{kind}: needs a non-empty 'steps' list")
+    frames = []
+    for i, step in enumerate(lane["steps"]):
+        where = f"{kind} step {i}"
+        n = int(step.get("frames", 1))
+        if n < 1:
+            raise ValueError(f"{where}: frames must be >= 1")
+        if kind == "notes":
+            first = [_state(step.get("default", -1), NOTE_STATES, where)] * 128
+            for pitch, value in (step.get("pitches") or {}).items():
+                pitch = int(pitch)
+                if not 0 <= pitch < 128:
+                    raise ValueError(f"{where}: pitch {pitch} outside 0-127")
+                first[pitch] = _state(value, NOTE_STATES, where)
+            later = tuple(1 if v == 2 else v for v in first)  # an onset happens once
+            frames += [tuple(first)] + [later] * (n - 1)
+        else:
+            first = _state(step.get("first", -1), DRUM_STATES, where)
+            rest = _state(step.get("rest", 0 if first == 1 else first), DRUM_STATES, where)
+            frames += [first] + [rest] * (n - 1)
+    return frames, bool(lane.get("loop", True))
+
+
+class Lane:
+    """One Pattern lane (notes or drums), consumed one frame at a time."""
+
+    def __init__(self):
+        self.set(None)
+
+    def set(self, frames, loop=True):
+        """frames=None clears the lane (model chooses, as with no Pattern)."""
+        if frames is None or loop:
+            self.fallback = frames  # where a play-once lane returns to
+        self.frames, self.loop, self.pos = frames, loop, 0
+
+    def next(self):
+        """Value for the next generated frame; None = no instruction (masked)."""
+        if self.frames is not None and self.pos >= len(self.frames):
+            if not self.loop:
+                self.frames, self.loop = self.fallback, True
+            self.pos = 0
+        if self.frames is None:
+            return None
+        value = self.frames[self.pos]
+        self.pos += 1
+        return value
+
+
 class Generator:
     """Owns the model and the generation state; runs on one dedicated thread.
 
@@ -118,10 +200,12 @@ class Generator:
     """
 
     def __init__(self, load, frames_per_block):
-        from magenta_rt.config import MUSICCOCA
+        from magenta_rt.config import DRUM_PIANOROLL, MUSICCOCA, PIANOROLL_WITH_ONSETS
         self._load = load
         self._mrt = None
         self._musiccoca_key = MUSICCOCA.key
+        self._notes_key = PIANOROLL_WITH_ONSETS.key
+        self._drums_key = DRUM_PIANOROLL.key
         self._frames_per_block = frames_per_block
         self._cache = {}
         self.tempo = TempoController()
@@ -143,6 +227,7 @@ class Generator:
             self.loaded.set()
         emit = None  # callback of the active session; None = no session
         style, controls, state = None, {}, None
+        notes, drums, pattern_cfg = Lane(), Lane(), {}  # NOTES / DRUMS input (Pattern)
         paused = False
         credits, seq = 0, 0
         gen_time = gen_audio = 0.0
@@ -157,12 +242,20 @@ class Generator:
                     kind = msg["type"]
                     if kind == "start":
                         emit, state, seq, paused = msg["emit"], None, 0, False
+                        notes, drums, pattern_cfg = Lane(), Lane(), {}
                         self.tempo.reset()
                         credits = msg["credits"]
                         controls = msg["controls"]
                         style = _blend_styles(self._embed, self._cache, msg["recipe"])
                     elif kind == "end":
                         emit, state, credits, paused = None, None, 0, False
+                        notes, drums, pattern_cfg = Lane(), Lane(), {}
+                    elif kind == "pattern":
+                        # lanes were validated and expanded by the websocket handler
+                        for name, lane in (("notes", notes), ("drums", drums)):
+                            if name in msg["lanes"]:
+                                lane.set(*msg["lanes"][name])
+                        pattern_cfg.update(msg["cfg"])
                     elif kind == "recipe":
                         new_style = _blend_styles(self._embed, self._cache, msg["recipe"])
                         if new_style is not None:
@@ -182,18 +275,36 @@ class Generator:
                 continue
 
             t0 = time.time()
-            cfg_scales = None
+            cfg_scales = dict(pattern_cfg)
             if "cfg_musiccoca" in controls:
-                cfg_scales = {"musiccoca": controls["cfg_musiccoca"]}
-            wav, state = self._mrt.generate(
-                conditioning={self._musiccoca_key: style},
-                cfg_scales=cfg_scales,
-                temperature=controls.get("temperature"),
-                top_k=int(controls["top_k"]) if "top_k" in controls else None,
-                frames=self._frames_per_block,
-                state=state,
-            )
-            samples = np.asarray(wav.samples, dtype="<f4").reshape(-1, CHANNELS)
+                cfg_scales["musiccoca"] = controls["cfg_musiccoca"]
+            # generate() uses one conditioning for all the frames it makes, so the
+            # block is split wherever the notes / drums input changes. Without a
+            # Pattern this is a single call, as before.
+            frame_inputs = [(notes.next(), drums.next()) for _ in range(self._frames_per_block)]
+            pieces = []
+            i = 0
+            while i < len(frame_inputs):
+                j = i + 1
+                while j < len(frame_inputs) and frame_inputs[j] == frame_inputs[i]:
+                    j += 1
+                note_tokens, drum_token = frame_inputs[i]
+                conditioning = {self._musiccoca_key: style}
+                if note_tokens is not None:
+                    conditioning[self._notes_key] = list(note_tokens)
+                if drum_token is not None:
+                    conditioning[self._drums_key] = [drum_token]
+                wav, state = self._mrt.generate(
+                    conditioning=conditioning,
+                    cfg_scales=cfg_scales or None,
+                    temperature=controls.get("temperature"),
+                    top_k=int(controls["top_k"]) if "top_k" in controls else None,
+                    frames=j - i,
+                    state=state,
+                )
+                pieces.append(np.asarray(wav.samples, dtype="<f4").reshape(-1, CHANNELS))
+                i = j
+            samples = np.concatenate(pieces) if len(pieces) > 1 else pieces[0]
             samples = self.tempo.process(samples).astype("<f4")
             emit(struct.pack("<I", seq) + samples.tobytes())
             seq += 1
@@ -259,6 +370,25 @@ class MRT2Server:
     async def _status(self, request):
         return web.json_response(self._generator.tempo.status())
 
+    @staticmethod
+    def _parse_pattern(body):
+        """Pattern body -> generator message; a null body clears both lanes."""
+        if body is None:
+            body = {"notes": None, "drums": None}
+        if not isinstance(body, dict):
+            raise ValueError("body must be an object or null")
+        lanes = {}
+        for kind in ("notes", "drums"):
+            if kind in body:
+                lanes[kind] = (None, True) if body[kind] is None else expand_lane(kind, body[kind])
+        cfg = {}
+        for key, name in (("cfg_notes", "notes"), ("cfg_drums", "drums")):
+            if body.get(key) is not None:
+                cfg[name] = min(7.0, max(-1.0, float(body[key])))
+        if body.get("id"):
+            print(f"Pattern {body['id']}: {', '.join(lanes) or 'cfg only'}")
+        return {"type": "pattern", "lanes": lanes, "cfg": cfg}
+
     async def _handle_ws(self, request):
         ws = web.WebSocketResponse(compress=False)  # float audio doesn't compress
         await ws.prepare(request)
@@ -323,6 +453,12 @@ class MRT2Server:
                     self._post({"type": "credit"})
                 elif msg_type in ("Pause", "Resume"):
                     self._post({"type": "pause", "paused": msg_type == "Pause"})
+                elif msg_type == "Pattern":
+                    try:
+                        self._post(self._parse_pattern(data.get("body")))
+                    except (ValueError, TypeError, AttributeError) as e:
+                        print(f"WS bad Pattern: {e}")
+                        await ws.send_str(json.dumps({"type": "Error", "body": {"error": f"Pattern: {e}"}}))
                 elif msg_type == "EndSession":
                     break
                 else:

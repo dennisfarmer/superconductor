@@ -51,6 +51,8 @@ The client opens a websocket at `GET /stream` (one client at a time; a second on
 | `UpdateRecipe`   | `{"recipe": {"jazz": 0.6, "flute": 0.3}}`           | Weighted blend of the prompts' MusicCoCa embeddings (cached), used from the next block on. |
 | `UpdateControls` | `{"temperature"?: float, "top_k"?: int, "cfg_musiccoca"?: float}` | Sampling controls, used from the next block on. |
 | `ReceivedChunk`  | `null`                                              | One more block of credit (sent when the client finishes playing a block). |
+| `Pause` / `Resume` | `null`                                            | Stop generating (session and state kept) / continue. |
+| `Pattern`        | `{"notes"?: lane, "drums"?: lane, "cfg_notes"?, "cfg_drums"?, "id"?}` | MRT2's per-frame NOTES / DRUMS input (see below). |
 | `EndSession`     | `null`                                              | Stop generating and close the session. |
 
 ### Tempo (adaptive playback speed)
@@ -66,3 +68,9 @@ The client opens a websocket at `GET /stream` (one client at a time; a second on
 | `POST /tempo/target` | `{"bpm": 120}` | exact target tempo |
 | `POST /tempo/free` | `null` | no target (speed 1) |
 | `GET /tempo/status` | | `mode, speed, model_bpm, heard_bpm, measured_output_bpm, target_bpm, conductor_bpm` |
+
+### NOTES / DRUMS (`Pattern`)
+
+Besides the style, MRT2 takes two inputs every 40 ms frame: NOTES (128 MIDI-pitch slots: -1 model chooses, 0 off, 1 held, 2 onset, 3 on) and DRUMS (one slot: -1 model chooses, 0 no hit, 1 hit). A `Pattern` sets either lane as run-length steps, looped or played once, from the next generated frame. With no pattern every slot is -1, as before. If a pattern is rejected, the server replies `{"type": "Error", "body": {"error": ...}}` and keeps generating.
+
+Note sources don't talk to the server directly: they POST to the client's client_midi (port 8470), which forwards over this websocket. The full format, with a MIDI-file converter, is in [`superconductor_client/MIDI_MSG_PROTOCOL.md`](../superconductor_client/MIDI_MSG_PROTOCOL.md); the reference implementation is `expand_lane` / `Lane` in `mrt2_server.py`.
