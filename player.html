@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperConductor MIDI</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #deded8;
+    --accent: #2f6fdb; --live: #1f9d55; --danger: #c2412d; --field: #fbfbf9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --card: #20201e; --text: #ececea; --muted: #9a9a94; --line: #34342f;
+      --accent: #6c9cf0; --live: #4cc47f; --danger: #ef7a62; --field: #1a1a18;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header, main { max-width: 820px; margin: 0 auto; padding: 0 16px; }
+  header { padding-top: 20px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 18px 0 8px; }
+  #client { color: var(--muted); font-size: 13px; }
+  #client.ok { color: var(--live); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  button { font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--field); color: var(--text); }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { min-width: 84px; font-weight: 600; }
+  button.danger { color: var(--danger); }
+  input, select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
+                  background: var(--field); color: var(--text); }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  label { font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  .song { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+          border: 1px solid transparent; cursor: pointer; }
+  .song:hover { border-color: var(--line); }
+  .song.selected { border-color: var(--accent); background: var(--field); }
+  .song .name { font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .song .meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .error { color: var(--danger); font-size: 13px; }
+  #drop { margin-top: 10px; border: 1.5px dashed var(--line); border-radius: 8px; padding: 14px; text-align: center;
+          color: var(--muted); font-size: 13px; cursor: pointer; }
+  #drop.over { border-color: var(--accent); color: var(--accent); }
+  .transport { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #now { font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  #time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  #bar { position: relative; height: 10px; margin: 14px 0 6px; border-radius: 5px; background: var(--line);
+         cursor: pointer; touch-action: none; }
+  #bar div { height: 100%; border-radius: 5px; background: var(--accent); width: 0; }
+  .controls { display: flex; gap: 16px 22px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
+  #bpm { width: 80px; }
+  #cfg { width: 110px; padding: 0; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
+  #message { font-size: 12.5px; color: var(--muted); margin-top: 8px; min-height: 1.2em; overflow-wrap: anywhere; }
+  #message.bad { color: var(--danger); }
+</style>
+</head>
+<body>
+<header>
+  <h1>MIDI player</h1>
+  <span id="client">connecting…</span>
+</header>
+<main>
+  <h2>Now playing</h2>
+  <section class="card">
+    <div class="transport">
+      <button class="primary" id="play" disabled>▶ Play</button>
+      <button id="restart" disabled title="play from the beginning">⏮</button>
+      <span id="now">no song selected</span>
+      <span id="time"></span>
+    </div>
+    <div id="bar" title="click to play from here"><div></div></div>
+    <div class="controls">
+      <label>Tempo <input id="bpm" type="number" min="10" max="480" step="1"> bpm
+        <span id="speed"></span></label>
+      <button id="file-tempo" title="the tempo written in the file">file tempo</button>
+      <label title="what the pitches the file doesn't play do">Other notes
+        <select id="mode">
+          <option value="written">silent: play as written</option>
+          <option value="accompany">free: the model may add its own</option>
+        </select></label>
+      <label><input id="loop" type="checkbox"> Loop</label>
+      <label title="how strongly the music follows the notes (cfg_notes, -1 to 7)">Follow notes
+        <input id="cfg" type="range" min="-1" max="7" step="0.2"> <span id="cfg-value"></span></label>
+    </div>
+    <p class="hint">Changing the tempo, the mode or the position while playing re-sends the rest of the song.
+      What you hear lags the bar by the client's lead (about 0.6 s locally).
+      If the music is paused on the objects page, the song waits there, but this bar keeps moving.</p>
+    <div id="message"></div>
+  </section>
+
+  <h2>Songs</h2>
+  <section class="card">
+    <div id="songs"></div>
+    <div id="drop">Drop a .mid file here, or click to upload</div>
+    <input id="file" type="file" accept=".mid,.midi,audio/midi" hidden>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let state = null;
+let selected = null;  // song name picked in the list (play sends it)
+
+async function call(path, body, method = "POST") {
+  const r = await fetch(path, { method, headers: { "Content-Type": "application/json" },
+                                body: body === undefined ? undefined : JSON.stringify(body) });
+  if (r.headers.get("Content-Type")?.includes("json")) { state = await r.json(); render(); }
+  else if (!r.ok) showMessage(await r.text(), true);
+  return r.ok;
+}
+
+function showMessage(text, bad) {
+  $("message").textContent = text || "";
+  $("message").classList.toggle("bad", !!bad);
+}
+
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const song = () => state && state.songs.find(s => s.name === (selected || state.song));
+
+function render() {
+  if (!state) return;
+  const c = state.client;
+  $("client").textContent = c.connected ? `client connected (${c.model})`
+    : c.unreachable ? `superconductor_client not reachable at ${state.client_url}` : "client not connected to the music server yet";
+  $("client").classList.toggle("ok", !!c.connected);
+
+  if (!selected || !state.songs.some(s => s.name === selected)) selected = state.song || state.songs[0]?.name || null;
+  const list = $("songs");
+  const rows = state.songs.map(s => `<div class="song${s.name === selected ? " selected" : ""}" data-name="${encodeURIComponent(s.name)}">
+      <span class="name"></span>
+      <span class="meta">${fmt(s.length_s)} · ${Math.round(s.bpm)} bpm${s.time_signature ? " · " + s.time_signature : ""}
+        · ${s.notes} notes${s.drum_hits ? ` · ${s.drum_hits} drum hits` : ""}</span>
+      <button class="danger" title="remove from the library">✕</button></div>`).join("")
+    + Object.entries(state.errors).map(([n, e]) => `<p class="error">${n}: ${e}</p>`).join("");
+  if (list.dataset.rows !== rows) {
+    list.dataset.rows = rows;
+    list.innerHTML = rows || '<p class="hint">No songs yet.</p>';
+    list.querySelectorAll(".song").forEach(el => {
+      const name = decodeURIComponent(el.dataset.name);
+      el.querySelector(".name").textContent = name;
+      el.onclick = () => { selected = name; list.dataset.rows = ""; render(); };
+      el.querySelector("button").onclick = e => {
+        e.stopPropagation();
+        if (confirm(`Remove ${name}?`)) call(`/api/songs/${encodeURIComponent(name)}`, undefined, "DELETE");
+      };
+    });
+  }
+
+  const s = song();
+  const current = s && s.name === state.song;
+  const playing = state.playing && current;
+  $("now").textContent = s ? s.name : "no song selected";
+  $("play").disabled = !s;
+  $("restart").disabled = !s;
+  $("play").textContent = playing ? "■ Stop" : "▶ Play";
+  const pos = current ? state.position_s : 0;
+  $("time").textContent = s ? `${fmt(pos)} / ${fmt(s.length_s)}` : "";
+  $("bar").firstElementChild.style.width = s ? `${100 * Math.min(1, pos / s.length_s)}%` : "0";
+
+  const st = state.settings;
+  const bpm = current && st.bpm ? st.bpm : s ? s.bpm : "";
+  if (document.activeElement !== $("bpm")) $("bpm").value = bpm ? Math.round(bpm * 10) / 10 : "";
+  $("speed").textContent = s && bpm ? `x${(bpm / s.bpm).toFixed(2)}` : "";
+  if (document.activeElement !== $("mode")) $("mode").value = st.mode;
+  $("loop").checked = st.loop;
+  if (document.activeElement !== $("cfg")) $("cfg").value = st.cfg_notes;
+  $("cfg-value").textContent = Number($("cfg").value).toFixed(1);
+  if (state.message) showMessage(state.message, state.message.startsWith("not sent"));
+}
+
+// settings: while the selected song plays, the server re-sends it with them
+function settings() {
+  const s = song();
+  const body = { mode: $("mode").value, loop: $("loop").checked, cfg_notes: Number($("cfg").value) };
+  if (s && s.name === state.song) body.bpm = Number($("bpm").value) || null;
+  return body;
+}
+const play = start_s => call("/api/play", { song: selected, start_s, ...settings(),
+                                              bpm: Number($("bpm").value) || null });
+
+$("play").onclick = () => state.playing && state.song === selected ? call("/api/stop") :
+  play(state.song === selected ? state.position_s : 0);
+$("restart").onclick = () => play(0);
+$("bar").onclick = e => {
+  const s = song();
+  if (!s) return;
+  const box = $("bar").getBoundingClientRect();
+  play(Math.max(0, Math.min(1, (e.clientX - box.left) / box.width)) * s.length_s);
+};
+const update = () => call("/api/settings", settings());
+$("bpm").onchange = update;
+$("bpm").onkeydown = e => { if (e.key === "Enter") $("bpm").blur(); };
+$("file-tempo").onclick = () => { const s = song(); if (s) { $("bpm").value = s.bpm; update(); } };
+$("mode").onchange = update;
+$("loop").onchange = update;
+$("cfg").oninput = () => { $("cfg-value").textContent = Number($("cfg").value).toFixed(1); };
+$("cfg").onchange = update;
+
+async function upload(file) {
+  const form = new FormData();
+  form.append("file", file);
+  showMessage(`uploading ${file.name}…`);
+  const r = await fetch("/api/upload", { method: "POST", body: form });
+  if (!r.ok) { showMessage(await r.text(), true); return; }
+  selected = (await r.json()).name;
+  showMessage(`added ${selected}`);
+  poll(false);
+}
+$("drop").onclick = () => $("file").click();
+$("file").onchange = () => { for (const f of $("file").files) upload(f); $("file").value = ""; };
+$("drop").ondragover = e => { e.preventDefault(); $("drop").classList.add("over"); };
+$("drop").ondragleave = () => $("drop").classList.remove("over");
+$("drop").ondrop = e => {
+  e.preventDefault();
+  $("drop").classList.remove("over");
+  for (const f of e.dataTransfer.files) upload(f);
+};
+
+async function poll(again = true) {
+  try {
+    state = await (await fetch("/api/state")).json();
+    render();
+  } catch {
+    $("client").textContent = "MIDI player not running (make player)";
+    $("client").classList.remove("ok");
+  }
+  if (again) setTimeout(poll, 250);
+}
+poll();
+</script>
+</body>
+</html>
