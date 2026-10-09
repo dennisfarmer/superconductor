@@ -13,8 +13,8 @@
 #                     VLM descriptions of new objects; needs Ollama running
 #   make midi         MIDI player (../superconductor_midi/Makefile): plays .mid files through
 #                     the running client's notes input, page on http://localhost:8475
-#   make worktrees    server / describe / superconductor_midi branches into ../superconductor_server,
-#                     ../superconductor_describe, ../superconductor_midi
+#   make worktrees    server / describe / midi_experiment_dennis branches into ../superconductor_server,
+#                     ../superconductor_describe, ../superconductor_midi (local branch superconductor_midi)
 #   make vision       webcam tracking only, no music
 #   make test         unit tests for tracking / library / combos
 
@@ -33,7 +33,11 @@ worktrees:
 	@git fetch origin
 	@test -e $(SERVER_DIR) || git worktree add $(SERVER_DIR) server
 	@test -e $(DESCRIBE_DIR) || git worktree add $(DESCRIBE_DIR) describe
-	@test -e $(MIDI_DIR) || git worktree add $(MIDI_DIR) superconductor_midi
+	@# local branch superconductor_midi tracks origin/midi_experiment_dennis
+	@test -e $(MIDI_DIR) || { git show-ref -q --verify refs/heads/superconductor_midi \
+		&& git worktree add $(MIDI_DIR) superconductor_midi \
+		|| git worktree add --track -b superconductor_midi $(MIDI_DIR) origin/midi_experiment_dennis; }
+	@git config push.default upstream
 	@git worktree list
 
 # command-line variables (MODEL=..., ARGS=...) reach the sub-make through MAKEFLAGS
