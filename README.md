@@ -15,17 +15,16 @@
     pip install "magenta-rt[jax]==2.0.3" "jax[cuda12]" aiohttp
     ```
     - use `jax[cuda12]`, not cuda13: CUDA 13 dropped Volta (V100) support
-    - download the weights on a login node, into scratch: `MAGENTA_HOME=<scratch dir> make models BACKEND=jax MODEL=mrt2_base` (`MAGENTA_HOME` defaults to `~/Documents/Magenta`; set it the same way when starting the server)
-    - this path hasn't been run yet; ms/frame on the V100 must stay under 40ms (watch `gen_ms_per_frame` in the `Stats` messages)
+    - download the weights: `make models`
+    - V100: watch `gen_ms_per_frame` in the `Stats` messages, check if <40ms/frame
 
 ### Startup Sequence
 
-- locally: `make server` (from here or from `superconductor_client`), leave it running, then `make client` in `superconductor_client`
+- locally: `make server` (from here or from `superconductor_client`), leave it running, then (with Ollama running) `make describe` and `make client` in `superconductor_client`
 - on Lighthouse:
-    - allocate a gpu if not on a gpu session: `salloc --account=aimusic_project --partition=aimusic_project --gpus=1 --mem=64G --cpus-per-task=4 --time=00:15:00`
-        - adjust `--time` based on how long you need the server; the job stops when it expires, or run `exit` to release it early
-    - activate the venv, then `make server BACKEND=jax MODEL=mrt2_base` (listens on port 9100)
-    - on the laptop, start the ssh tunnel: `ssh -N -L 9000:<gpu node, e.g. lh2300>:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
+    - activate the venv, then `make server`
+    - on the laptop, start the ssh tunnel: `ssh -N -L 9000:lh2300:9100 UNIQNAME@lighthouse.arc-ts.umich.edu`
+    - the describe server still runs on the laptop: with Ollama running, `make describe` in `superconductor_client` (see `superconductor_describe/README.md`)
     - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9000/stream`)
 
 Other flags: `make server PORT=... ARGS="--frames_per_block 5"`, or `python mrt2_server.py --help`.
