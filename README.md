@@ -7,9 +7,9 @@
 - **Mac (MLX):** `make env` builds the `sc_env` conda env (the same one the client uses), then `make models` downloads `mrt2_small` (`make models MODEL=mrt2_base` for base).
 - **Lighthouse (JAX):** in a Python 3.12 venv (create it once; activate it in every new terminal):
     ```
-    git clone https://github.com/dennisfarmer/superconductor.git
-    cd superconductor
-    git checkout server
+    cd /scratch/aimusic_project_root/aimusic_project/shared_data
+    git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
+    cd superconductor_server
     python3.12 -m venv .venv
     source .venv/bin/activate
     pip install "magenta-rt[jax]==2.0.3" "jax[cuda12]" aiohttp
