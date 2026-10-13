@@ -16,7 +16,8 @@ Needs `aiohttp` and `mido` (`pip install mido` in sc_env).
 ### The page
 
 - **Songs:** drop a `.mid` file onto the page or click to upload it. Uploads are kept in `songs/` (not committed), so they're there next time. `make player ARGS="path/to/song.mid"` adds files from the command line.
-- **Play / Stop**, **⏮** (from the beginning), and click the bar to play from that point.
+- **Play / Stop**, **⏮** (from the beginning), and click the bar or the piano roll to play from that point.
+- **Piano roll:** the song's notes as bars against a keyboard, scrolling past the playhead (10 s in view). Notes sounding now and their keys light up green; drum hits get a lane at the bottom.
 - **Tempo:** in bpm. The file's first tempo is the reference (e.g. 120 bpm → 90 bpm plays at 0.75×); a file's own tempo changes are kept, scaled by the same factor. **file tempo** goes back to the written tempo.
 - **Other notes:** *silent* plays the file as written (every pitch the file doesn't play is off); *free* lets the model add its own notes around the file's.
 - **Loop** and **Follow notes** (`cfg_notes`: how strongly the music follows the notes, -1 to 7).
@@ -38,6 +39,7 @@ A song is sent as one play-once Pattern from the current position. Changing the 
 | `POST /api/play` | `{song?, start_s?, bpm?, mode?, loop?, cfg_notes?}` | state; `502` if client_midi refused it or isn't running |
 | `POST /api/stop` | | state |
 | `POST /api/settings` | `{bpm?, mode?, loop?, cfg_notes?}` | state (re-sent if playing) |
+| `GET /api/songs/{name}/notes` | | `{notes: [[start_s, end_s, pitch], ...], hits: [t, ...]}` (the piano roll) |
 | `DELETE /api/songs/{name}` | | state |
 
 `mode` is `"written"` or `"accompany"`, and `bpm: null` means the file's tempo. Other flags: `python midi_player.py --help` (`--port`, `--client_url`, `--songs_dir`).

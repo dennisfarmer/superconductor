@@ -20,6 +20,7 @@ HTTP API (used by the page):
   POST   /api/play             {song, start_s?, bpm?, mode?, loop?, cfg_notes?}
   POST   /api/stop             null
   POST   /api/settings         {bpm?, mode?, loop?, cfg_notes?}  applied now if playing
+  GET    /api/songs/{name}/notes   {notes: [[start_s, end_s, pitch], ...], hits: [t, ...]} (piano roll)
   DELETE /api/songs/{name}
 """
 import argparse
@@ -257,12 +258,14 @@ class PlayerServer:
         self.player = player
         self.port = port
         self.app = web.Application(client_max_size=32 * 1024 ** 2)
-        self.app.router.add_get("/", lambda r: web.FileResponse(PAGE))
+        # no-cache: an updated page shows on the next reload
+        self.app.router.add_get("/", lambda r: web.FileResponse(PAGE, headers={"Cache-Control": "no-cache"}))
         self.app.router.add_get("/api/state", self._state)
         self.app.router.add_post("/api/upload", self._upload)
         self.app.router.add_post("/api/play", self._play)
         self.app.router.add_post("/api/stop", self._stop)
         self.app.router.add_post("/api/settings", self._settings)
+        self.app.router.add_get("/api/songs/{name}/notes", self._notes)
         self.app.router.add_delete("/api/songs/{name}", self._delete)
         self.app.on_startup.append(self._start_polling)
 
@@ -336,6 +339,13 @@ class PlayerServer:
             self.player.message = f"not sent: {e}" if str(e) else f"not sent: {type(e).__name__}"
             return web.json_response(self.player.state(), status=502)
         return web.json_response(self.player.state())
+
+    async def _notes(self, request):
+        song = self.player.songs.get(request.match_info["name"])
+        if song is None:
+            raise web.HTTPNotFound()
+        return web.json_response({"notes": [[round(a, 3), round(e, 3), p] for a, e, p in song.notes],
+                                  "hits": [round(h, 3) for h in song.hits]})
 
     async def _delete(self, request):
         name = request.match_info["name"]
