@@ -1,0 +1,7 @@
+.env
+.jac/
+node_modules/
+__pycache__/
+*.wav
+logs/
+.run/

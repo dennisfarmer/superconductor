@@ -1,0 +1,40 @@
+[project]
+name = "superconductor-atlas"
+version = "0.1.0"
+description = "Explore harmonic progressions as a graph: Jac walkers beam-search voice-led chord paths while Magenta RT 2 plays them live."
+entry-point = "main.jac"
+kind = "fullstack"
+
+[dependencies.npm]
+react = "^18.2.0"
+react-dom = "^18.2.0"
+react-router-dom = "^6.22.0"
+react-error-boundary = "^5.0.0"
+react-hook-form = "^7.71.0"
+zod = "^4.3.6"
+"@hookform/resolvers" = "^5.2.2"
+three = "^0.160.0"
+"@react-three/fiber" = "^8.17.10"
+"@react-three/drei" = "^9.114.0"
+
+[dependencies.npm.dev]
+vite = "^6.4.1"
+"@vitejs/plugin-react" = "^4.2.1"
+typescript = "^5.3.3"
+"@types/react" = "^18.2.0"
+"@types/react-dom" = "^18.2.0"
+
+[dev-dependencies]
+watchdog = ">=3.0.0"
+
+[serve]
+base_route_app = "app"
+
+[plugins.client.app_meta_data]
+title = "SuperConductor Atlas"
+
+[plugins.byllm.model]
+default_model = "${LLM_MODEL:-ollama/qwen3:4b-instruct}"
+
+[plugins.scale.microservices]
+enabled = false

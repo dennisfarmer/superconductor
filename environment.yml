@@ -1,0 +1,20 @@
+name: sc_env_jaclang
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - numpy
+  - scipy
+  - matplotlib
+  - jupyter
+  - pip:
+    - jaclang
+    - jaseci
+    - magenta-rt[mlx]
+    - mlx==0.32.0
+    - sounddevice
+    - openai
+    - elevenlabs
+    - python-dotenv

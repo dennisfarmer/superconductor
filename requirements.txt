@@ -1,0 +1,12 @@
+jaclang
+jaseci
+magenta-rt[mlx]
+mlx==0.32.0
+sounddevice
+openai
+elevenlabs
+python-dotenv
+numpy
+scipy
+matplotlib
+jupyter

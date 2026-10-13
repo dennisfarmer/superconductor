@@ -1,0 +1,45 @@
+# Walker settings: the shape of the beam search and its scoring dials.
+#
+# The server reads this file whenever it needs the session (services/atlas.jac,
+# walker_config), so an edit applies the next time the walkers are sent. Values out
+# of range are clamped; a missing key keeps its default. The defaults below
+# reproduce the behaviour built into the rules (theory/syntax.jac, theory/phrase.jac,
+# theory/voicing.jac).
+#
+#   step = syntax_weight × rule cost + voice leading + phrase
+
+# ---- search shape ----
+
+# Paths each walker keeps per layer (2 to 40).
+width = 12
+
+# Layers of lookahead, both directions (1 to 6).
+depth = 4
+
+# Chords in the first column, one per harmony; ii and ii7 count separately (2 to 14).
+# Raise it when a chord you expect is crowded out.
+options = 8
+
+# ---- scoring ----
+
+# Rule limit: the costliest harmonic move a walker will follow at all (0.5 to 6.0).
+# Low: textbook moves only. Above 4.0, retrogressions such as V -> IV become possible.
+max_syntax = 3.0
+
+# Rule weight: how much a move's rule cost counts against voice leading (0.0 to 4.0).
+# 0: voice leading alone decides; high: harmonic grammar dominates.
+syntax_weight = 1.5
+
+# Chromatic colour: × the extra cost of applied (0.35), borrowed (0.45) and
+# chromatic (0.55) chords (-2.0 to 3.0). 0: no preference; negative: the walkers
+# seek them out.
+colour = 1.0
+
+# Cadence pull: × the bonus for reaching a cadence (PAC -0.9, IAC -0.5, PHC -0.5,
+# HC/PC -0.45, DC -0.35) (0.0 to 4.0). 0: phrases wander without closing.
+cadence_pull = 1.0
+
+# Smoothness: × the cost of voices moving (0.3 per semitone in S, A, T; 0.08 in the
+# bass; -0.2 per held common tone) (0.1 to 4.0). Low: leaps welcome; high: hug the
+# common tones. The voice-leading rules still apply.
+smooth = 1.0
