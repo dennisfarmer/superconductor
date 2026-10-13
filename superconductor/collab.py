@@ -159,6 +159,7 @@ class CollabFrontend:
         self._view_scores, self._view_scores_key = {}, None  # id -> IdentityRegistry.view_scores
         self._last_publish = 0.0
         self._alive = {}  # service key -> its last probe (None: no answer), for the Services tab
+        self._atlas = _find_atlas({}, search=False)  # key -> (url, answer); found again on every probe
         if self.panel is not None:
             threading.Thread(target=self._probe_services, daemon=True).start()
 
@@ -434,9 +435,9 @@ class CollabFrontend:
         rows.append({"task": "Music", **music})
         return rows
 
-    # path each service is probed at (GET) for the Services tab
+    # path each service is probed at (GET) for the Services tab; Atlas is found by _find_atlas
     PROBES = {"server": "/tempo/status", "client_midi": "/status", "describe": "/health",
-              "midi_player": "/api/state", "atlas": "/", "atlas_engine": "/status"}
+              "midi_player": "/api/state"}
 
     def _service_urls(self):
         """http base URL of each service (None: not used)"""
@@ -450,16 +451,17 @@ class CollabFrontend:
             "describe": self.describer.server_url if self.describer is not None
             else self.cfg.get("describe", {}).get("server_url", "http://localhost:9200"),
             "midi_player": svc.get("midi_player_url", "http://localhost:8475"),
-            "atlas": svc.get("atlas_url", "http://localhost:8000"),
-            "atlas_engine": svc.get("atlas_engine_url", "http://localhost:8765"),
+            "atlas": self._atlas["atlas"][0], "atlas_engine": self._atlas["atlas_engine"][0],
         }
 
     def _probe_services(self):
         """every 2 s, which services answer (in a thread, so a slow one can't stall the camera loop)"""
         while True:
+            self._atlas = _find_atlas(self.cfg.get("services", {}))
             urls = self._service_urls()
-            self._alive = {key: _probe(urls[key].rstrip("/") + path)
-                           for key, path in self.PROBES.items() if urls.get(key)}
+            alive = {key: _probe(urls[key].rstrip("/") + path)
+                     for key, path in self.PROBES.items() if urls.get(key)}
+            self._alive = {**alive, **{key: answer for key, (_, answer) in self._atlas.items()}}
             time.sleep(2)
 
     def services(self):
@@ -870,6 +872,48 @@ def _probe(url):
     except ValueError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _listening_ports(marker):
+    """TCP ports listened on by local processes whose command line contains `marker`"""
+    try:
+        ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=2).stdout
+        pids = [line.split(None, 1)[0] for line in ps.splitlines() if marker in line]
+        if not pids:
+            return []
+        out = subprocess.run(["lsof", "-nP", "-a", "-p", ",".join(pids), "-iTCP", "-sTCP:LISTEN", "-Fn"],
+                             capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return sorted({int(line.rsplit(":", 1)[1]) for line in out.splitlines()
+                   if line.startswith("n") and line.rsplit(":", 1)[-1].isdigit()})
+
+
+def _find_atlas(svc, search=True):
+    """{"atlas": (url, answer), "atlas_engine": (url, answer)}; answer None: not running.
+
+    `jac start` takes the next free port when its own is in use (e.g. 8009 for 8000), so the
+    ports Atlas's processes listen on are tried along with the configured ones, and a port
+    counts only if it answers like Atlas: its functions in /openapi.json, the engine's /status
+    fields. With search=False, just the configured URLs, not running."""
+    found = {}
+    for key, default, marker, path, check in (
+            ("atlas", "http://localhost:8000", "jac start main.jac", "/openapi.json",
+             lambda a: {"/function/explore", "/function/set_tempo"} <= set(a.get("paths", {}))),
+            ("atlas_engine", "http://localhost:8765", "audio_engine/engine.py", "/status",
+             lambda a: {"realtime_budget_ms", "style_layers"} <= set(a))):
+        url = svc.get(f"{key}_url", default).rstrip("/")
+        found[key] = (url, None)
+        if not search:
+            continue
+        port = urlparse(url).port
+        candidates = [url] + [f"http://localhost:{p}" for p in _listening_ports(marker) if p != port]
+        for base in candidates:
+            answer = _probe(base + path)
+            if answer and check(answer):
+                found[key] = (base, {} if key == "atlas" else answer)
+                break
+    return found
 
 
 @click.command()

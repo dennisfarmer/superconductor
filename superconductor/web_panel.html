@@ -109,24 +109,24 @@
            background: var(--field); color: var(--text); }
   #play { min-width: 76px; }
   #play.paused { color: var(--live); border-color: var(--live); }
-  section.top { max-width: 1100px; margin: 0 auto; padding: 0 16px 6px; }
+  section.overview { max-width: 1100px; margin: 0 auto; padding: 0 16px 6px; }
   .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
   .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none;
                  padding: 4px 10px; color: var(--muted); }
   .tabs button[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
-  #models, #services { font-size: 12.5px; color: var(--muted); border-collapse: collapse; }
-  #models td, #services td { padding: 1px 14px 1px 0; vertical-align: top; }
-  #models td:first-child, #services td:first-child { color: var(--text); white-space: nowrap; }
+  #models, #services, #api { font-size: 12.5px; color: var(--muted); border-collapse: collapse; }
+  #models td, #services td, #api td { padding: 1px 14px 1px 0; vertical-align: top; }
+  #models td:first-child, #services td:first-child, #api td:first-child { color: var(--text); white-space: nowrap; }
   #models .remote { color: var(--accent); }
-  #services td { padding-bottom: 6px; }
+  #services td, #api td { padding-bottom: 6px; }
   #services .started { color: var(--muted); font-size: 11.5px; }
   #services .up { color: var(--live); white-space: nowrap; }
   #services .down { white-space: nowrap; }
-  #services .eps { display: flex; flex-wrap: wrap; gap: 2px 14px; }
-  #services .ep { white-space: nowrap; font-variant-numeric: tabular-nums; }
-  #services .ep b { font-weight: 600; font-size: 10.5px; margin-right: 4px; }
-  #services a { color: var(--accent); text-decoration: none; }
-  #services a:hover { text-decoration: underline; }
+  .eps { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+  .ep { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ep b { display: inline-block; min-width: 34px; font-weight: 600; font-size: 10.5px; }
+  #services a, #api a { color: var(--accent); text-decoration: none; }
+  #services a:hover, #api a:hover { text-decoration: underline; }
   section.combos { max-width: 1100px; margin: 0 auto; padding: 4px 16px 12px; }
   h2 { font-size: 15px; margin: 8px 0; }
   .combo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
@@ -156,13 +156,15 @@
   <span id="status">connecting…</span>
   <button id="play" disabled title="pause / resume music generation on the server">Pause</button>
 </header>
-<section class="top">
+<section class="overview">
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="models" aria-selected="true">Models</button>
     <button role="tab" data-tab="services" aria-selected="false">Services</button>
+    <button role="tab" data-tab="api" aria-selected="false">API</button>
   </nav>
   <table id="models"></table>
   <table id="services" hidden></table>
+  <table id="api" hidden></table>
 </section>
 <section class="combos">
   <h2>Combos <span id="combo-hint" style="font-weight:400;color:var(--muted);font-size:13px">
@@ -593,32 +595,37 @@ function renderMusic(music) {
 // Models / Services tabs (the choice is remembered in this browser)
 function showTab(name) {
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
-  document.getElementById("models").hidden = name !== "models";
-  document.getElementById("services").hidden = name !== "services";
+  for (const tab of ["models", "services", "api"]) document.getElementById(tab).hidden = name !== tab;
   try { localStorage.setItem("objects-tab", name); } catch {}
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
-try { if (localStorage.getItem("objects-tab") === "services") showTab("services"); } catch {}
+try { const t = localStorage.getItem("objects-tab"); if (t === "services" || t === "api") showTab(t); } catch {}
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-// GET endpoints and pages are links; POST and websocket ones are only listed
+const link = url => `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`;
+const setRows = (table, rows) => { if (table.dataset.rows !== rows) { table.innerHTML = rows; table.dataset.rows = rows; } };
+
+// Services: where each program runs, whether it answers, and its pages
 function renderServices(services) {
-  const table = document.getElementById("services");
-  const rows = (services || []).map(s => {
+  setRows(document.getElementById("services"), (services || []).map(s => {
     const up = s.up === null ? '<td class="down">checking…</td>'
       : s.up ? '<td class="up">● up</td>' : '<td class="down">○ not running</td>';
-    const eps = s.endpoints.map(e => {
-      const url = esc(e.url);
-      const label = e.method === "page" ? "" : `<b>${e.method}</b>`;
-      return `<span class="ep">${label}${e.method === "page" || e.method === "GET"
-        ? `<a href="${url}" target="_blank" rel="noopener">${url}</a>` : url}</span>`;
-    }).join("");
+    const pages = s.endpoints.filter(e => e.method === "page").map(e => `<span class="ep">${link(e.url)}</span>`);
+    const eps = pages.length ? pages.join("") : `<span class="ep">${esc(s.base)}</span>`;
     const note = s.note ? `<div>${esc(s.note)}</div>` : "";
     return `<tr><td>${esc(s.name)}<div class="started">${esc(s.started)}</div></td>${up}` +
       `<td><div class="eps">${eps}</div>${note}</td></tr>`;
-  }).join("");
-  if (table.dataset.rows !== rows) { table.innerHTML = rows; table.dataset.rows = rows; }
+  }).join(""));
+}
+
+// API: every endpoint, GET ones as links (POST and websocket ones would only error in a browser)
+function renderApi(services) {
+  setRows(document.getElementById("api"), (services || []).map(s => {
+    const eps = s.endpoints.filter(e => e.method !== "page").map(e =>
+      `<span class="ep"><b>${e.method}</b>${e.method === "GET" ? link(e.url) : esc(e.url)}</span>`);
+    return eps.length ? `<tr><td>${esc(s.name)}</td><td><div class="eps">${eps.join("")}</div></td></tr>` : "";
+  }).join(""));
 }
 
 async function poll() {
@@ -631,6 +638,7 @@ async function poll() {
     renderCombos(state.combos, objects);
     renderMusic(state.music);
     renderServices(state.services);
+    renderApi(state.services);
     const models = document.getElementById("models");
     const rows = (state.models || []).map(m =>
       `<tr><td>${m.task}</td><td>${m.model}</td><td class="${m.where.startsWith("remote") ? "remote" : ""}">${m.where}</td></tr>`).join("");

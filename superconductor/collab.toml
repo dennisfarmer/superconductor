@@ -73,6 +73,7 @@ port = 8467                   # the app's pages: http://localhost:8467/objects (
 [services]
 # other SuperConductor programs, listed (with whether they're up) on the objects page's Services tab
 midi_player_url = "http://localhost:8475"   # ../superconductor_midi, `make player`
+# Atlas: tried first; if Jac took another port (8000 in use), the running Atlas is found anyway
 atlas_url = "http://localhost:8000"         # ../superconductor_atlas app, `make run`
 atlas_engine_url = "http://localhost:8765"  # its audio engine (control API)
 
