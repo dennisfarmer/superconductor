@@ -59,7 +59,16 @@ before it is sent, so blocks are 200ms / speed long. Plain HTTP, any client:
   POST /tempo/beat      {t?}     one conductor beat (t: seconds, sender's clock)
   POST /tempo/target    {bpm}    exact target tempo
   POST /tempo/free      null     no target (speed 1)
-  GET  /tempo/status    mode, speed, model_bpm, heard_bpm, conductor_bpm, ...
+  GET  /tempo/status    mode, speed, stretching, conductor_holding, model_bpm,
+                        heard_bpm, conductor_bpm, ...; inputs: what shapes the
+                        generation (session, recipe, controls, notes, drums,
+                        pattern_cfg, pattern_id);
+                        and the beat being heard: playing, beat (0 = beat one),
+                        beat_frac, beats_per_bar, meter_confidence, meter_source,
+                        downbeat_source
+  POST /tempo/meter     {beats}  pin 3 or 4 beats per bar (default 4); {beats: null} = detect
+  POST /tempo/downbeat  null     the beat heard now is beat one (until cleared)
+  POST /tempo/override/clear null  back to 4/4 and the detected beat one
 """
 
 import asyncio
@@ -190,6 +199,13 @@ class Lane:
         return value
 
 
+def _lane_info(lane):
+    """A Pattern lane for the status page: None when the model chooses freely."""
+    if lane.frames is None:
+        return None
+    return {"loop": lane.loop, "frames": len(lane.frames)}
+
+
 class Generator:
     """Owns the model and the generation state; runs on one dedicated thread.
 
@@ -209,6 +225,7 @@ class Generator:
         self._frames_per_block = frames_per_block
         self._cache = {}
         self.tempo = TempoController()
+        self.inputs = {"session": "none"}  # what is shaping the music now (see `_publish_inputs`)
         self.control_q = queue.Queue()
         self.load_error = None
         self.loaded = threading.Event()
@@ -228,6 +245,7 @@ class Generator:
         emit = None  # callback of the active session; None = no session
         style, controls, state = None, {}, None
         notes, drums, pattern_cfg = Lane(), Lane(), {}  # NOTES / DRUMS input (Pattern)
+        recipe, pattern_id = None, None
         paused = False
         credits, seq = 0, 0
         gen_time = gen_audio = 0.0
@@ -247,23 +265,27 @@ class Generator:
                         credits = msg["credits"]
                         controls = msg["controls"]
                         style = _blend_styles(self._embed, self._cache, msg["recipe"])
+                        recipe, pattern_id = msg["recipe"], None
                     elif kind == "end":
                         emit, state, credits, paused = None, None, 0, False
                         notes, drums, pattern_cfg = Lane(), Lane(), {}
+                        recipe, pattern_id = None, None
                     elif kind == "pattern":
                         # lanes were validated and expanded by the websocket handler
                         for name, lane in (("notes", notes), ("drums", drums)):
                             if name in msg["lanes"]:
                                 lane.set(*msg["lanes"][name])
                         pattern_cfg.update(msg["cfg"])
+                        pattern_id = msg.get("id") or pattern_id
                     elif kind == "recipe":
                         new_style = _blend_styles(self._embed, self._cache, msg["recipe"])
                         if new_style is not None:
-                            style = new_style
+                            style, recipe = new_style, msg["recipe"]
                     elif kind == "controls":
                         controls = msg["controls"]
                     elif kind == "credit":
                         credits += 1
+                        self.tempo.played(msg["t"])
                     elif kind == "pause":
                         # the state is kept, so Resume continues the music; credits keep
                         # coming in while the client plays out its buffer, so Resume
@@ -271,6 +293,15 @@ class Generator:
                         paused = msg["paused"]
             except queue.Empty:
                 pass
+            self.inputs = {
+                "session": "none" if emit is None else ("paused" if paused else "generating"),
+                "recipe": recipe,  # style prompts and weights (from the client)
+                "controls": controls if emit is not None else {},
+                "notes": _lane_info(notes),  # NOTES lane of the Pattern, None = model chooses
+                "drums": _lane_info(drums),
+                "pattern_cfg": dict(pattern_cfg),
+                "pattern_id": pattern_id,
+            }
             if emit is None or credits <= 0 or style is None or paused:
                 continue
 
@@ -341,6 +372,9 @@ class MRT2Server:
         self._app.router.add_post("/tempo/target", self._target)
         self._app.router.add_post("/tempo/free", self._free)
         self._app.router.add_get("/tempo/status", self._status)
+        self._app.router.add_post("/tempo/meter", self._meter)
+        self._app.router.add_post("/tempo/downbeat", self._downbeat)
+        self._app.router.add_post("/tempo/override/clear", self._clear_override)
 
     def run(self):
         web.run_app(self._app, port=self._port)
@@ -368,6 +402,18 @@ class MRT2Server:
         return web.json_response(self._generator.tempo.status())
 
     async def _status(self, request):
+        return web.json_response({**self._generator.tempo.status(), "inputs": self._generator.inputs})
+
+    async def _meter(self, request):
+        self._generator.tempo.set_meter((await request.json() or {}).get("beats"))
+        return web.json_response(self._generator.tempo.status())
+
+    async def _downbeat(self, request):
+        self._generator.tempo.downbeat()
+        return web.json_response(self._generator.tempo.status())
+
+    async def _clear_override(self, request):
+        self._generator.tempo.clear_override()
         return web.json_response(self._generator.tempo.status())
 
     @staticmethod
@@ -387,7 +433,7 @@ class MRT2Server:
                 cfg[name] = min(7.0, max(-1.0, float(body[key])))
         if body.get("id"):
             print(f"Pattern {body['id']}: {', '.join(lanes) or 'cfg only'}")
-        return {"type": "pattern", "lanes": lanes, "cfg": cfg}
+        return {"type": "pattern", "lanes": lanes, "cfg": cfg, "id": body.get("id")}
 
     async def _handle_ws(self, request):
         ws = web.WebSocketResponse(compress=False)  # float audio doesn't compress
@@ -450,7 +496,7 @@ class MRT2Server:
                 elif msg_type == "UpdateControls":
                     self._post({"type": "controls", "controls": dict(body)})
                 elif msg_type == "ReceivedChunk":
-                    self._post({"type": "credit"})
+                    self._post({"type": "credit", "t": time.time()})  # when the block was played
                 elif msg_type in ("Pause", "Resume"):
                     self._post({"type": "pause", "paused": msg_type == "Pause"})
                 elif msg_type == "Pattern":

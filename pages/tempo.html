@@ -16,10 +16,43 @@
   td:last-child { text-align: right; font-size: 18px; }
   .note { color: #888; font-size: 12px; }
   #heard { color: #f5b301; font-size: 28px; }
+  .info { color: #888; cursor: help; }
+  /* what is changing the music: one row per service, always visible */
+  #effects { width: 100%; border: 1px solid #333; border-radius: 6px; padding: 4px 10px; margin: 12px 0 18px; box-sizing: border-box; }
+  #effects h2 { font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #888; margin: 6px 0; }
+  .fx { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-top: 1px solid #222; }
+  .fx .badge { flex: none; width: 92px; text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+               border-radius: 3px; padding: 2px 0; background: #2a2a2a; color: #888; }
+  .fx .badge.on { background: #f5b301; color: #111; }
+  .fx .badge.easing { background: #6b5300; color: #f5d580; }
+  .fx .badge.listen { background: #1d2a48; color: #8fb3ff; }
+  .fx .name { flex: none; width: 120px; font-weight: 600; }
+  .fx .what { color: #ccc; font-size: 13px; }
+  .fx .what small { display: block; color: #777; font-size: 11px; }
+  /* beat lights: as in atlas's header (superconductor_atlas/assets/atlas.css) */
+  :root { --accent: #8fb3ff; --warn: #ffcf66; --ctl-h: 30px; }
+  .beat-lights { display: flex; align-items: center; gap: 5px; height: var(--ctl-h); padding: 0 4px; }
+  .beat-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--accent); opacity: 0.18;
+    transition: box-shadow 60ms linear;
+  }
+  .beat-dot.down { background: var(--warn); }
+  .beat-dot.flash { box-shadow: 0 0 10px 2px var(--accent); }
+  .beat-dot.down.flash { box-shadow: 0 0 12px 3px var(--warn); }
+  .beat-lights.idle .beat-dot { opacity: 0.12 !important; box-shadow: none; }
 </style>
 </head>
 <body>
 <h1>Tempo test</h1>
+<div id="effects">
+  <h2>What is shaping the music now</h2>
+  <div class="fx"><span class="badge" id="fx-session-b">--</span><span class="name">Session</span><span class="what" id="fx-session">--</span></div>
+  <div class="fx"><span class="badge" id="fx-tempo-b">--</span><span class="name">Tempo control</span><span class="what" id="fx-tempo">--</span></div>
+  <div class="fx"><span class="badge" id="fx-notes-b">--</span><span class="name">NOTES input</span><span class="what" id="fx-notes">--</span></div>
+  <div class="fx"><span class="badge" id="fx-drums-b">--</span><span class="name">DRUMS input</span><span class="what" id="fx-drums">--</span></div>
+  <div class="fx"><span class="badge" id="fx-style-b">--</span><span class="name">Style prompts</span><span class="what" id="fx-style">--</span></div>
+  <div class="fx"><span class="badge listen">LISTEN ONLY</span><span class="name">Beat lights</span><span class="what">Beat, time signature and beat one are measured from what you hear; they never change the audio.</span></div>
+</div>
 <div class="row">
   <input type="range" id="slider" min="50" max="200" step="1" value="120">
   <input type="number" id="bpm" min="30" max="240" step="0.5" value="120">
@@ -32,6 +65,23 @@ Tapping in the conductor window takes over from a set bpm.</p>
 <div class="row">
   <button id="conduct">Open conductor window</button>
 </div>
+<div class="row" title="Beat phase: the onset envelope is sampled once per beat period from every possible offset (a comb over offsets); the loudest offset, recent beats counting more, is where the beats are; circular median of the last 5 seconds.&#10;Time signature (3/4 or 4/4) and beat one: each beat's accent (onset + bass onset + chord change) is compared across 3- and 4-beat groupings; each second votes, and the last 6 votes are counted.&#10;Confidence = the share of those votes that agree.">
+  <div id="lights" class="beat-lights idle"></div>
+  <select id="meter">
+    <option value="4" selected>4/4</option><option value="3">3/4</option><option value="">auto</option>
+  </select>
+  <button id="downbeat">This is beat one</button>
+  <button id="clear">Clear</button>
+</div>
+<div class="row">
+  <label for="delay">Light delay</label>
+  <input type="range" id="delay" min="-200" max="400" step="5">
+  <span id="delayv"></span>
+</div>
+<p class="note"><b>Beat lights</b>: the beat you hear; beat one is the yellow light (all blue while it is not known yet).
+<b>4/4 / 3/4 / auto</b>: set the time signature (4/4 by default), or detect it. <b>This is beat one</b>: press it on beat one;
+held until <b>Clear</b> (which also goes back to 4/4). <b>Light delay</b>: move it until the flashes match the sound (the sound card's latency).
+Hover the lights for how beat one is found.</p>
 <table>
   <tr><td>Heard bpm (model bpm × speed)</td><td id="heard">--</td></tr>
   <tr><td>Model bpm (what MRT2 generates)</td><td id="model_bpm">--</td></tr>
@@ -39,7 +89,9 @@ Tapping in the conductor window takes over from a set bpm.</p>
   <tr><td>Target bpm</td><td id="target_bpm">--</td></tr>
   <tr><td>Conductor bpm</td><td id="conductor_bpm">--</td></tr>
   <tr><td>Speed</td><td id="speed">--</td></tr>
-  <tr><td>Tempo control</td><td id="mode">--</td></tr>
+  <tr><td>Time signature <span class="info" title="Beat phase: the onset envelope is sampled once per beat period from every possible offset (a comb over offsets); the loudest offset, recent beats counting more, is where the beats are; circular median of the last 5 seconds.&#10;Time signature (3/4 or 4/4) and beat one: each beat's accent (onset + bass onset + chord change) is compared across 3- and 4-beat groupings; each second votes, and the last 6 votes are counted.&#10;Confidence = the share of those votes that agree.">&#9432;</span></td><td id="beats_per_bar">--</td></tr>
+  <tr><td>Beat one confidence <span class="info" title="Beat phase: the onset envelope is sampled once per beat period from every possible offset (a comb over offsets); the loudest offset, recent beats counting more, is where the beats are; circular median of the last 5 seconds.&#10;Time signature (3/4 or 4/4) and beat one: each beat's accent (onset + bass onset + chord change) is compared across 3- and 4-beat groupings; each second votes, and the last 6 votes are counted.&#10;Confidence = the share of those votes that agree.">&#9432;</span></td><td id="meter_confidence">--</td></tr>
+  <tr><td>Beat one</td><td id="downbeat_source">--</td></tr>
 </table>
 <p class="note">The model bpm needs ~4s of audio before the speed starts to move (calibration).
 Tempos are matched up to half/double time.</p>
@@ -53,9 +105,51 @@ $("slider").onchange = () => post("/tempo/target", { bpm: +$("slider").value });
 $("set").onclick = () => post("/tempo/target", { bpm: +$("bpm").value });
 $("bpm").onkeydown = e => { if (e.key === "Enter") $("set").click(); };
 $("free").onclick = () => post("/tempo/free");
-$("conduct").onclick = () => window.open("/conduct", "conductor", "width=320,height=260");
+$("conduct").onclick = () => window.open("/conduct", "conductor", "width=320,height=300");
+$("meter").onchange = () => post("/tempo/meter", { beats: $("meter").value ? +$("meter").value : null });
+$("downbeat").onclick = () => post("/tempo/downbeat");
+$("clear").onclick = () => post("/tempo/override/clear");
 
-const MODES = { free: "off (MRT2's own tempo)", target: "matching the set bpm", conduct: "following the conductor" };
+
+// one row of "What is shaping the music now": badge (text, class) and description
+function fx(id, badge, cls, html) {
+  $(`fx-${id}-b`).textContent = badge;
+  $(`fx-${id}-b`).className = "badge" + (cls ? " " + cls : "");
+  $(`fx-${id}`).innerHTML = html;
+}
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+function showEffects(s) {
+  const x = `×${s.speed.toFixed(3)}`, inp = s.inputs || {};
+  const hears = "<small>changes what you hear: the speed, not the pitch</small>";
+  if (s.mode === "target")
+    fx("tempo", "ON", "on", s.model_bpm == null ? `Matching ${fmt(s.target_bpm)} bpm; waiting for a tempo estimate (speed ${x})${hears}`
+                                                 : `Matching ${fmt(s.target_bpm)} bpm: speed ${x}${hears}`);
+  else if (s.mode === "conduct")
+    fx("tempo", "ON", "on", s.conductor_holding ? `Conductor stopped; holding speed ${x}${hears}`
+                                                : `Following the conductor (${fmt(s.conductor_bpm)} bpm): speed ${x}${hears}`);
+  else if (s.stretching)
+    fx("tempo", "EASING OFF", "easing", `Returning to MRT2's own tempo: speed ${x}${hears}`);
+  else
+    fx("tempo", "OFF", "", "MRT2's own tempo; the audio passes through unchanged");
+
+  const gen = "<small>changes what MRT2 generates</small>";
+  const lane = (id, l, cfg) => l
+    ? fx(id, "ON", "on", `${l.loop ? "Looping" : "Playing once"} a ${(l.frames * 0.04).toFixed(2)} s pattern` +
+         (cfg != null ? `, guidance ${cfg}` : "") + (inp.pattern_id ? ` (pattern ${esc(inp.pattern_id)})` : "") + gen)
+    : fx(id, "OFF", "", "No pattern: the model chooses");
+  lane("notes", inp.notes, inp.pattern_cfg?.notes);
+  lane("drums", inp.drums, inp.pattern_cfg?.drums);
+
+  if (inp.recipe && Object.keys(inp.recipe).length) {
+    const r = Object.entries(inp.recipe).map(([k, v]) => `${esc(k)} ${Math.round(v * 100)}%`).join(" · ");
+    const c = Object.entries(inp.controls || {}).map(([k, v]) => `${esc(k)} ${v}`).join(" · ");
+    fx("style", "ON", "on", r + `<small>from the client${c ? "; " + c : ""}</small>`);
+  } else fx("style", "--", "", "No session");
+
+  if (inp.session === "generating") fx("session", "LIVE", "on", "A client is connected and MRT2 is generating");
+  else if (inp.session === "paused") fx("session", "PAUSED", "easing", "Paused: nothing is being generated");
+  else fx("session", "NONE", "", "No client connected: nothing is playing");
+}
 const fmt = (v, d = 1) => v == null ? "--" : (typeof v === "number" ? v.toFixed(d) : v);
 async function poll() {
   try {
@@ -63,11 +157,75 @@ async function poll() {
     $("heard").textContent = fmt(s.heard_bpm);
     for (const k of ["model_bpm", "measured_output_bpm", "target_bpm", "conductor_bpm"]) $(k).textContent = fmt(s[k]);
     $("speed").textContent = fmt(s.speed, 3);
-    $("mode").textContent = MODES[s.mode] ?? s.mode;
-  } catch (e) { $("mode").textContent = "server unreachable"; }
+    showEffects(s);
+    $("beats_per_bar").textContent = s.beats_per_bar == null ? "not sure yet" : `${s.beats_per_bar}/4 (${s.meter_source})`;
+    $("meter_confidence").textContent = s.meter_confidence == null ? "--" : `${Math.round(s.meter_confidence * 100)}%`;
+    $("downbeat_source").textContent = s.downbeat_source ?? "not known yet";
+    if (document.activeElement !== $("meter")) $("meter").value = s.meter_source === "manual" ? String(s.beats_per_bar) : "";
+    beatSync(s);
+  } catch (e) { fx("session", "UNREACHABLE", "", "The server is not answering"); }
 }
 setInterval(poll, 250);
 poll();
+
+// Beat lights, as in atlas's header (BeatLights.cl.jac): each status poll gives the
+// beat being heard and how far into it; an animation-frame loop lights the dots
+// between polls. "Light delay" is the sound card's latency (stored per browser).
+const DELAY_KEY = "sc-light-delay-ms";
+let lightDelay = 40;
+try { const v = localStorage.getItem(DELAY_KEY); if (v != null) lightDelay = +v; } catch (e) {}
+const sync = { anchor: 0, beat: 0, period: 500, beats: 4, running: false };
+function beatSync(s) {
+  const lights = document.getElementById("lights");
+  const beats = s.beats_per_bar || 4, down = s.downbeat_source != null;
+  if (lights.children.length !== beats || lights.dataset.down !== String(down)) {
+    lights.replaceChildren(...Array.from({ length: beats }, (_, i) => {
+      const d = document.createElement("span");
+      d.className = "beat-dot" + (down && i === 0 ? " down" : "");
+      return d;
+    }));
+    lights.dataset.down = String(down);
+  }
+  const running = !!(s.playing && s.beat != null && s.heard_bpm);
+  lights.classList.toggle("idle", !running);
+  if (!running) { sync.running = false; return; }
+  const period = 60000 / s.heard_bpm;
+  let anchor = performance.now() + lightDelay - s.beat_frac * period;
+  if (sync.running && Math.abs(sync.period - period) < period * 0.02 && sync.beats === beats) {
+    // same tempo: nudge towards the new reading instead of jumping, so poll
+    // jitter does not make the flashes stutter
+    const k = Math.round((anchor - sync.anchor) / period);
+    const expected = sync.anchor + k * period, diff = anchor - expected;
+    if (Math.abs(diff) < period * 0.25 && ((sync.beat + k) % beats + beats) % beats === s.beat)
+      anchor = expected + diff * 0.3;
+  }
+  Object.assign(sync, { anchor, beat: s.beat, period, beats, running: true });
+}
+function lightFrame() {
+  const dots = document.getElementById("lights").children, n = dots.length;
+  let idx = -1, phase = 1;
+  if (sync.running) {
+    const elapsed = performance.now() - sync.anchor, k = Math.floor(elapsed / sync.period);
+    idx = ((sync.beat + k) % n + n) % n;
+    phase = elapsed / sync.period - k;
+  }
+  for (let i = 0; i < n; i++) {
+    const lit = i === idx;
+    // a sharp flash at the start of the beat that fades over the first half of it
+    dots[i].style.opacity = lit ? String(Math.max(0, 1 - phase * 1.6) * 0.75 + 0.25) : "";
+    dots[i].classList.toggle("lit", lit);
+    dots[i].classList.toggle("flash", lit && phase < 0.14);
+  }
+  requestAnimationFrame(lightFrame);
+}
+requestAnimationFrame(lightFrame);
+$("delay").value = lightDelay;
+$("delayv").textContent = `${lightDelay} ms`;
+$("delay").oninput = () => {
+  lightDelay = +$("delay").value;
+  $("delayv").textContent = `${lightDelay} ms`;
+  try { localStorage.setItem(DELAY_KEY, String(lightDelay)); } catch (e) {}
+};
 </script>
 </body>
 </html>

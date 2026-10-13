@@ -67,7 +67,28 @@ The client opens a websocket at `GET /stream` (one client at a time; a second on
 | `POST /tempo/beat` | `{"t"?: seconds}` | one conductor beat (`t` on the sender's clock, so network delay doesn't affect intervals) |
 | `POST /tempo/target` | `{"bpm": 120}` | exact target tempo |
 | `POST /tempo/free` | `null` | no target (speed 1) |
-| `GET /tempo/status` | | `mode, speed, model_bpm, heard_bpm, measured_output_bpm, target_bpm, conductor_bpm` |
+| `POST /tempo/meter` | `{"beats": 3}` | pin 3 or 4 beats per bar (default: 4, i.e. 4/4); `{"beats": null}` detects it |
+| `POST /tempo/downbeat` | `null` | the beat being heard now is beat one (held until cleared) |
+| `POST /tempo/override/clear` | `null` | back to the default 4/4 and the detected beat one |
+| `GET /tempo/status` | | `mode, speed, model_bpm, heard_bpm, measured_output_bpm, target_bpm, conductor_bpm`, and the beat fields below |
+
+**Beat one and beats per bar.** `BeatGrid` (in `tempo.py`) runs once a second on the last 8 s of heard audio. *Beat phase*: the onset envelope is sampled once per beat period starting at each possible offset (a comb over offsets), recent beats weighted more; the loudest offset is where the beats are, smoothed by a circular median of the last 5. *Beats per bar and beat one*: each beat's accent (onset + bass onset + chord change, normalised) is compared across 3- and 4-beat groupings; each window votes, and the last 6 votes are counted. The position is the audio the client is playing now: the end of the last block it acknowledged plus the time since then. The sound card's latency is not included; the pages have a "light delay" setting for it.
+
+| Status field | Meaning |
+|---|---|
+| `playing` | audio is being heard (false before the first acknowledgement and once the client's buffer has played out) |
+| `beat` | index of the beat being heard within the bar, 0 = beat one; counted modulo 4 while `beats_per_bar` is null; null when not playing |
+| `beat_frac` | 0–1, how far through that beat |
+| `beats_per_bar` | 3 or 4 (4 by default); null only in auto while not sure yet |
+| `meter_confidence` | share of the last 6 votes that agree on beats per bar and beat one (null before the first vote) |
+| `meter_source` | `manual` (set, including the default 4/4), `detected` (auto), or null |
+| `downbeat_source` | `detected`, `manual`, or null (beat one unknown: `beat` then counts from an arbitrary beat) |
+
+| `stretching` | true while the heard audio is sped up or slowed down (speed ≠ 1); at speed exactly 1 the audio passes through unchanged |
+| `conductor_holding` | following the conductor, but no beat for 3 s: the last speed is held |
+| `inputs` | what shapes the generation now: `session` (`none` / `generating` / `paused`), `recipe` (style prompts and weights), `controls`, `notes` / `drums` (`{loop, frames}` of the Pattern lane, or null when the model chooses), `pattern_cfg`, `pattern_id` |
+
+To light a beat in time: `anchor = now + latency - beat_frac * 60 / heard_bpm` is when `beat` started being heard (see `pages/tempo.html`).
 
 ### NOTES / DRUMS (`Pattern`)
 

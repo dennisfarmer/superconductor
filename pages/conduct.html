@@ -10,13 +10,26 @@
   #dot { width: 90px; height: 90px; border-radius: 50%; background: #333; transition: background 0.15s; }
   #dot.on { background: #f5b301; transition: none; }
   #bpm { font-size: 28px; margin-top: 16px; font-variant-numeric: tabular-nums; }
-  #hint { font-size: 12px; color: #888; margin-top: 6px; }
+  #hint { font-size: 12px; color: #888; margin-top: 6px; text-align: center; }
+  #lights { margin-top: 12px; }
+  /* beat lights: as in atlas's header (superconductor_atlas/assets/atlas.css) */
+  :root { --accent: #8fb3ff; --warn: #ffcf66; --ctl-h: 30px; }
+  .beat-lights { display: flex; align-items: center; gap: 5px; height: var(--ctl-h); padding: 0 4px; }
+  .beat-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--accent); opacity: 0.18;
+    transition: box-shadow 60ms linear;
+  }
+  .beat-dot.down { background: var(--warn); }
+  .beat-dot.flash { box-shadow: 0 0 10px 2px var(--accent); }
+  .beat-dot.down.flash { box-shadow: 0 0 12px 3px var(--warn); }
+  .beat-lights.idle .beat-dot { opacity: 0.12 !important; box-shadow: none; }
 </style>
 </head>
 <body>
 <div id="dot"></div>
+<div id="lights" class="beat-lights idle"></div>
 <div id="bpm">-- bpm</div>
-<div id="hint">space bar (or click) = beat</div>
+<div id="hint">space bar (or click) = beat<br>shift + space = this is beat one</div>
 <script>
 // One beat per space bar press. `t` is this page's clock, so network delay
 // doesn't change the intervals the server sees.
@@ -32,9 +45,71 @@ async function beat() {
   } catch (e) { bpm.textContent = "server unreachable"; }
 }
 document.addEventListener("keydown", e => {
-  if (e.code === "Space" && !e.repeat) { e.preventDefault(); beat(); }
+  if (e.code !== "Space" || e.repeat) return;
+  e.preventDefault();
+  if (e.shiftKey) fetch("/tempo/downbeat", { method: "POST" });
+  else beat();
 });
 document.addEventListener("mousedown", beat);
+
+// the beat lights follow the music (the beat heard), not the taps
+async function poll() {
+  try { beatSync(await (await fetch("/tempo/status")).json()); } catch (e) {}
+}
+setInterval(poll, 250);
+poll();
+
+// Beat lights, as in atlas's header (BeatLights.cl.jac): each status poll gives the
+// beat being heard and how far into it; an animation-frame loop lights the dots
+// between polls. "Light delay" is the sound card's latency (stored per browser).
+const DELAY_KEY = "sc-light-delay-ms";
+let lightDelay = 40;
+try { const v = localStorage.getItem(DELAY_KEY); if (v != null) lightDelay = +v; } catch (e) {}
+const sync = { anchor: 0, beat: 0, period: 500, beats: 4, running: false };
+function beatSync(s) {
+  const lights = document.getElementById("lights");
+  const beats = s.beats_per_bar || 4, down = s.downbeat_source != null;
+  if (lights.children.length !== beats || lights.dataset.down !== String(down)) {
+    lights.replaceChildren(...Array.from({ length: beats }, (_, i) => {
+      const d = document.createElement("span");
+      d.className = "beat-dot" + (down && i === 0 ? " down" : "");
+      return d;
+    }));
+    lights.dataset.down = String(down);
+  }
+  const running = !!(s.playing && s.beat != null && s.heard_bpm);
+  lights.classList.toggle("idle", !running);
+  if (!running) { sync.running = false; return; }
+  const period = 60000 / s.heard_bpm;
+  let anchor = performance.now() + lightDelay - s.beat_frac * period;
+  if (sync.running && Math.abs(sync.period - period) < period * 0.02 && sync.beats === beats) {
+    // same tempo: nudge towards the new reading instead of jumping, so poll
+    // jitter does not make the flashes stutter
+    const k = Math.round((anchor - sync.anchor) / period);
+    const expected = sync.anchor + k * period, diff = anchor - expected;
+    if (Math.abs(diff) < period * 0.25 && ((sync.beat + k) % beats + beats) % beats === s.beat)
+      anchor = expected + diff * 0.3;
+  }
+  Object.assign(sync, { anchor, beat: s.beat, period, beats, running: true });
+}
+function lightFrame() {
+  const dots = document.getElementById("lights").children, n = dots.length;
+  let idx = -1, phase = 1;
+  if (sync.running) {
+    const elapsed = performance.now() - sync.anchor, k = Math.floor(elapsed / sync.period);
+    idx = ((sync.beat + k) % n + n) % n;
+    phase = elapsed / sync.period - k;
+  }
+  for (let i = 0; i < n; i++) {
+    const lit = i === idx;
+    // a sharp flash at the start of the beat that fades over the first half of it
+    dots[i].style.opacity = lit ? String(Math.max(0, 1 - phase * 1.6) * 0.75 + 0.25) : "";
+    dots[i].classList.toggle("lit", lit);
+    dots[i].classList.toggle("flash", lit && phase < 0.14);
+  }
+  requestAnimationFrame(lightFrame);
+}
+requestAnimationFrame(lightFrame);
 </script>
 </body>
 </html>
