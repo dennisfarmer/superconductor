@@ -44,7 +44,44 @@
   .picker input[type=range] { width: 100%; margin: 10px 0 8px; padding: 0; }
   .picker .foot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   .picker .foot span { flex: 1; font-variant-numeric: tabular-nums; }
-  .thumb { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--line); }
+  .thumb { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--line);
+           cursor: pointer; }
+  .thumb:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .badge.frozen { color: var(--accent); border-color: var(--accent); }
+  .badge[hidden] { display: none; }
+  .views-backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, .45);
+                    display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+  .views-backdrop[hidden] { display: none; }
+  .views-sheet { background: var(--card); border: 1px solid var(--line); border-radius: 12px; width: 100%;
+                 max-width: 760px; padding: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+  .views-sheet .head { display: flex; align-items: baseline; gap: 10px; }
+  .views-sheet h2 { margin: 0; flex: 1; }
+  .views-sheet .count { color: var(--muted); font-size: 13px; font-weight: 400; }
+  .views-sheet .note { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
+  .views-sheet .freeze { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; font-size: 14px; color: var(--text); }
+  .views-sheet .freeze input { width: auto; margin: 0; }
+  .view-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+  .view { position: relative; }
+  .view img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--line); display: block; }
+  .view .n { position: absolute; left: 5px; top: 5px; font-size: 11px; padding: 0 5px; border-radius: 4px;
+             background: rgba(0, 0, 0, .55); color: #fff; font-variant-numeric: tabular-nums; }
+  .view button { position: absolute; right: 5px; top: 5px; padding: 1px 7px; font-size: 12px;
+                 color: var(--danger); background: var(--card); }
+  .view.deleting { opacity: .35; pointer-events: none; }
+  .view .score { font-size: 11.5px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums;
+                 line-height: 1.3; }
+  .view.suspect img { outline: 3px solid var(--danger); outline-offset: -3px; }
+  .view img { cursor: pointer; }
+  .view.cover img { box-shadow: 0 0 0 3px var(--accent); }
+  .view .picked { position: absolute; left: 5px; top: 26px; font-size: 11px; padding: 0 5px; border-radius: 4px;
+                  background: var(--accent); color: #fff; }
+  .view:not(.cover) .picked { display: none; }
+  .view.suspect .score .vs { color: var(--danger); font-weight: 600; }
+  .learning { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 0 0 12px;
+              padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+  .learning .title { width: 100%; color: var(--muted); font-size: 12px; }
+  .learning label { display: inline-flex; gap: 6px; align-items: center; margin: 0; color: var(--text); font-size: 13px; }
+  .learning input { width: 74px; padding: 4px 6px; }
   .top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-right: 28px; }
   .id { font-weight: 600; font-variant-numeric: tabular-nums; }
   .badge { font-size: 12px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
@@ -72,11 +109,24 @@
            background: var(--field); color: var(--text); }
   #play { min-width: 76px; }
   #play.paused { color: var(--live); border-color: var(--live); }
-  section.models { max-width: 1100px; margin: 0 auto; padding: 0 16px 6px; }
-  #models { font-size: 12.5px; color: var(--muted); border-collapse: collapse; }
-  #models td { padding: 1px 14px 1px 0; vertical-align: top; }
-  #models td:first-child { color: var(--text); white-space: nowrap; }
+  section.top { max-width: 1100px; margin: 0 auto; padding: 0 16px 6px; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+                 padding: 4px 10px; color: var(--muted); }
+  .tabs button[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
+  #models, #services { font-size: 12.5px; color: var(--muted); border-collapse: collapse; }
+  #models td, #services td { padding: 1px 14px 1px 0; vertical-align: top; }
+  #models td:first-child, #services td:first-child { color: var(--text); white-space: nowrap; }
   #models .remote { color: var(--accent); }
+  #services td { padding-bottom: 6px; }
+  #services .started { color: var(--muted); font-size: 11.5px; }
+  #services .up { color: var(--live); white-space: nowrap; }
+  #services .down { white-space: nowrap; }
+  #services .eps { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+  #services .ep { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #services .ep b { font-weight: 600; font-size: 10.5px; margin-right: 4px; }
+  #services a { color: var(--accent); text-decoration: none; }
+  #services a:hover { text-decoration: underline; }
   section.combos { max-width: 1100px; margin: 0 auto; padding: 4px 16px 12px; }
   h2 { font-size: 15px; margin: 8px 0; }
   .combo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
@@ -106,7 +156,14 @@
   <span id="status">connecting…</span>
   <button id="play" disabled title="pause / resume music generation on the server">Pause</button>
 </header>
-<section class="models"><table id="models"></table></section>
+<section class="top">
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="models" aria-selected="true">Models</button>
+    <button role="tab" data-tab="services" aria-selected="false">Services</button>
+  </nav>
+  <table id="models"></table>
+  <table id="services" hidden></table>
+</section>
 <section class="combos">
   <h2>Combos <span id="combo-hint" style="font-weight:400;color:var(--muted);font-size:13px">
     objects close together play this instead of their own instruments</span></h2>
@@ -124,7 +181,8 @@
 const list = document.getElementById("list");
 const status = document.getElementById("status");
 const cards = new Map();  // id -> card element
-const viewCounts = new Map();
+const viewCounts = new Map();  // id -> "view_rev:cover" of its thumbnail
+let lastState = null;
 
 async function post(path, body, method = "POST") {
   await fetch(path, { method, headers: { "Content-Type": "application/json" },
@@ -163,7 +221,8 @@ function makeCard(o) {
     <button class="swatch" title="color: click to pick"></button>
     <img class="thumb" alt="">
     <div>
-      <div class="top"><span class="id">#${o.id}</span><span class="badge"></span></div>
+      <div class="top"><span class="id">#${o.id}</span><span class="badge"></span>
+        <span class="badge frozen" hidden title="learns no new views (click the picture to change)">frozen</span></div>
       <label>Name</label>
       <input data-key="name">
       <label>Instrument</label>
@@ -184,6 +243,9 @@ function makeCard(o) {
   const trigger = card.querySelector("[data-key=trigger]");
   trigger.onchange = () => post(`/api/objects/${o.id}`, { trigger: trigger.value });
   card.querySelector(".swatch").onclick = e => { e.stopPropagation(); openPicker(card, o.id); };
+  const thumb = card.querySelector(".thumb");
+  thumb.title = "views: click to see them, delete wrong ones or freeze";
+  thumb.onclick = () => openViews(o.id);
   card.querySelector("[data-act=describe]").onclick = () => post(`/api/objects/${o.id}/describe`);
   card.querySelector("[data-act=suggest]").onclick = () => post(`/api/objects/${o.id}/suggest`);
   card.querySelector("[data-act=delete]").onclick = () => {
@@ -238,10 +300,13 @@ function render(objects) {
     }
     swatch.title = !o.color ? "no color yet (it is measured when the object is in view); click to pick one"
       : o.color_picked ? `color ${o.color} (picked); click to change` : `color ${o.color} (average of the object's pixels); click to change`;
-    if (viewCounts.get(o.id) !== o.views) {
-      viewCounts.set(o.id, o.views);
-      card.querySelector(".thumb").src = `/api/objects/${o.id}/view.jpg?v=${o.views}`;
+    const thumbKey = `${o.view_rev}:${o.cover}`;
+    if (viewCounts.get(o.id) !== thumbKey) {
+      viewCounts.set(o.id, thumbKey);
+      card.querySelector(".thumb").src = o.cover === null ? `/api/objects/${o.id}/view.jpg?r=${o.view_rev}`
+        : `/api/objects/${o.id}/views/${o.cover}.jpg?r=${o.view_rev}`;
     }
+    card.querySelector(".badge.frozen").hidden = !o.frozen;
   });
   for (const [id, card] of cards) if (!seen.has(id)) { card.remove(); cards.delete(id); }
   const empty = list.querySelector(".empty");
@@ -331,6 +396,116 @@ document.addEventListener("pointerdown", e => {
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && picker.card) closePicker(); });
 
+// views of one object (click its picture): the reference pictures recognition compares
+// the camera's view with. Wrong ones can be deleted; "freeze" stops it learning new ones.
+const viewsUi = (() => {
+  const el = document.createElement("div");
+  el.className = "views-backdrop";
+  el.hidden = true;
+  el.innerHTML = `<div class="views-sheet" role="dialog" aria-modal="true">
+    <div class="head"><h2></h2><button data-act="close">Close</button></div>
+    <p class="note">Recognition compares what the camera sees with these views; the closest one decides
+      which object it is. Delete any that show another object, a hand or background.
+      Click a view to show it as the object's picture.</p>
+    <label class="freeze"><input type="checkbox"> Freeze: learn no new views</label>
+    <div class="learning">
+      <span class="title">Learning, for all objects (until the app restarts; defaults in collab.toml)</span>
+      <label>views kept <span class="help" tabindex="0" data-tip="gallery_size: most views an object keeps. Over this, adding a view drops the one most similar to another.">?</span>
+        <input type="number" data-key="gallery_size" min="1" step="1"></label>
+      <label>novelty <span class="help" tabindex="0" data-tip="A view is learned only if its similarity to every kept view is below this (it shows something new).">?</span>
+        <input type="number" data-key="novelty" min="0" max="1" step="0.01"></label>
+      <label>learn threshold <span class="help" tabindex="0" data-tip="...and only if its similarity to the closest kept view is at least this (else it is more likely another object). Must be below novelty.">?</span>
+        <input type="number" data-key="learn_threshold" min="0" max="1" step="0.01"></label>
+    </div>
+    <div class="view-grid"></div></div>`;
+  document.body.appendChild(el);
+  return { el, title: el.querySelector("h2"), freeze: el.querySelector(".freeze input"),
+           learning: [...el.querySelectorAll(".learning input")],
+           grid: el.querySelector(".view-grid"), id: null, rev: null };
+})();
+
+function openViews(id) {
+  viewsUi.id = id;
+  viewsUi.rev = null;
+  viewsUi.el.hidden = false;
+  if (lastState) renderViews(lastState);
+}
+
+function closeViews() {
+  viewsUi.el.hidden = true;
+  viewsUi.id = null;
+}
+
+function renderViews(state) {
+  if (viewsUi.id === null) return;
+  const o = state.objects.find(o => o.id === viewsUi.id);
+  if (!o) { closeViews(); return; }
+  viewsUi.title.innerHTML = "";
+  viewsUi.title.append(`#${o.id}${o.name ? " " + o.name : ""} `);
+  const count = document.createElement("span");
+  count.className = "count";
+  count.textContent = `${o.views} of at most ${state.learning.gallery_size} views`;
+  viewsUi.title.append(count);
+  if (document.activeElement !== viewsUi.freeze) viewsUi.freeze.checked = o.frozen;
+  viewsUi.learning.forEach(input => {
+    if (document.activeElement !== input) input.value = state.learning[input.dataset.key];
+  });
+  if (viewsUi.rev !== o.view_rev) buildViews(o);
+  // scores change when any object's views change, so they are refreshed every time
+  const name = id => objName(state.objects, id);
+  viewsUi.grid.querySelectorAll(".view").forEach((v, i) => {
+    const [own, other, otherId] = o.view_scores[i] || [null, null, null];
+    const f = x => x === null ? "–" : x.toFixed(2);
+    const score = v.querySelector(".score"), vs = document.createElement("span");
+    vs.className = "vs";
+    vs.textContent = otherId === null ? "no other objects" : `${name(otherId)} ${f(other)}`;
+    score.replaceChildren(`own ${f(own)}`, document.createElement("br"), vs);
+    const suspect = own !== null && other !== null && other >= own;
+    v.classList.toggle("suspect", suspect);
+    v.classList.toggle("cover", o.cover === null ? i === o.views - 1 : i === o.cover);
+    v.title = suspect ? `looks more like ${name(otherId)} than like the rest of this object's views: likely wrong`
+      : "own: similarity to this object's closest other view; below: to the closest view of any other object";
+  });
+}
+
+function buildViews(o) {
+  viewsUi.rev = o.view_rev;
+  viewsUi.grid.innerHTML = "";
+  for (let i = 0; i < o.views; i++) {
+    const v = document.createElement("div");
+    v.className = "view";
+    v.innerHTML = `<img alt="view ${i + 1}" loading="lazy"><span class="n">${i + 1}</span>
+      <span class="picked">picture</span>
+      <button title="delete this view">Delete</button><div class="score"></div>`;
+    const img = v.querySelector("img");
+    img.src = `/api/objects/${o.id}/views/${i}.jpg?r=${o.view_rev}`;
+    img.onclick = () => {
+      post(`/api/objects/${o.id}/cover`, { index: i, rev: o.view_rev });
+      viewsUi.grid.querySelectorAll(".view").forEach((x, j) => x.classList.toggle("cover", j === i));
+    };
+    const del = v.querySelector("button");
+    if (o.views <= 1) { del.disabled = true; del.title = "the last view can't be deleted"; }
+    del.onclick = () => {
+      v.classList.add("deleting");
+      post(`/api/objects/${o.id}/views/${i}?rev=${o.view_rev}`, null, "DELETE");
+      // numbering shifts after a delete: block the others until the new views arrive
+      viewsUi.grid.querySelectorAll(".view").forEach(x => x.classList.add("deleting"));
+      // if it was refused (the client says why), rebuild the grid as it is
+      setTimeout(() => { if (viewsUi.rev === o.view_rev) viewsUi.rev = null; }, 3000);
+    };
+    viewsUi.grid.appendChild(v);
+  }
+}
+
+viewsUi.freeze.onchange = () => post(`/api/objects/${viewsUi.id}`, { frozen: viewsUi.freeze.checked });
+viewsUi.learning.forEach(input => {
+  input.onchange = () => { if (input.value !== "") post("/api/learning", { [input.dataset.key]: Number(input.value) }); };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") input.blur(); });
+});
+viewsUi.el.querySelector("[data-act=close]").onclick = closeViews;
+viewsUi.el.addEventListener("pointerdown", e => { if (e.target === viewsUi.el) closeViews(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && viewsUi.id !== null) closeViews(); });
+
 const combosEl = document.getElementById("combos");
 const picks = document.getElementById("picks");
 const comboRows = new Map();  // "1+2" -> row
@@ -415,13 +590,47 @@ function renderMusic(music) {
   play.textContent = paused ? "▶ Play" : "❚❚ Pause";
 }
 
+// Models / Services tabs (the choice is remembered in this browser)
+function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
+  document.getElementById("models").hidden = name !== "models";
+  document.getElementById("services").hidden = name !== "services";
+  try { localStorage.setItem("objects-tab", name); } catch {}
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+try { if (localStorage.getItem("objects-tab") === "services") showTab("services"); } catch {}
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// GET endpoints and pages are links; POST and websocket ones are only listed
+function renderServices(services) {
+  const table = document.getElementById("services");
+  const rows = (services || []).map(s => {
+    const up = s.up === null ? '<td class="down">checking…</td>'
+      : s.up ? '<td class="up">● up</td>' : '<td class="down">○ not running</td>';
+    const eps = s.endpoints.map(e => {
+      const url = esc(e.url);
+      const label = e.method === "page" ? "" : `<b>${e.method}</b>`;
+      return `<span class="ep">${label}${e.method === "page" || e.method === "GET"
+        ? `<a href="${url}" target="_blank" rel="noopener">${url}</a>` : url}</span>`;
+    }).join("");
+    const note = s.note ? `<div>${esc(s.note)}</div>` : "";
+    return `<tr><td>${esc(s.name)}<div class="started">${esc(s.started)}</div></td>${up}` +
+      `<td><div class="eps">${eps}</div>${note}</td></tr>`;
+  }).join("");
+  if (table.dataset.rows !== rows) { table.innerHTML = rows; table.dataset.rows = rows; }
+}
+
 async function poll() {
   try {
     const state = await (await fetch("/api/objects")).json();
     const objects = state.objects;
+    lastState = state;
     render(objects);
+    renderViews(state);
     renderCombos(state.combos, objects);
     renderMusic(state.music);
+    renderServices(state.services);
     const models = document.getElementById("models");
     const rows = (state.models || []).map(m =>
       `<tr><td>${m.task}</td><td>${m.model}</td><td class="${m.where.startsWith("remote") ? "remote" : ""}">${m.where}</td></tr>`).join("");

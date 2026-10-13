@@ -17,10 +17,13 @@ audio is never dropped on a recipe change: the model state has already moved
 past it, so dropping it would be an audible jump.
 
 client_midi: the child process also serves a small HTTP API (default port 8470)
-through which another program (e.g. Harmonic Atlas) gives MRT2 its NOTES and
+through which another program (e.g. SuperConductor Atlas) gives MRT2 its NOTES and
 DRUMS input, while this client keeps providing the prompts:
     POST /pattern   Pattern body (see mrt2_server.py), forwarded to the server
     GET  /status    {connected, model, last_pattern_id}
+    GET  /input     the prompts and controls this client sends to MRT2, as its camera
+                    overlay shows them (collab.CollabFrontend.mrt2_input):
+                    {connected, rows: [{prompt, source, value, share, color}], controls}
 """
 import asyncio
 import json
@@ -67,6 +70,10 @@ async def _start_client_midi(port, link):
         return reply({"connected": link.get("ws") is not None, "model": link.get("model"),
                       "last_pattern_id": link.get("last_pattern_id")})
 
+    async def input_view(_request):
+        view = link.get("input") or {"rows": [], "controls": {}}
+        return reply({"connected": link.get("ws") is not None, **view})
+
     async def pattern(request):
         try:
             body = await request.json()
@@ -86,6 +93,7 @@ async def _start_client_midi(port, link):
 
     app = web.Application()
     app.router.add_get("/status", status)
+    app.router.add_get("/input", input_view)
     app.router.add_post("/pattern", pattern)
     app.router.add_route("OPTIONS", "/{tail:.*}", options)
     runner = web.AppRunner(app, access_log=None)
@@ -186,6 +194,8 @@ async def _stream(control_q, stats_q, uri, credits, output_device, link, sd, web
                 elif msg["type"] == "controls":
                     await ws.send(json.dumps({"type": "UpdateControls",
                                               "body": msg["controls"]}))
+                elif msg["type"] == "input_view":
+                    link["input"] = msg["view"]
                 elif msg["type"] == "pause":
                     if msg["paused"]:
                         started[0] = False  # the silence while paused isn't an underrun
@@ -261,6 +271,11 @@ class MagentaClient:
     def update_controls(self, controls):
         """controls: any of {"temperature", "top_k", "cfg_musiccoca"}"""
         self._control_q.put({"type": "controls", "controls": dict(controls)})
+
+    def update_input_view(self, view):
+        """What client_midi's GET /input serves: {"rows": [...], "controls": {...}}
+        (CollabFrontend.mrt2_input). Display only; nothing goes to the server."""
+        self._control_q.put({"type": "input_view", "view": view})
 
     def set_paused(self, paused):
         """Pause: the server stops generating (after the ~credits blocks already

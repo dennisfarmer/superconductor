@@ -61,7 +61,7 @@ To stop: `q` in the camera window, `Ctrl-C` in the other terminals.
 ### Troubleshooting
 
 - **The music ignores the objects (e.g. it sounds like jazz piano):** the camera loop isn't running, so the client never sends its prompts, and the server plays its default `jazz` prompt. Check that the camera window shows video and that the objects page's Music row shows `Magenta RealTime 2 ...` rather than `not connected`. If the camera window is frozen, another app (Zoom, Photo Booth, a browser tab) may be holding the C920. Quit it, or replug the camera, then restart the client. Or use the `-iphone` target instead.
-- **Notes from the MIDI player or Harmonic Atlas have no effect:** the server's terminal prints `WS unknown message type: Pattern`. That server is older than the notes input, so `git pull` and restart it.
+- **Notes from the MIDI player or SuperConductor Atlas have no effect:** the server's terminal prints `WS unknown message type: Pattern`. That server is older than the notes input, so `git pull` and restart it.
 - **The client says connection failed:** start the server (and the tunnel) first, then restart the client.
 
 ### Quick test: new-object flow
@@ -95,7 +95,7 @@ What should happen:
 
 ### NOTES / DRUMS from another program (client_midi)
 
-While the client runs, it listens on http://localhost:8470 (`midi_port` in `collab.toml`). Other programs POST patterns of MRT2 NOTES / DRUMS input there, and the client forwards them to the server. The prompts still come from the objects. The protocol is in [MIDI_MSG_PROTOCOL.md](MIDI_MSG_PROTOCOL.md). Harmonic Atlas uses it with `make run-sc` (in `../harmonic_atlas`).
+While the client runs, it listens on http://localhost:8470 (`midi_port` in `collab.toml`). Other programs POST patterns of MRT2 NOTES / DRUMS input there, and the client forwards them to the server. The prompts still come from the objects. The protocol is in [MIDI_MSG_PROTOCOL.md](MIDI_MSG_PROTOCOL.md). SuperConductor Atlas uses it with `make run` (in `../superconductor_atlas`, the `atlas` branch).
 
 ```bash
 curl -s localhost:8470/status

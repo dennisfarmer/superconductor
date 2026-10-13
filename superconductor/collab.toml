@@ -13,7 +13,7 @@ base_prompt = "ambient electronic"
 base_weight = 0.3             # style weight that is always present
 credits = 3                   # blocks the server stays ahead of playback (~latency: 3 x 200ms)
 update_interval = 0.25        # seconds between recipe / control updates
-midi_port = 8470              # client_midi: other programs (e.g. Harmonic Atlas) POST NOTES / DRUMS
+midi_port = 8470              # client_midi: other programs (e.g. SuperConductor Atlas) POST NOTES / DRUMS
                               # patterns here, forwarded to the server (0 = off)
 
 [tracking]
@@ -56,6 +56,11 @@ min_hits = 8                  # frames of evidence before deciding who a new tra
 max_hits = 45                 # ambiguous tracks are decided anyway after this many frames
 coast_seconds = 1.0           # a vanished object keeps its last box this long...
 coast_near = 0.06             # ...or as long as it is this close to a detected object (objects together)
+# reference views each object keeps (see and delete them, or freeze learning, by clicking
+# an object's picture on the objects page)
+gallery_size = 12             # views kept per object; over this, the most redundant one is dropped
+novelty = 0.85                # a view is learned only if it is less similar than this to every kept view...
+learn_threshold = 0.65        # ...and at least this similar to the closest one (else: likely another object)
 
 [describe]
 # describe server (../superconductor_describe, `make describe`): a Qwen VLM writes a
@@ -64,6 +69,12 @@ server_url = "http://localhost:9200"
 
 [web]
 port = 8467                   # the app's pages: http://localhost:8467/objects (later /conduct, ...)
+
+[services]
+# other SuperConductor programs, listed (with whether they're up) on the objects page's Services tab
+midi_player_url = "http://localhost:8475"   # ../superconductor_midi, `make player`
+atlas_url = "http://localhost:8000"         # ../superconductor_atlas app, `make run`
+atlas_engine_url = "http://localhost:8765"  # its audio engine (control API)
 
 [mapping]
 reference = [0.5, 0.5]        # normalized, as displayed (mirrored); click in the window to move

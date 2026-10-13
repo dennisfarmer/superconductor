@@ -5,7 +5,9 @@ names, descriptions and instruments survive restarts:
       3/
         object.json      {"id": 3, "name": "lamp" | null, "description": "...",
                           "instrument": "...", "trigger": "near", "embedder": ...,
-                          "color": "#rrggbb" (mean color), "user_color": "#rrggbb" | null, ...}
+                          "color": "#rrggbb" (mean color), "user_color": "#rrggbb" | null,
+                          "frozen": false (learns no new views),
+                          "cover": 3 | null (the view shown as its picture; null: the newest), ...}
         embeddings.npy   (n, d) appearance features, one per distinct view
         views/00.jpg ... the crop for each embedding row
         hist.npy         color histogram (used only without an embedder)
@@ -41,6 +43,8 @@ class LibraryEntry:
     created: str = None
     color: tuple = None  # BGR, mean color of the object's pixels
     user_color: tuple = None  # BGR, picked on the objects page
+    frozen: bool = False  # learns no new views
+    cover: int = None  # index of the view shown as its picture; None: the newest
     path: Path = None
 
     @property
@@ -82,7 +86,7 @@ class ObjectLibrary:
                             hist=hist, detected_as=meta.get("detected_as", {}),
                             embedder=meta.get("embedder"), created=meta.get("created"),
                             color=hex_to_bgr(meta.get("color")), user_color=hex_to_bgr(meta.get("user_color")),
-                            path=d)
+                            frozen=bool(meta.get("frozen", False)), cover=meta.get("cover"), path=d)
 
     def max_id(self):
         """highest id ever used, including deleted objects"""
@@ -114,7 +118,7 @@ class ObjectLibrary:
         entry = self.entries.get(ident.id) or LibraryEntry(id=ident.id, created=time.strftime("%Y-%m-%d %H:%M:%S"),
                                                            path=d)
         entry.name, entry.description, entry.instrument = ident.user_label, ident.description, ident.instrument
-        entry.trigger = ident.trigger
+        entry.trigger, entry.frozen, entry.cover = ident.trigger, ident.frozen, ident.cover
         entry.color = None if ident.color is None else tuple(int(round(v)) for v in ident.color)
         entry.user_color = ident.user_color
         entry.detected_as = {k: round(v, 2) for k, v in ident.votes.most_common(3)}
@@ -139,7 +143,7 @@ class ObjectLibrary:
         if entry is None:
             return self.save(ident)
         entry.name, entry.description, entry.instrument = ident.user_label, ident.description, ident.instrument
-        entry.trigger = ident.trigger
+        entry.trigger, entry.frozen, entry.cover = ident.trigger, ident.frozen, ident.cover
         entry.color = None if ident.color is None else tuple(int(round(v)) for v in ident.color)
         entry.user_color = ident.user_color
         self._write_meta(entry)
@@ -150,7 +154,7 @@ class ObjectLibrary:
                 "instrument": entry.instrument, "trigger": entry.trigger, "detected_as": entry.detected_as,
                 "embedder": entry.embedder, "views": len(entry.embeddings),
                 "color": bgr_to_hex(entry.color), "user_color": bgr_to_hex(entry.user_color),
-                "created": entry.created, "saved": time.strftime("%Y-%m-%d %H:%M:%S")}
+                "frozen": entry.frozen, "cover": entry.cover, "created": entry.created, "saved": time.strftime("%Y-%m-%d %H:%M:%S")}
         entry.path.mkdir(parents=True, exist_ok=True)
         (entry.path / "object.json").write_text(json.dumps(meta, indent=1))
 

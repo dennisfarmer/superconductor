@@ -21,14 +21,19 @@ instruments are replaced by the combo's until they separate.
 Keys: [ ] combo distance, c calibrate, q quit. Click to move the reference point
 (during calibration: click an object to label it).
 """
+import json
 import logging
 import re
 import socket
 import subprocess
+import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 import tomllib
 from pathlib import Path
+from urllib.parse import urlparse
 
 import click
 import cv2
@@ -150,8 +155,12 @@ class CollabFrontend:
                     self._describe(ident)
         self._describe_error_shown = False
         self.panel = WebPanel(cfg.get("web", {}).get("port", 8467)) if self.library is not None else None
-        self._panel_views = {}  # id -> number of views when its thumbnail was last encoded
+        self._panel_views = {}  # id -> its view_rev when its views were last encoded
+        self._view_scores, self._view_scores_key = {}, None  # id -> IdentityRegistry.view_scores
         self._last_publish = 0.0
+        self._alive = {}  # service key -> its last probe (None: no answer), for the Services tab
+        if self.panel is not None:
+            threading.Thread(target=self._probe_services, daemon=True).start()
 
         # "touch the <label>" for every label used in [assign]
         self.calibration = Calibration(list(mapper.assignments) if not unsupervised else [],
@@ -279,6 +288,25 @@ class CollabFrontend:
             if kind.startswith("combo"):
                 self._combo_action(kind, id, body)
                 continue
+            if kind == "learning":  # view-learning settings (this session only; collab.toml stays)
+                errors = []
+                for key, cast in registry.LEARNING.items():
+                    if key not in body:
+                        continue
+                    try:
+                        value = cast(body[key])
+                    except (TypeError, ValueError):
+                        errors.append(f"{key}: not a number")
+                        continue
+                    if key == "gallery_size" and value < 1 or key != "gallery_size" and not -1 <= value <= 1:
+                        errors.append(f"{key}: out of range")
+                        continue
+                    setattr(registry, key, value)
+                if registry.learn_threshold >= registry.novelty:
+                    errors.append("learn_threshold >= novelty: nothing new can be learned")
+                self.say("; ".join(errors) or "learning: " + ", ".join(
+                    f"{k} {getattr(registry, k)}" for k in registry.LEARNING), 3.0)
+                continue
             if kind == "settings":
                 if "test_beat" in body:
                     self.settings["test_beat"] = bool(body["test_beat"])
@@ -311,8 +339,20 @@ class CollabFrontend:
                     ident.trigger = body["trigger"]
                 if "color" in body:  # "#rrggbb", or null for its mean color again
                     ident.user_color = hex_to_bgr(body["color"])
+                if "frozen" in body:
+                    ident.frozen = bool(body["frozen"])
+                    self.say(f"#{ident.id} {ident.label}: views {'frozen' if ident.frozen else 'learning'}", 2.0)
                 self._apply_instrument(ident)
                 self._save_meta(ident)
+            elif kind == "cover":
+                error = registry.set_cover(ident, body.get("index"), body.get("rev"))
+                if error:
+                    self.say(f"#{ident.id} {ident.label}: {error}", 2.0)
+                else:
+                    self._save_meta(ident)
+            elif kind == "delete_view":
+                error = registry.delete_view(ident, int(body.get("index", -1)), body.get("rev"))
+                self.say(f"#{ident.id} {ident.label}: " + (error or f"deleted a view ({len(ident.views)} left)"), 2.0)
             elif kind == "describe":
                 self._describe(ident)
             elif kind == "suggest":
@@ -394,6 +434,83 @@ class CollabFrontend:
         rows.append({"task": "Music", **music})
         return rows
 
+    # path each service is probed at (GET) for the Services tab
+    PROBES = {"server": "/tempo/status", "client_midi": "/status", "describe": "/health",
+              "midi_player": "/api/state", "atlas": "/", "atlas_engine": "/status"}
+
+    def _service_urls(self):
+        """http base URL of each service (None: not used)"""
+        svc = self.cfg.get("services", {})
+        midi_port = self.cfg["music"].get("midi_port", 8470)
+        return {
+            # ws://localhost:9000/stream (the Lighthouse tunnel) -> http://localhost:9000
+            "server": re.sub(r"^ws", "http", self.cfg["music"]["server_url"]).removesuffix("/stream"),
+            "objects": f"http://localhost:{self.panel.port}",
+            "client_midi": f"http://localhost:{midi_port}" if midi_port and self.magenta is not None else None,
+            "describe": self.describer.server_url if self.describer is not None
+            else self.cfg.get("describe", {}).get("server_url", "http://localhost:9200"),
+            "midi_player": svc.get("midi_player_url", "http://localhost:8475"),
+            "atlas": svc.get("atlas_url", "http://localhost:8000"),
+            "atlas_engine": svc.get("atlas_engine_url", "http://localhost:8765"),
+        }
+
+    def _probe_services(self):
+        """every 2 s, which services answer (in a thread, so a slow one can't stall the camera loop)"""
+        while True:
+            urls = self._service_urls()
+            self._alive = {key: _probe(urls[key].rstrip("/") + path)
+                           for key, path in self.PROBES.items() if urls.get(key)}
+            time.sleep(2)
+
+    def services(self):
+        """the other SuperConductor programs: URLs, endpoints, whether they answer (for the objects page)"""
+        urls, alive, here = self._service_urls(), self._alive, socket.gethostname()
+
+        def where(base, info):
+            host = (info or {}).get("host")
+            if not host or host == here:
+                return ""
+            tunnel = urlparse(base).hostname in ("localhost", "127.0.0.1")
+            return f"on {host}" + (", through the SSH tunnel" if tunnel else "")
+
+        def row(key, name, started, endpoints, note=""):
+            base = urls.get(key)
+            if not base:
+                return None
+            base = base.rstrip("/")
+            up = True if key == "objects" else (alive[key] is not None) if key in alive else None
+            return {"name": name, "started": started, "base": base, "up": up, "note": note,
+                    "endpoints": [{"method": m, "url": u if "://" in u else base + u} for m, u in endpoints]}
+
+        engine = alive.get("atlas_engine") or {}
+        if engine.get("sink") == "superconductor":
+            atlas_note = (f"sending notes/drums to {engine.get('client_midi')}"
+                          + (" (connected)" if engine.get("connected") else " (client not connected)"))
+        else:
+            atlas_note = "standalone: plays through its own speakers" if engine else ""
+        rows = [
+            row("server", "Music server (mrt2_server.py)", "superconductor_server: make server",
+                [("page", "/tempo"), ("page", "/conduct"), ("GET", "/tempo/status"), ("POST", "/tempo/beat"),
+                 ("POST", "/tempo/target"), ("POST", "/tempo/free"), ("WS", self.cfg["music"]["server_url"])],
+                where(urls["server"], self.magenta.info if self.magenta is not None else None)),
+            row("objects", "Objects page (this app)", "superconductor_client: make client",
+                [("page", "/objects"), ("GET", "/api/objects")]),
+            row("client_midi", "client_midi (this app)", "superconductor_client: make client",
+                [("GET", "/status"), ("GET", "/input"), ("POST", "/pattern")],
+                "note sources (Atlas, MIDI player) POST patterns here"),
+            row("describe", "Describe server", "superconductor_describe: make describe",
+                [("GET", "/health"), ("POST", "/describe"), ("POST", "/instrument"), ("POST", "/name")],
+                where(urls["describe"], alive.get("describe"))),
+            row("midi_player", "MIDI player", "superconductor_midi: make player",
+                [("page", "/"), ("GET", "/api/state"), ("POST", "/api/play"), ("POST", "/api/stop"),
+                 ("POST", "/api/upload"), ("POST", "/api/settings")]),
+            row("atlas", "Atlas app", "superconductor_atlas: make run", [("page", "/")]),
+            row("atlas_engine", "Atlas engine", "started by Atlas's make run",
+                [("GET", "/status"), ("POST", "/timeline"), ("POST", "/release"), ("POST", "/style"),
+                 ("POST", "/settings"), ("POST", "/mix")], atlas_note),
+        ]
+        return [r for r in rows if r]
+
     def publish_panel(self, now):
         if self.panel is None or now - self._last_publish < 0.5:
             return
@@ -401,16 +518,23 @@ class CollabFrontend:
         in_view = {o.identity for o in self._objects if not o.coasted}
         busy = self.describer.busy if self.describer is not None else set()
         objects, views = [], {}
-        for ident in self.tracker.registry.identities:
+        registry = self.tracker.registry
+        revs = tuple((i.id, i.view_rev, len(i.gallery)) for i in registry.identities)
+        if revs != self._view_scores_key:  # any gallery changed: each view's scores against all of them
+            self._view_scores_key = revs
+            self._view_scores = {i.id: registry.view_scores(i) for i in registry.identities if i.library}
+        for ident in registry.identities:
             if not ident.library:
                 continue
             # its own instrument first, then config parameters it drives
             params = sorted(self.mapper.parameters_for(ident.id), key=lambda p: p.owner != f"#{ident.id}")
-            if ident.views and self._panel_views.get(ident.id) != len(ident.views):
-                ok, jpeg = cv2.imencode(".jpg", ident.views[-1])
-                if ok:
-                    views[ident.id] = jpeg.tobytes()
-                    self._panel_views[ident.id] = len(ident.views)
+            if ident.views and self._panel_views.get(ident.id) != ident.view_rev:
+                # one per gallery entry (same index), newest last (the thumbnail); b"" if unreadable
+                jpegs = [cv2.imencode(".jpg", v)[1].tobytes() if v is not None and v.size else b""
+                         for v in ident.views]
+                if any(jpegs):
+                    views[ident.id] = jpegs
+                    self._panel_views[ident.id] = ident.view_rev
             ago = now - ident.last_seen if ident.last_seen else None
             objects.append({
                 "id": ident.id, "name": ident.user_label, "label": ident.label,
@@ -419,7 +543,9 @@ class CollabFrontend:
                 "color": bgr_to_hex(ident.display_color), "color_picked": ident.user_color is not None,
                 "last_seen": "not seen this session" if ago is None else f"seen {_ago(ago)} ago",
                 "parameter": _param_name(params[0]) if params else None,
-                "value": max((p.value for p in params), default=0.0), "views": len(ident.views)})
+                "value": max((p.value for p in params), default=0.0), "views": len(ident.views),
+                "view_rev": ident.view_rev, "frozen": ident.frozen, "cover": ident.cover,
+                "view_scores": self._view_scores.get(ident.id, [])})
         objects.sort(key=lambda o: (not o["in_view"], -o["id"]))
         combos = [{"index": i, "objects": c["objects"], "prompt": c["prompt"], "distance": c["distance"],
                    "trigger": c.get("trigger", "near"), "name": self._combo_name(mc), "active": mc.active}
@@ -428,7 +554,8 @@ class CollabFrontend:
                  "paused": bool(self.magenta and self.magenta.paused)}
         self.panel.publish({"objects": objects, "combos": combos,
                             "settings": dict(self.settings, test_beat_prompt=TEST_BEAT), "music": music,
-                            "models": self.models()}, views)
+                            "models": self.models(), "services": self.services(),
+                            "learning": {k: getattr(registry, k) for k in registry.LEARNING}}, views)
 
     def handle_key(self, key):
         """returns False to quit"""
@@ -458,6 +585,38 @@ class CollabFrontend:
             recipe[TEST_BEAT] = recipe.get(TEST_BEAT, 0.0) + 1.0
         return recipe
 
+    def mrt2_input(self):
+        """What the overlay's "MRT2 input" panel shows, and client_midi's GET /input serves:
+        every prompt in the recipe (base, test beat, objects, combos) as (prompt, source,
+        value, share of the blend, BGR color), and the sampling controls. The server
+        averages the prompts' embeddings by weight, so share = weight / sum of weights."""
+        music = self.cfg["music"]
+        rows = []  # (prompt, source, value, color)
+        if music["base_prompt"] and music["base_weight"] > 0:
+            rows.append((music["base_prompt"], "base", music["base_weight"], (200, 200, 200)))
+        if self.settings["test_beat"]:
+            rows.append((TEST_BEAT, "test beat", 1.0, (120, 200, 255)))
+        for param in self.mapper.parameters:
+            combo = self.mapper.combo_for(param.identity) if isinstance(param.identity, int) else None
+            if param.identity is None and param.owner and param.owner.startswith("#"):
+                ident = self.tracker.registry.get(param.owner)  # its object isn't in view this session
+                state = (ident.user_label if ident and ident.user_label else param.owner) + " not seen"
+            elif param.identity is None:
+                state = "free"
+            elif isinstance(param.identity, str):
+                state = "combined"
+            else:
+                ident = self.tracker.registry.get(param.identity)
+                state = (ident.user_label if ident and ident.user_label else f"#{param.identity}") + \
+                    ("" if param.visible else " hidden") + (" > combo" if combo else "")
+            rows.append((_param_name(param), state, param.output if param.kind == "prompt" else param.value,
+                         param.color))
+        recipe = self.recipe()
+        total = sum(recipe.values()) or 1.0
+        rows = [(prompt, source, value, recipe.get(prompt, 0.0) / total if value > 0.01 else 0.0, color)
+                for prompt, source, value, color in rows]
+        return rows, self.mapper.controls()
+
     def send(self):
         now = time.time()
         if self.magenta is None or not self.magenta.connected:
@@ -467,6 +626,11 @@ class CollabFrontend:
         self._last_send = now
         self.magenta.update_recipe(self.recipe())
         self.magenta.update_controls(self.mapper.controls())
+        rows, controls = self.mrt2_input()
+        self.magenta.update_input_view({
+            "rows": [{"prompt": p, "source": src, "value": round(v, 3), "share": round(sh, 3), "color": bgr_to_hex(c)}
+                     for p, src, v, sh, c in rows],
+            "controls": {k: round(v, 3) for k, v in controls.items()}})
 
     def draw(self, frame, objects):
         """Draw on the unflipped frame; text goes on a separate overlay drawn after flipping."""
@@ -552,43 +716,18 @@ class CollabFrontend:
             org = ((overlay.shape[1] - tw) // 2, 80)
             cv2.putText(overlay, message, org, cv2.FONT_HERSHEY_DUPLEX, 1.4, (255, 255, 255), 2)
 
-        # MRT2 input: every prompt in the recipe (base, test beat, objects, combos), with
-        # its weight and its share of the blend (the server averages the embeddings by weight)
-        music = self.cfg["music"]
-        rows = []  # (prompt, source, value, color)
-        if music["base_prompt"] and music["base_weight"] > 0:
-            rows.append((music["base_prompt"], "base", music["base_weight"], (200, 200, 200)))
-        if self.settings["test_beat"]:
-            rows.append((TEST_BEAT, "test beat", 1.0, (120, 200, 255)))
-        for param in self.mapper.parameters:
-            combo = self.mapper.combo_for(param.identity) if isinstance(param.identity, int) else None
-            if param.identity is None and param.owner and param.owner.startswith("#"):
-                ident = self.tracker.registry.get(param.owner)  # its object isn't in view this session
-                state = (ident.user_label if ident and ident.user_label else param.owner) + " not seen"
-            elif param.identity is None:
-                state = "free"
-            elif isinstance(param.identity, str):
-                state = "combined"
-            else:
-                ident = self.tracker.registry.get(param.identity)
-                state = (ident.user_label if ident and ident.user_label else f"#{param.identity}") + \
-                    ("" if param.visible else " hidden") + (" > combo" if combo else "")
-            rows.append((_param_name(param), state, param.output if param.kind == "prompt" else param.value,
-                         param.color))
-        recipe = self.recipe()
-        total = sum(recipe.values()) or 1.0
+        # MRT2 input (see mrt2_input)
+        rows, controls = self.mrt2_input()
         y = 30
         cv2.putText(overlay, "MRT2 input", (15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
-        for prompt, source, value, color in rows:
+        for prompt, source, value, share, color in rows:
             y += 24
-            share = recipe.get(prompt, 0.0) / total if value > 0.01 else 0.0
             cv2.putText(overlay, prompt[:30], (15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
             cv2.putText(overlay, source[:16], (290, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
             cv2.rectangle(overlay, (420, y - 12), (420 + int(150 * min(value, 1.0)), y - 2), color, -1)
             cv2.rectangle(overlay, (420, y - 12), (570, y - 2), color, 1)
             cv2.putText(overlay, f"{value:.2f}  {100 * share:.0f}%", (580, y), cv2.FONT_HERSHEY_SIMPLEX,
                         0.5, color, 1)
-        controls = self.mapper.controls()
         if controls:
             y += 24
             cv2.putText(overlay, "  ".join(f"{k} {v:.2f}" for k, v in controls.items()), (15, y),
@@ -715,6 +854,22 @@ def _dashed_rect(img, p1, p2, color, thickness=1, dash=10):
     for y in range(y1, y2, 2 * dash):
         cv2.line(img, (x1, y), (x1, min(y + dash, y2)), color, thickness)
         cv2.line(img, (x2, y), (x2, min(y + dash, y2)), color, thickness)
+
+
+def _probe(url):
+    """the JSON object a service answers a GET of `url` with ({} if none), or None if it doesn't answer"""
+    try:
+        with urllib.request.urlopen(url, timeout=0.5) as r:
+            body = r.read()
+    except urllib.error.HTTPError:
+        return {}  # an error status is still an answer
+    except (OSError, ValueError):
+        return None
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 @click.command()

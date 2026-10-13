@@ -27,7 +27,7 @@ class WebPanel:
         self.port = port
         self.actions = queue.Queue()  # (kind, id, body) for the camera loop
         self._state = {"objects": [], "combos": []}  # replaced by publish()
-        self._views = {}  # id -> jpeg bytes
+        self._views = {}  # id -> [jpeg bytes per view], newest last
         self._lock = threading.Lock()
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -37,7 +37,7 @@ class WebPanel:
 
     def publish(self, state, views):
         """`state`: {"objects": [...], "combos": [...]} (see CollabFrontend.publish_panel);
-        `views`: id -> jpeg bytes"""
+        `views`: id -> [jpeg bytes per gallery view] (only objects whose views changed)"""
         with self._lock:
             self._state = state
             self._views.update(views)
@@ -48,11 +48,15 @@ class WebPanel:
         app.router.add_get("/objects", self._page)
         app.router.add_get("/api/objects", self._list)
         app.router.add_get("/api/objects/{id}/view.jpg", self._view)
+        app.router.add_get("/api/objects/{id}/views/{index}.jpg", self._view)
+        app.router.add_delete("/api/objects/{id}/views/{index}", self._delete_view)
+        app.router.add_post("/api/objects/{id}/cover", self._cover)
         app.router.add_post("/api/objects/{id}", self._edit)
         app.router.add_post("/api/objects/{id}/describe", self._describe)
         app.router.add_post("/api/objects/{id}/suggest", self._suggest)
         app.router.add_delete("/api/objects/{id}", self._delete)
         app.router.add_post("/api/settings", self._settings)
+        app.router.add_post("/api/learning", self._learning)
         app.router.add_post("/api/music", self._music)
         app.router.add_post("/api/combos", self._combo_add)
         app.router.add_post("/api/combos/{id}", self._combo_edit)
@@ -79,9 +83,15 @@ class WebPanel:
             return web.json_response(self._state)
 
     async def _view(self, request):
+        """the object's thumbnail (its newest view), or view `index` of its gallery"""
         with self._lock:
-            jpeg = self._views.get(int(request.match_info["id"]))
-        if jpeg is None:
+            jpegs = self._views.get(int(request.match_info["id"])) or []
+        if "index" in request.match_info:
+            index = int(request.match_info["index"])
+            jpeg = jpegs[index] if 0 <= index < len(jpegs) else None
+        else:
+            jpeg = next((j for j in reversed(jpegs) if j), None)
+        if not jpeg:
             raise web.HTTPNotFound()
         return web.Response(body=jpeg, content_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
@@ -91,7 +101,8 @@ class WebPanel:
 
     async def _edit(self, request):
         body = await request.json()
-        return self._queue("edit", request, {k: body[k] for k in ("name", "instrument", "trigger", "color") if k in body})
+        return self._queue("edit", request, {k: body[k] for k in ("name", "instrument", "trigger", "color", "frozen")
+                                             if k in body})
 
     async def _describe(self, request):
         return self._queue("describe", request)
@@ -102,8 +113,24 @@ class WebPanel:
     async def _delete(self, request):
         return self._queue("delete", request)
 
+    async def _cover(self, request):
+        """{"index": <view index> | null (its newest view), "rev": <view_rev the page saw>}"""
+        body = await request.json()
+        index, rev = body.get("index"), body.get("rev")
+        return self._queue("cover", request, {"index": None if index is None else int(index),
+                                              "rev": None if rev is None else int(rev)})
+
+    async def _delete_view(self, request):
+        """?rev=<view_rev the page saw>, so a gallery that changed since loses no other view"""
+        rev = request.query.get("rev")
+        return self._queue("delete_view", request, {"index": int(request.match_info["index"]),
+                                                    "rev": int(rev) if rev is not None else None})
+
     async def _settings(self, request):
         return self._queue("settings", request, await request.json())
+
+    async def _learning(self, request):
+        return self._queue("learning", request, await request.json())
 
     async def _music(self, request):
         return self._queue("music", request, await request.json())

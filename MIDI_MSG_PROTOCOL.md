@@ -1,6 +1,6 @@
 # MIDI message protocol (client_midi)
 
-How another program (a MIDI file player, Harmonic Atlas, a controller, ...) gives
+How another program (a MIDI file player, SuperConductor Atlas, a controller, ...) gives
 SuperConductor's music model its **NOTES** and **DRUMS** input. The SuperConductor
 client keeps providing the prompts, so it decides *what it sounds like*. Your program
 decides *which pitches and when*, and *when drum hits happen*.
@@ -22,6 +22,7 @@ client_midi listens on `http://localhost:8470` once the client is running. The p
 |---|---|---|
 | `POST /pattern` | a Pattern (below), or `null` | `{"ok": true}` once forwarded; `400` if the body isn't a JSON object or `null`; `503` if the client isn't connected to the server yet |
 | `GET /status` | | `{"connected": bool, "model": "mrt2_small", "last_pattern_id": ...}` |
+| `GET /input` | | the prompts and sampling controls the client sends to MRT2, as its camera overlay shows them: `{"connected": bool, "rows": [{"prompt", "source", "value", "share", "color"}], "controls": {"temperature"?, "top_k"?, "cfg_musiccoca"?}}`. `share` is the prompt's fraction of the style blend (weight / sum of weights). Updated every `update_interval` (0.25 s) |
 
 CORS is open, so a browser page can send patterns too. The server validates the pattern
 in full. If it is invalid, the HTTP reply is still `{"ok": true}`, because the message was

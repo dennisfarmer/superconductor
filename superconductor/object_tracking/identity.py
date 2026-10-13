@@ -24,7 +24,9 @@ Per frame:
    ids when objects crossed, or revived a lost track on the wrong object).
    Otherwise the embedding is kept as a new view if it shows a new angle
    (the gallery learns how the object looks as it is turned), as long as it
-   doesn't look more like another identity and no hand covers the object.
+   still looks like its own object (`learn_threshold`), looks more like it
+   than like any other by `switch_margin`, and no hand covers the object.
+   A frozen identity (objects page) learns no views at all.
    An identity whose object was covered by a hand, next to another object or
    not detected is "disturbed" (the tracker may have swapped it with another
    one, e.g. two plushies quickly swapped by hand): as soon as it is clear
@@ -135,6 +137,9 @@ class Identity:
     description: str = None  # from the describe server (VLM)
     instrument: str = None  # prompt it plays (suggested from the description, or typed)
     trigger: str = "near"  # when it plays: near | held | visible (see mapper.py)
+    frozen: bool = False  # learns no new views (set on the objects page)
+    cover: int = None  # index of the view shown as its picture (objects page); None: the newest
+    view_rev: int = 0  # bumped whenever the gallery changes (the objects page reloads its views)
     gallery: list = field(default_factory=list)  # embeddings of distinct views
     views: list = field(default_factory=list)  # crop per gallery entry
     track_id: int = None
@@ -202,6 +207,7 @@ class _Pending:
 class IdentityRegistry:
     def __init__(self, match_threshold=0.5, new_threshold=None, min_hits=8, max_hits=45,
                  samples=3, sample_every=3, verify_interval=1.0, gallery_size=24, novelty=0.9,
+                 learn_threshold=0.65,
                  coast_seconds=1.0, coast_near=0.06, switch_margin=0.05, swap_margin=0.1, swap_k=3,
                  store_dir=None, save_interval=5.0, embedder=None, library=None):
         """
@@ -215,6 +221,9 @@ class IdentityRegistry:
         `verify_interval`: seconds between appearance checks of bound tracks
         `gallery_size`, `novelty`: views kept per identity; a view is added only
             if its similarity to all kept views is below `novelty`
+        `learn_threshold`: ...and its similarity to the closest kept view is at
+            least this (a view that looks unlike everything kept is more likely
+            another object than a new angle)
         `coast_seconds`, `coast_near`: an object that stops being detected keeps
             its last box ("coasting", `obj.coasted`) for `coast_seconds`, and for
             as long as that box is within `coast_near` (fraction of the frame
@@ -241,6 +250,7 @@ class IdentityRegistry:
         self.verify_interval = verify_interval
         self.gallery_size = gallery_size
         self.novelty = novelty
+        self.learn_threshold = learn_threshold
         self.coast_seconds = coast_seconds
         self.coast_near = coast_near
         self.switch_margin = switch_margin
@@ -274,7 +284,8 @@ class IdentityRegistry:
                 id=entry.id, hist=entry.hist, votes=Counter(entry.detected_as),
                 user_label=entry.name, description=entry.description, instrument=entry.instrument,
                 trigger=entry.trigger,
-                gallery=list(entry.embeddings), views=entry.load_views(), library=True,
+                gallery=list(entry.embeddings), views=entry.load_views(), library=True, frozen=entry.frozen,
+                cover=entry.cover if entry.cover is not None and entry.cover < len(entry.embeddings) else None,
                 color=None if entry.color is None else np.asarray(entry.color, np.float32),
                 color_n=COLOR_SEEDED if entry.color is not None else 0, user_color=entry.user_color))
 
@@ -385,7 +396,7 @@ class IdentityRegistry:
         self._pending.clear()
         self._dirty = True
 
-    def _bind(self, track_id, ident):
+    def _bind(self, track_id, ident, learn=True):
         if ident.track_id is not None and ident.track_id != track_id:
             self._by_track.pop(ident.track_id, None)
         ident.track_id = track_id
@@ -394,8 +405,9 @@ class IdentityRegistry:
         self._by_track[track_id] = ident
         pending = self._pending.pop(track_id, None)
         if pending is not None:
-            for emb, crop in zip(pending.embeddings, pending.crops):
-                self._add_view(ident, emb, crop)
+            if learn:
+                for emb, crop in zip(pending.embeddings, pending.crops):
+                    self._add_view(ident, emb, crop)
             ident.votes.update(pending.votes)
 
     def _unbind(self, ident):
@@ -424,26 +436,84 @@ class IdentityRegistry:
         return float(np.mean(np.sort(sims)[-k:]))
 
     def _add_view(self, ident, embedding, crop):
-        """keep `embedding` as a view of `ident` if it shows something new"""
-        if embedding is None or self.embedder is None:
+        """keep `embedding` as a view of `ident` if it shows something new but
+        still looks like it"""
+        if embedding is None or self.embedder is None or ident.frozen:
             return
         known = ident.embeddings
         if known is not None and known.shape[1] != len(embedding):
             ident.gallery, ident.views = [], []  # saved with another embedder: start over
             known = None
-        if known is not None and self.embedder.similarity(embedding, known) >= self.novelty:
-            return
+        if known is not None:
+            sim = self.embedder.similarity(embedding, known)
+            if sim >= self.novelty or sim < self.learn_threshold:
+                return
         ident.gallery.append(embedding)
         ident.views.append(crop)
         ident.dirty = True
+        ident.view_rev += 1
         while len(ident.gallery) > self.gallery_size:
             # drop the most redundant view (highest similarity to another one)
             g = self.embedder.normalize(np.stack(ident.gallery))
             s = g @ g.T
             np.fill_diagonal(s, -1)
-            drop = int(np.argmax(s.max(axis=1)))
-            del ident.gallery[drop]
-            del ident.views[drop]
+            redundancy = s.max(axis=1)
+            if ident.cover is not None:
+                redundancy[ident.cover] = -np.inf  # the picture chosen on the objects page stays
+            self._remove_view(ident, int(np.argmax(redundancy)))
+
+    def _remove_view(self, ident, index):
+        del ident.gallery[index]
+        del ident.views[index]
+        if ident.cover is not None and ident.cover >= index:
+            ident.cover = None if ident.cover == index else ident.cover - 1
+
+    LEARNING = {"gallery_size": int, "novelty": float, "learn_threshold": float}  # settable on the objects page
+
+    def view_scores(self, ident):
+        """Per view of `ident`, for spotting wrong ones: (own, other, other id). `own`:
+        best similarity to its other views (None if it has just one); `other`: best
+        similarity to any other identity's views (None if there are none)."""
+        if not self._embedding or not ident.gallery:
+            return []
+        n = self.embedder.normalize
+        g = n(np.stack(ident.gallery))
+        s = g @ g.T
+        np.fill_diagonal(s, -np.inf)
+        own = s.max(axis=1) if len(g) > 1 else [None] * len(g)
+        best, best_id = [None] * len(g), [None] * len(g)
+        for other in self.identities:
+            if other is ident or not other.gallery or len(other.gallery[0]) != g.shape[1]:
+                continue
+            sims = (g @ n(np.stack(other.gallery)).T).max(axis=1)
+            for i, v in enumerate(sims):
+                if best[i] is None or v > best[i]:
+                    best[i], best_id[i] = float(v), other.id
+        return [(None if o is None else float(o), b, bi) for o, b, bi in zip(own, best, best_id)]
+
+    def delete_view(self, ident, index, rev=None):
+        """Remove view `index` of `ident` (objects page). `rev`: the `view_rev` the
+        page saw, so a gallery that changed since can't lose the wrong view. The
+        last view is kept: without one the object can't be recognized."""
+        if rev is not None and rev != ident.view_rev:
+            return "its views changed, try again"
+        if not 0 <= index < len(ident.gallery) or len(ident.views) != len(ident.gallery):
+            return "no such view"
+        if len(ident.gallery) == 1:
+            return "the last view can't be deleted"
+        self._remove_view(ident, index)
+        ident.dirty = True
+        ident.view_rev += 1
+        return None
+
+    def set_cover(self, ident, index, rev=None):
+        """Show view `index` as `ident`'s picture (None: its newest view). `rev` as in delete_view."""
+        if rev is not None and rev != ident.view_rev:
+            return "its views changed, try again"
+        if index is not None and not 0 <= index < len(ident.views):
+            return "no such view"
+        ident.cover = index
+        return None
 
     def score(self, pending, ident):
         """how much the evidence of an unbound track looks like `ident` (0..1):
@@ -550,11 +620,13 @@ class IdentityRegistry:
                 return nearest
             return ident
         ident.bad_checks = 0
-        # the tracker followed this object here, so a view that looks different is a new
-        # angle of it, not another object: keep it (bounded by gallery_size), unless it
-        # looks more like another known object, a hand covers it, its crop may show another
-        # object, or it hasn't been checked since it may have been swapped
-        if (other is None or own >= other) and not (obj.occluded or obj.crowded or ident.disturbed):
+        # the tracker followed this object here, so a view that looks somewhat different is a
+        # new angle of it: keep it (bounded by gallery_size, and only if it is still close to
+        # a kept view, see _add_view), unless it doesn't clearly look more like this object
+        # than another known one, a hand covers it, its crop may show another object, or it
+        # hasn't been checked since it may have been swapped
+        if (other is None or own >= other + self.switch_margin) and not (
+                obj.occluded or obj.crowded or ident.disturbed):
             self._add_view(ident, obj.embedding, obj.crop)
         return ident
 
@@ -665,7 +737,8 @@ class IdentityRegistry:
                     continue
                 patient = p.hits >= self.max_hits and score[r, c] >= self.new_threshold
                 if score[r, c] >= self.match_threshold or patient:
-                    self._bind(obj.track_id, ident)
+                    # decided by waiting, not by looks: don't learn its views
+                    self._bind(obj.track_id, ident, learn=score[r, c] >= self.match_threshold)
                     claimed[ident.id] = obj
                     obj.identity = ident.id
 
