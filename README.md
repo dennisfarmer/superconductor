@@ -18,7 +18,7 @@ It runs as its own process so the VLM doesn't compete with the camera loop, and 
 - on Lighthouse:
     - `salloc --account=aimusic_project --partition=aimusic_project --gpus=1 --mem=32G --cpus-per-task=4 --time=01:00:00`
     - `ollama serve &` then `make describe`
-    - on the laptop: `ssh -N -L 9200:<gpu node>:9200 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`; the client's default URL then reaches the cluster. Use another local port with `sc-collab --describe-server http://localhost:<port>`.
+    - on the laptop: `ssh -N -L 9200:lh2300:9200 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`; the client's default URL then reaches the cluster. Use another local port with `sc-collab --describe-server http://localhost:<port>`.
 
 Other flags: `make describe MODEL=qwen2.5vl:7b PORT=... ARGS="--keep_alive 0"` (`--keep_alive 0` frees the GPU right after each request, which helps when the VLM shares the Mac's GPU with MRT2), or `python describe_server.py --help`.
 
