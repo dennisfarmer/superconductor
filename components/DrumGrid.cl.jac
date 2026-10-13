@@ -16,6 +16,7 @@ sv import from ..services.atlas { SessionView, get_state, set_drums }
 glob FRAME_RATE: float = 25.0,
      PER_BEAT: list[list[any]] = [[1, "quarters"], [2, "eighths"], [4, "sixteenths"], [3, "triplets"]],
      BARS: list[int] = [1, 2, 4],
+     CFG_DRUMS_HINT: str = "cfg_drums: the classifier-free guidance scale of MRT2's DRUMS input, -1 to 7 in whole steps (1 = MRT2's default; sent as the Pattern's cfg_drums). It sets how strongly the generated audio follows this lane's -1 / 0 / 1 values relative to the style prompt, which has its own scale (cfg_musiccoca, default 3). Higher: hits land where the grid puts them and 0 frames stay clear, even against a prompt that implies otherwise; very high values can pull the sound away from the prompt. 0 or below: the lane has little effect and the prompt decides. MRT2 takes this scale as a conditioning token (the notes and style scales also get extra masked forward passes), so its exact effect was learned in training.",
      # the engine's status, read by the poll timer (outside React state)
      _status_url: str = "";
 
@@ -244,8 +245,8 @@ def:pub DrumsPage -> JsxElement {
                     }}
                 </div>
             </div>
-            <label className="drums-field" title="Drum guidance (CFG): how strictly the model follows this lane. -1 to 7; 1 is the engine's default.">
-                <span className="drums-label">Follow</span>
+            <label className="drums-field" title={CFG_DRUMS_HINT}>
+                <span className="drums-label drums-code">cfg_drums</span>
                 <input
                     type="range"
                     min="-1"
@@ -297,7 +298,7 @@ def:pub DrumsPage -> JsxElement {
             </div>
             <div className="drums-strip">
                 {for (f, v) in enumerate(frames) {
-                    <span key={"f" + str(f)} className={"drum-frame " + value_class(v)} title={"frame " + str(f) + ": " + str(v)}></span>
+                    <span key={"f" + str(f)} className={"drum-frame " + value_class(v)} title={"frame " + str(f) + ": " + str(v)}>{str(v)}</span>
                 }}
             </div>
         </section>

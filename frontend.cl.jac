@@ -8,6 +8,7 @@ import from "react-error-boundary" { ErrorBoundary }
 import from .components.Header { Header }
 import from .components.Progression { Progression }
 import from .components.SoundMixer { SoundMixer }
+import from .components.SuperConductorInput { SuperConductorInput }
 import from .components.Graph3D { Graph3D }
 import from .components.Inspector { Inspector }
 import from .components.Rules { Rules }
@@ -155,6 +156,9 @@ def:pub app -> JsxElement {
         mix_texts: list[str] = [],
         mix_weights: list[float] = [],
         engine_style: str = "",
+        # make run (SuperConductor sink): the client's client_midi URL, and its GET /input
+        sc_url: str = "",
+        sc_input: any = None,
         engine_ok: bool = False,
         engine_info: str = "engine offline",
         paused: bool = False,
@@ -430,7 +434,9 @@ def:pub app -> JsxElement {
 
     # ---- the side panel's active tab ----
     side_body: any = None;
-    if side_tab == "sound" {
+    if side_tab == "sound" and sc_url {
+        side_body = <SuperConductorInput view={sc_input} url={sc_url}/>;
+    } elif side_tab == "sound" {
         side_body = <SoundMixer
             texts={mix_texts}
             weights={mix_weights}

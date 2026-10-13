@@ -260,6 +260,19 @@ button:disabled { opacity: 0.4; cursor: default; }
 /* walker settings */
 .guide h4 { margin: 0 0 var(--s-2); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-weight: 600; }
 
+/* Sound tab with SuperConductor (components/SuperConductorInput) */
+.sc-input { padding: var(--s-4); display: flex; flex-direction: column; gap: 8px; }
+.sc-head { display: flex; align-items: center; gap: 8px; }
+.sc-head h4 { margin: 0; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-weight: 600; }
+.sc-sub { margin: 0 0 4px; color: var(--muted); font-size: var(--fs-s); line-height: 1.45; }
+.sc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "prompt num" "source source" "bar bar"; gap: 2px 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.sc-prompt { grid-area: prompt; color: var(--c); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-source { grid-area: source; color: var(--muted); font-size: var(--fs-xs); }
+.sc-num { grid-area: num; font-family: var(--mono); font-size: var(--fs-s); color: var(--ink-2); white-space: pre; }
+.sc-bar { grid-area: bar; height: 6px; border: 1px solid var(--c); border-radius: 3px; overflow: hidden; }
+.sc-bar i { display: block; height: 100%; background: var(--c); }
+.sc-controls { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-top: 4px; font-family: var(--mono); font-size: var(--fs-s); color: var(--ink-2); }
+
 /* rules (markdown) */
 .md { padding: var(--s-4); color: var(--ink-2); line-height: 1.6; font-size: var(--fs-m); }
 .md h2 { font-family: var(--serif); font-weight: 600; font-size: 19px; color: var(--ink); margin: 0 0 8px; }
@@ -458,6 +471,7 @@ a.btn { text-decoration: none; }
 .drums-controls, .drums-fills { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) 20px; }
 .drums-fills { gap: 4px; }
 .drums-field { display: inline-flex; align-items: center; gap: var(--s-2); }
+.drums-label.drums-code { font-family: var(--mono); text-transform: none; letter-spacing: 0; }
 .drums-label { color: var(--muted); font-size: var(--fs-s); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 4px; }
 .drums-num { font-family: var(--mono); font-size: var(--fs-s); color: var(--ink-2); }
 .drums-field input[type="range"] { width: 120px; accent-color: var(--accent); }
@@ -484,8 +498,13 @@ a.btn { text-decoration: none; }
 
 .drums-frames { display: flex; flex-direction: column; gap: 6px; }
 .drums-frames-head { display: flex; justify-content: space-between; gap: var(--s-3); flex-wrap: wrap; }
-.drums-strip { display: flex; gap: 1px; height: 22px; }
-.drum-frame { flex: 1; min-width: 1px; border-radius: 1px; }
+.drums-strip { display: flex; gap: 1px; height: 22px; overflow-x: auto; }
+/* each frame shows its value (-1 / 0 / 1) in small grey mono; slow tempos scroll */
+.drum-frame {
+  flex: 1 0 14px; border-radius: 1px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 8px; line-height: 1; color: var(--muted); letter-spacing: -0.5px;
+}
+.drum-frame.hit { color: var(--faint); }
 .drum-frame.hit { background: var(--accent); }
 .drum-frame.rest { background: var(--line); }
 .drum-frame.free { background: repeating-linear-gradient(45deg, var(--line-2) 0 2px, transparent 2px 4px); }

@@ -65,7 +65,18 @@ impl app.poll_engine -> None {
         ms: any = data.ms_per_frame;
         if data.sink {
             engine_info = str(data.model);   # make run: the sound comes from SuperConductor
+            # the Sound tab shows what the SuperConductor client sends to MRT2
+            # (a local: sc_url read here would be this timer's stale copy)
+            client_midi = str(data.client_midi);
+            sc_url = client_midi;
+            try {
+                sc_resp: any = await fetch(client_midi + "/input");
+                sc_input = await sc_resp.json();
+            } except Exception {
+                sc_input = None;
+            }
         } else {
+            sc_url = "";
             engine_info = str(data.model) + " · " + (str(ms) + " ms/frame" if ms else "warming up");
         }
         engine_style = str(data.style);
