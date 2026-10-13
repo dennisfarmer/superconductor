@@ -69,7 +69,9 @@ stays with SuperConductor.**
   is `0`. The model
   improvises inside the harmony instead of playing a given voicing.
 
-Chord lengths come from the tempo and "beats" in the top bar.
+Chord lengths come from the tempo and "beats" in the top bar. The **BPM page** (click "BPM"
+in the top bar) can sync Atlas's tempo and beat one to the tempo the SuperConductor server
+hears, and explains the delays between a message and the audio.
 
 **DRUMS** (Drums page): *Free* is `-1` on every frame, *Silent* is `0`, and *Grid* is
 a 4/4 step grid on the same beat clock. A hit cell is `1` on its first frame and `0`
@@ -80,6 +82,7 @@ The model picks the drum sounds; the lane only says when hits happen.
 
 - `walker.toml`: beam width, depth, menu size and the scoring dials of the walkers.
   It is read on each request, so an edit applies the next time the walkers are sent.
-- `Makefile` variables: `PORT`, `ENGINE_PORT`, `CLIENT_MIDI`, `PRESET` (local mode).
+- `Makefile` variables: `PORT`, `ENGINE_PORT`, `CLIENT_MIDI`, `SC_SERVER` (the MRT2 server's
+  HTTP address, for tempo sync), `PRESET` (local mode).
 - More detail: `docs/ENGINE.md` (engine), `docs/CRITERIA.md` (how chords are scored),
   `docs/VOICE.md` (local-mode sound presets).

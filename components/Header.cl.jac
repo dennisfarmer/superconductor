@@ -1,5 +1,5 @@
 """Top bar, left to right: key; transport (pause, tempo knob, the beat, beats per
-chord, texture, and the Harmony - Drums page switch); output (mute, volume); engine status and restart; Send walkers;
+chord, texture, and the Harmony - Drums page switch; the BPM label opens the BPM page); output (mute, volume); engine status and restart; Send walkers;
 quit. The LLM switch sits in the menu beside the status pill."""
 
 import from .Knob { Knob }
@@ -137,7 +137,7 @@ def:pub Header(
                     }}
                     onKeyDown={lambda e: KeyboardEvent { if e.key == "Enter" { e.target.blur(); } }}
                 />
-                <span className="unit">BPM</span>
+                <a className={"unit bpm-link" + (" on" if page == "bpm" else "")} href="#bpm" title="The BPM page: sync with SuperConductor's tempo, and how messages reach the audio">BPM</a>
             </div>
             <BeatLights beats={session.beats_per_chord} running={engineOk and not paused}/>
             <label className="tb-field" title="Beats each chord lasts">

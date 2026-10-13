@@ -260,6 +260,32 @@ button:disabled { opacity: 0.4; cursor: default; }
 /* walker settings */
 .guide h4 { margin: 0 0 var(--s-2); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-weight: 600; }
 
+/* ---------- BPM page (/#bpm, components/TempoPage) ---------- */
+a.unit.bpm-link { text-decoration: none; cursor: pointer; transition: color 0.12s; }
+a.unit.bpm-link:hover { color: var(--ink-2); }
+a.unit.bpm-link.on { color: var(--ink); cursor: default; }
+.tempo-page {
+  grid-area: stage; min-height: 0; overflow-y: auto; padding: var(--s-4) max(var(--s-4), calc((100vw - 1100px) / 2));
+  display: flex; flex-direction: column; gap: 18px;
+}
+.tp-sync { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+.tp-sync .btn.on { color: var(--good); }
+.tp-note { color: var(--muted); font-size: var(--fs-s); }
+.tp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s-3); }
+.tp-col { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-1); padding: var(--s-3) var(--s-4); }
+.tp-col h4 { margin: 0 0 var(--s-2); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-weight: 600; }
+.tp-col dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px var(--s-3); }
+.tp-col dt { color: var(--muted); font-size: var(--fs-s); cursor: help; }
+.tp-col dd { margin: 0; font-family: var(--mono); font-size: var(--fs-s); color: var(--ink); text-align: right; }
+.tp-explain { max-width: 75ch; color: var(--ink-2); line-height: 1.6; font-size: var(--fs-m); padding-bottom: var(--s-4); }
+.tp-explain h2 { font-family: var(--serif); font-weight: 600; font-size: 20px; color: var(--ink); margin: var(--s-2) 0 0; }
+.tp-explain h3 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-weight: 600; margin: var(--s-4) 0 4px; }
+.tp-explain p { margin: 0 0 8px; }
+.tp-explain b { color: var(--ink); font-weight: 600; }
+.tp-explain table { border-collapse: collapse; width: 100%; font-size: var(--fs-s); }
+.tp-explain td { padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.tp-explain td:first-child { color: var(--ink); width: 40%; }
+
 /* Sound tab with SuperConductor (components/SuperConductorInput) */
 .sc-input { padding: var(--s-4); display: flex; flex-direction: column; gap: 8px; }
 .sc-head { display: flex; align-items: center; gap: 8px; }

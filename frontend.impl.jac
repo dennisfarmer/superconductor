@@ -46,7 +46,7 @@ impl app.send_walkers -> None {
 }
 
 impl app.poll_engine -> None {
-    global _engine_was_ok, _sent_id, _bpm, _play_seen, _restarting;
+    global _engine_was_ok, _sent_id, _bpm, _play_seen, _restarting, _synced_bpm;
     if _stopped or not _engine_url {
         return;
     }
@@ -54,6 +54,7 @@ impl app.poll_engine -> None {
         resp: any = await fetch(_engine_url + "/status");
         data: any = await resp.json();
         engine_ok = True;
+        engine_status = data;
         if not _engine_was_ok {
             # the engine (re)started: give it the sound and settings, and the timeline again
             _engine_was_ok = True;
@@ -87,6 +88,11 @@ impl app.poll_engine -> None {
         }
         if data.settings and data.settings.bpm {
             _bpm = float(data.settings.bpm);
+            if data.sync and data.sync.on and Math.abs(_bpm - _synced_bpm) > 0.05 {
+                # tempo sync moved the engine's tempo: keep the session (and the top bar) with it
+                _synced_bpm = _bpm;
+                session = await set_tempo(_bpm, int(data.settings.beats_per_chord));
+            }
         }
         playing: any = data.playing;
         if playing and data.settings {
@@ -330,7 +336,26 @@ impl app.change_tempo(bpm: float, beats: int) -> None {
     if not bpm or not beats {
         return;
     }
+    if bpm != session.bpm and engine_status and engine_status.sync and engine_status.sync.on {
+        # a tempo set by hand ends the sync, or the sync would undo it
+        await set_sync(False);
+    }
     session = await set_tempo(bpm, beats);
+}
+
+"""Tempo sync with the SuperConductor server (the BPM page; engine POST /sync)."""
+impl app.set_sync(on: bool) -> None {
+    global _synced_bpm;
+    if not _engine_url {
+        return;
+    }
+    _synced_bpm = session.bpm;
+    try {
+        resp: any = await engine_post("/sync", {"on": on});
+        engine_status = await resp.json();
+    } except Exception as e {
+        error = "tempo sync: " + str(e);
+    }
 }
 
 impl app.do_describe -> None {

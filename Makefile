@@ -29,9 +29,10 @@ PRESET     ?= warm_piano
 LOGS       := logs
 RUN        := .run
 CLIENT_MIDI?= http://localhost:8470
+SC_SERVER  ?= http://localhost:9100
 
 # what the engine is started with, per mode
-SC_ENGINE    := audio_engine/engine.py --sink superconductor --client-midi $(CLIENT_MIDI) --preset $(PRESET) --port $(ENGINE_PORT)
+SC_ENGINE    := audio_engine/engine.py --sink superconductor --client-midi $(CLIENT_MIDI) --sc-server $(SC_SERVER) --preset $(PRESET) --port $(ENGINE_PORT)
 LOCAL_ENGINE := audio_engine/engine.py --preset $(PRESET) --port $(ENGINE_PORT)
 
 .PHONY: run start check-client run-local start-local stop restart status logs app

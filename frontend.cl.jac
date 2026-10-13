@@ -16,6 +16,7 @@ import from .components.SidePanel { SidePanel }
 import from .components.TypingGuide { TypingGuide }
 import from .components.Tooltip { Tooltip }
 import from .components.DrumGrid { DrumsPage }
+import from .components.TempoPage { TempoPage }
 import from .components.BeatLights { beat_sync }
 import from .components.paths { node_map, chain_in, reachable, deepest_lock, lock_at, ancestor_at, is_back_id }
 
@@ -35,7 +36,9 @@ glob _search_id: int = -1,
      # set once the app has been quit: no more polling or timelines
      _stopped: bool = False,
      # when the volume was last changed here (the poll leaves it alone for a moment)
-     _vol_at: float = 0.0;
+     _vol_at: float = 0.0,
+     # the engine's bpm last copied into the session while tempo sync is on
+     _synced_bpm: float = 0.0;
 
 # ---- what the engine should be playing -------------------------------------------
 # The page is the single authority: every render works out the one timeline that
@@ -146,6 +149,12 @@ def find_node(search: SearchView, typed: list[ChordView], node_id: int) -> Chord
 }
 
 
+"""The page under the top bar: /#drums, /#bpm, or the Harmony page."""
+def page_of(hash: str) -> str {
+    return "drums" if hash == "#drums" else ("bpm" if hash == "#bpm" else "harmony");
+}
+
+
 def:pub app -> JsxElement {
     has session: SessionView | None = None,
         search: SearchView | None = None,
@@ -193,7 +202,9 @@ def:pub app -> JsxElement {
         # the alternative of a kept chord under the mouse: [step index, alternative index]
         alt_hover: list[int] = [],
         # the page under the top bar: "harmony" or "drums" (/#drums)
-        page: str = "drums" if window.location.hash == "#drums" else "harmony";
+        page: str = page_of(window.location.hash),
+        # the engine's last /status (the BPM page reads it)
+        engine_status: any = None;
 
     can with entry {
         load();
@@ -205,7 +216,7 @@ def:pub app -> JsxElement {
     }, []);
 
     useEffect(lambda {
-        on_hash = lambda { page = "drums" if window.location.hash == "#drums" else "harmony"; };
+        on_hash = lambda { page = page_of(window.location.hash); };
         window.addEventListener("hashchange", on_hash);
         return lambda { window.removeEventListener("hashchange", on_hash); };
     }, []);
@@ -251,6 +262,7 @@ def:pub app -> JsxElement {
     async def do_play -> None;
     async def change_key(tonic: str, mode: str) -> None;
     async def change_tempo(bpm: float, beats: int) -> None;
+    async def set_sync(on: bool) -> None;
     async def change_texture(texture: str) -> None;
     async def toggle_llm(enabled: bool) -> None;
     async def commit_mix -> None;
@@ -497,6 +509,13 @@ def:pub app -> JsxElement {
         return <div className="atlas drums-view">
             {header}
             <DrumsPage/>
+            <Tooltip/>
+        </div>;
+    }
+    if page == "bpm" {
+        return <div className="atlas drums-view">
+            {header}
+            <TempoPage status={engine_status} bpm={session.bpm} onSync={set_sync}/>
         </div>;
     }
 

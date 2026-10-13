@@ -37,6 +37,8 @@ drums lanes, see superconductor_server/mrt2_server.py) and POSTed to the
 SuperConductor client's client_midi (default http://localhost:8470), which plays it
 through the MRT2 server with SuperConductor's prompts. /style, temperature and
 cfg_style don't apply there: SuperConductor owns the sound.
+Tempo sync (POST /sync, the BPM page): the sink follows the SuperConductor server's
+heard tempo and lines its beat one up with the server's (SinkEngine._syncer).
 
 HTTP API (JSON, CORS open, default port 8765):
   GET  /status
@@ -46,17 +48,20 @@ HTTP API (JSON, CORS open, default port 8765):
   POST /settings {"bpm", "beats_per_chord", "articulation", "texture", "drum_grid", "cfg_notes", "cfg_style", "temperature", "gain"}
   POST /mix {"volume": 0..1.5, "muted": bool}   output level, applied at the speaker (no buffer delay)
   POST /shutdown {}   finish the current chunk, close the audio stream and the HTTP server, exit
+  POST /sync {"on": bool}   sink only: follow the SuperConductor server's tempo and beat one
 
 Run:  python audio_engine/engine.py [--model mrt2_small] [--port 8765] [--record out.wav]
-      python audio_engine/engine.py --sink superconductor [--client-midi http://localhost:8470]
+      python audio_engine/engine.py --sink superconductor [--client-midi http://localhost:8470] [--sc-server http://localhost:9100]
 """
 
 import argparse
 import json
 import logging
+import math
 import queue
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -110,6 +115,12 @@ def drum_grid(body: dict | None = None) -> dict:
     return {"mode": mode, "bars": bars, "per_beat": per_beat, "cells": cells, "after_hit": after_hit, "cfg": cfg}
 
 
+# the drum grid's bar, and the bar the tempo sync lines up with the server's
+BAR_BEATS = 4
+# the tempo range the page allows (services/atlas.jac set_tempo)
+SYNC_BPM_MIN, SYNC_BPM_MAX = 40.0, 180.0
+
+
 @dataclass
 class Settings:
     bpm: float = 84.0
@@ -146,6 +157,7 @@ class FrameMeta:
     beat_frac: float = 0.0  # how far through that beat this frame starts (0..1)
     drum: int = 0  # drum_pianoroll value for this frame
     drum_cell: int = -1  # drum grid cell this frame is in (-1: not in grid mode)
+    beat_pos: float = 0.0  # beats since the conductor started (continuous across tempo changes)
 
 
 class Conductor:
@@ -159,6 +171,9 @@ class Conductor:
         self.release_pending = False
         self.index = 0
         self.frame = 0  # global frame counter
+        # beats since start, advanced by 1 / frames_per_beat each frame: a tempo change
+        # changes how fast it moves, never where it is (frame / frames_per_beat would jump)
+        self.beat_pos = 0.0
         self.chord_start = 0
         self.current_notes: list = []
         self.entries = 0  # timelines entered so far (the sink re-renders on each)
@@ -171,6 +186,7 @@ class Conductor:
             c = Conductor(self.settings)
             c.idle, c.active = self.idle, self.active
             c.index, c.frame, c.chord_start = self.index, self.frame, self.chord_start
+            c.beat_pos = self.beat_pos
             c.current_notes = list(self.current_notes)
             c.entries = self.entries
             return c
@@ -203,9 +219,12 @@ class Conductor:
         s = self.settings
         return max(1, round(s.frames_per_beat() * s.beats_per_chord))
 
+    def _beat_step(self) -> float:
+        return 1.0 / self.settings.frames_per_beat()
+
     def _on_beat(self) -> bool:
-        fpb = self.settings.frames_per_beat()
-        return int(self.frame / fpb) != int((self.frame - 1) / fpb)
+        """This frame starts a beat (a whole number of beats falls inside it)."""
+        return math.floor(self.beat_pos + 1e-9) != math.floor(self.beat_pos - self._beat_step() + 1e-9)
 
     def _enter(self, tl: Timeline):
         """Switch timelines; skip the first chord if it is the one already sounding."""
@@ -268,12 +287,11 @@ class Conductor:
         g = self.settings.drum_grid
         if g["mode"] != "grid":
             return (0 if g["mode"] == "silent" else -1), -1
-        frames_per_cell = self.settings.frames_per_beat() / g["per_beat"]
-        k = int(self.frame / frames_per_cell)
+        k = math.floor(self.beat_pos * g["per_beat"] + 1e-9)
         cell = k % len(g["cells"])
         value = g["cells"][cell]
         if value == 1:
-            first = self.frame == 0 or int((self.frame - 1) / frames_per_cell) != k
+            first = self.frame == 0 or math.floor((self.beat_pos - self._beat_step()) * g["per_beat"] + 1e-9) != k
             value = 1 if first else g["after_hit"]
         return value, cell
 
@@ -321,8 +339,10 @@ class Conductor:
                 beat_frac=(pos / self.settings.frames_per_beat()) % 1.0,
                 drum=drum,
                 drum_cell=drum_cell,
+                beat_pos=self.beat_pos,
             )
             self.frame += 1
+            self.beat_pos += self._beat_step()
             return tokens, meta
 
 
@@ -571,7 +591,14 @@ class SinkEngine:
 
     MAX_PLAY_FRAMES = FRAME_RATE * 600  # a "play" timeline is rendered to its end, up to 10 min
 
-    def __init__(self, client_midi: str, lead_ms: float, preset: dict | None = None):
+    # tempo sync (POST /sync, the BPM page): see _syncer
+    SYNC_EVERY_S = 0.5
+    SYNC_BPM_DEADBAND = 1.0  # apply the heard tempo once it differs by this much (bpm)
+    SYNC_PHASE_DEADBAND = 0.04  # beats; smaller latency errors are left alone
+    SYNC_PHASE_GAIN = 0.5  # share of a measured latency error corrected per check
+    SYNC_PIN_EVERY_S = 4.0  # at most one beat-one pin per this many seconds
+
+    def __init__(self, client_midi: str, lead_ms: float, preset: dict | None = None, sc_server: str = "http://localhost:9100"):
         preset = preset or {}
         self.settings = Settings.from_dict(preset.get("settings", {}))
         self.conductor = Conductor(self.settings)
@@ -579,8 +606,15 @@ class SinkEngine:
             c = preset["idle_chord"]
             self.conductor.idle = Timeline("idle", [Chord(list(c["notes"]), c.get("label", ""), c.get("symbol", ""))], "idle")
         self.client_midi = client_midi.rstrip("/")
-        self.lead_frames = max(0, round(lead_ms / 1000 * FRAME_RATE))
-        self.history: list = []  # metas of the last lead_frames + 1 frames; the oldest is "playing"
+        # how long after the conductor makes a frame it is heard (the client's lead, plus
+        # network); the sync calibrates it against what the server hears
+        self.lead_s = max(0.0, lead_ms / 1000)
+        self.history: deque = deque(maxlen=10 * FRAME_RATE)  # (wall time, meta) of recent frames
+        self.sc_server = sc_server.rstrip("/")
+        self.sync_on = False
+        self.sync_state: dict = {}  # what the last check saw and did (the BPM page shows it)
+        self._pin_wanted = False
+        self._pin_at = 0.0
         self.dirty = False
         self.outbox: queue.Queue = queue.Queue(maxsize=1)  # the latest pattern wins
         self.connected = False
@@ -591,6 +625,7 @@ class SinkEngine:
         self.paused, self.volume, self.muted = False, 1.0, False
         self.style_prompt = ""
         threading.Thread(target=self._sender, daemon=True).start()
+        threading.Thread(target=self._syncer, daemon=True).start()
 
     # --- the parts of the Engine API that don't apply here ---
     def set_style(self, prompt: str):
@@ -672,7 +707,9 @@ class SinkEngine:
                 except queue.Empty:
                     pass
                 self.outbox.put(pattern)
-            self.history = (self.history + [meta])[-(self.lead_frames + 1):]
+            self.history.append((time.time(), meta))
+            if self._pin_wanted:
+                self._maybe_pin()
             next_t += period
             delay = next_t - time.perf_counter()
             if delay > 0:
@@ -680,11 +717,30 @@ class SinkEngine:
             elif delay < -0.5:
                 next_t = time.perf_counter()  # fell far behind (laptop asleep): don't race to catch up
 
+    def heard_meta(self, t: float | None = None) -> FrameMeta | None:
+        """The frame being heard at wall time t (now): the one made lead_s earlier."""
+        t = time.time() if t is None else t
+        found = None
+        for made, meta in reversed(self.history):
+            found = meta
+            if made <= t - self.lead_s:
+                break
+        return found
+
+    def heard_beat_pos(self, t: float) -> float | None:
+        """Beat position heard at wall time t, between frames (frames are 40 ms apart)."""
+        heard_t = t - self.lead_s
+        for made, meta in reversed(self.history):
+            if made <= heard_t:
+                return meta.beat_pos + (heard_t - made) * self.settings.bpm / 60.0
+        return None
+
     def status(self) -> dict:
-        m = self.history[0] if self.history else None
+        m = self.heard_meta()
         return {
             "ok": True,
             "sink": "superconductor",
+            "sync": {"on": self.sync_on, "server_url": self.sc_server, "lead_ms": round(self.lead_s * 1000), **self.sync_state},
             "connected": self.connected,
             "client_midi": self.client_midi,
             "model": f"SuperConductor · {self.remote_model}" if self.connected else "SuperConductor (client not connected)",
@@ -697,7 +753,7 @@ class SinkEngine:
             "volume": self.volume,
             "muted": self.muted,
             "latency_ms": 0.0,
-            "buffer_ms": self.lead_frames * 1000 // FRAME_RATE,
+            "buffer_ms": round(self.lead_s * 1000),
             "settings": self.settings.__dict__,
             "playing": None
             if m is None
@@ -711,8 +767,105 @@ class SinkEngine:
                 "beat_frac": round(m.beat_frac, 3),
                 "drum": m.drum,
                 "drum_cell": m.drum_cell,
+                "bar_beat": math.floor(m.beat_pos) % BAR_BEATS,
+                "bar_beat_frac": round(m.beat_pos % 1.0, 3),
             },
         }
+
+    # --- tempo sync with the SuperConductor server's /tempo ---
+    def set_sync(self, on: bool):
+        self.sync_on = bool(on)
+        self.sync_state = {}
+        self._pin_wanted = False
+        log.info("tempo sync %s (%s/tempo/status)", "on" if on else "off", self.sc_server)
+
+    def _syncer(self):
+        """Twice a second: read the server's /tempo/status (the BPM page shows it), and
+        while sync is on:
+        1. tempo: set this engine's bpm to the server's heard_bpm (the tempo the listener
+           hears: MRT2's tempo x the server's time-stretch speed), folded by octaves to
+           the nearest of x/2, x, 2x, once it differs by SYNC_BPM_DEADBAND;
+        2. beat phase: compare where the server hears the bar (beat + beat_frac) with the
+           frame this engine thinks is heard now (made lead_s ago). The fraction of a beat
+           between them is an error in lead_s, which is corrected (moving the music
+           instead would move the beats the server detects with it, never converging);
+        3. beat one: a whole-beat difference means the server counts the bar from another
+           beat. The server's beat one is then pinned (POST /tempo/downbeat) at the
+           moment this engine's beat one is heard."""
+        from urllib.request import urlopen
+
+        while self.running:
+            time.sleep(self.SYNC_EVERY_S)
+            try:
+                t0 = time.time()
+                with urlopen(self.sc_server + "/tempo/status", timeout=1.0) as resp:
+                    st = json.loads(resp.read())
+                t = (t0 + time.time()) / 2
+            except Exception as e:
+                self.sync_state = {"ok": False, "error": f"{self.sc_server}/tempo/status: {e}"}
+                continue
+            state = {"ok": True, "error": "", "server": {k: st.get(k) for k in (
+                "mode", "speed", "model_bpm", "heard_bpm", "target_bpm", "conductor_bpm", "playing",
+                "beat", "beat_frac", "beats_per_bar", "downbeat_source", "meter_confidence")}}
+            if not self.sync_on:
+                self.sync_state = state
+                continue
+            # 1. tempo
+            heard = st.get("heard_bpm")
+            if heard:
+                bpm = self.settings.bpm
+                folded = min((heard / 2, heard, heard * 2), key=lambda x: abs(math.log(x / bpm)))
+                folded = round(min(SYNC_BPM_MAX, max(SYNC_BPM_MIN, folded)), 1)
+                state["target_bpm"] = folded
+                if abs(folded - bpm) >= self.SYNC_BPM_DEADBAND:
+                    self.settings.bpm = folded
+                    self.settings_changed()
+                    state["applied_at"] = time.time()
+                    log.info("tempo sync: %.1f -> %.1f bpm (server hears %.1f)", bpm, folded, heard)
+            # 2 + 3. beat phase and beat one
+            mine = self.heard_beat_pos(t)
+            if st.get("playing") and st.get("beat") is not None and st.get("beat_frac") is not None and mine is not None:
+                bar = st.get("beats_per_bar") or BAR_BEATS
+                theirs = st["beat"] + st["beat_frac"]
+                d = theirs - (mine % bar)
+                frac = (d + 0.5) % 1.0 - 0.5  # beats, in [-0.5, 0.5)
+                whole = round(d - frac) % bar
+                state["phase_beats"] = round(frac, 3)
+                state["bar_offset_beats"] = whole
+                if abs(frac) > self.SYNC_PHASE_DEADBAND:
+                    seconds = frac * 60.0 / self.settings.bpm
+                    self.lead_s = min(3.0, max(0.05, self.lead_s - self.SYNC_PHASE_GAIN * seconds))
+                if bar == BAR_BEATS and whole != 0 and abs(frac) < 0.25:
+                    self._pin_wanted = True
+            else:
+                state["phase_beats"] = None
+                state["bar_offset_beats"] = None
+            state["last_pin"] = self.sync_state.get("last_pin")
+            self.sync_state = state
+
+    def _maybe_pin(self):
+        """Called every frame while a pin is wanted: once this engine's beat one is being
+        heard, tell the server that the beat heard now is beat one."""
+        m = self.heard_meta()
+        if m is None or time.time() - self._pin_at < self.SYNC_PIN_EVERY_S:
+            return
+        if math.floor(m.beat_pos) % BAR_BEATS == 0 and m.beat_pos % 1.0 < 0.15:
+            self._pin_wanted = False
+            self._pin_at = time.time()
+
+            def post():
+                from urllib.request import Request, urlopen
+
+                try:
+                    req = Request(self.sc_server + "/tempo/downbeat", data=b"null", method="POST",
+                                  headers={"Content-Type": "application/json"})
+                    urlopen(req, timeout=1.0).close()
+                    self.sync_state = {**self.sync_state, "last_pin": time.time()}
+                    log.info("tempo sync: server beat one pinned to this engine's beat one")
+                except Exception as e:
+                    log.info("tempo sync: pinning beat one failed: %s", e)
+
+            threading.Thread(target=post, daemon=True).start()
 
 
 def prioritize_this_thread():
@@ -796,6 +949,10 @@ def make_handler(engine: Engine):
                     log.info("shutdown requested over the control API")
                     engine.running = False
                     return
+                elif self.path == "/sync":
+                    if not hasattr(engine, "set_sync"):
+                        raise ValueError("tempo sync needs the SuperConductor sink (make run)")
+                    engine.set_sync(bool(body.get("on", True)))
                 elif self.path == "/release":
                     engine.conductor.release()
                 elif self.path == "/style":
@@ -843,6 +1000,8 @@ def main():
     ap.add_argument("--sink", default="local", choices=["local", "superconductor"],
                     help="local: run Magenta here; superconductor: send notes/drums to the SuperConductor client instead")
     ap.add_argument("--client-midi", default="http://localhost:8470", help="SuperConductor client_midi URL (--sink superconductor)")
+    ap.add_argument("--sc-server", default="http://localhost:9100",
+                    help="--sink superconductor: the MRT2 server's HTTP address, for tempo sync (its /tempo/status)")
     ap.add_argument("--lead-ms", type=float, default=600.0,
                     help="--sink superconductor: how far SuperConductor's audio trails the conductor (its buffer)")
     args = ap.parse_args()
@@ -861,7 +1020,7 @@ def main():
         log.info("preset %s loaded from %s", preset.get("name", path.stem), path)
 
     if args.sink == "superconductor":
-        sink = SinkEngine(args.client_midi, args.lead_ms, preset)
+        sink = SinkEngine(args.client_midi, args.lead_ms, preset, args.sc_server)
         server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(sink))
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
