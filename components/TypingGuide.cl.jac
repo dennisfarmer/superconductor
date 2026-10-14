@@ -14,7 +14,10 @@ glob GUIDE_QUALITIES: list[list[str]] = [
     ["Cdim7  or  Co7", "fully diminished 7th"],
     ["Csus4  /  Csus2", "suspended"],
     ["C7sus4", "dominant 7th, suspended"],
-    ["C6  /  Cm6", "added 6th"]
+    ["C6  /  Cm6", "added 6th (read as Am7/C, Aø7/C unless add9 / add11 / 6 chords are on)"],
+    ["Cadd9  Cmadd9  Cadd2", "added 9th"],
+    ["Cadd11  Cmadd11  Cadd4", "added 11th"],
+    ["Cadd13  Cadd6", "added 13th / 6th"]
 ];
 
 glob GUIDE_ROMAN: list[list[str]] = [

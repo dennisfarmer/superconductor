@@ -7,11 +7,14 @@ about to cancel the borrowed colour it just introduced. Only something that
 carries the path with it can judge that.
 """
 
-import from theory.vocab { ChordSpec, spec_of }
+import from theory.vocab { ChordSpec, spec_of, ADDED_TONE }
 import from theory.voicing { Mark }
 
 # Extra cost for leaving the diatonic palette: chromatic chords are marked choices.
 glob COLOUR_TAX: dict[str, float] = {"applied": 0.35, "mixture": 0.45, "chromatic": 0.55};
+
+# Added-note chords are colour too: a small tax keeps them from crowding out plain triads.
+glob ADDED_TAX: float = 0.3;
 
 glob CLOSURE_BONUS: dict[str, float] = {"PAC": 0.9, "IAC": 0.5, "HC": 0.45, "PHC": 0.5, "PC": 0.45, "DC": 0.35};
 
@@ -38,7 +41,7 @@ def phrase_cost(
     last = specs[-1];
     harmonies = [s.harmony for s in specs];
     # colour scales the tax on chromatic families: 0 = indifferent, negative = sought out
-    cost = COLOUR_TAX.get(b.family, 0.0) * colour;
+    cost = (COLOUR_TAX.get(b.family, 0.0) + (ADDED_TAX if b.quality in ADDED_TONE else 0.0)) * colour;
     marks: list[Mark] = [];
 
     if len(specs) >= 2 and harmonies[-2] == b.harmony and harmonies[-1] != b.harmony and b.func != "T" {

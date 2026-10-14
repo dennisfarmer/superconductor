@@ -5,10 +5,14 @@ exploration spawns a `BeamSearch` walker on the key's `BeamGate`; its results ar
 cached so the UI can audition, inspect, and commit any node of the search tree.
 """
 
-import from theory.pitch { MAJOR_TONICS, MINOR_TONICS, r2 }
-import from theory.vocab { ChordSpec, spec_of, has_spec, key_for, key_id_of, tonic_cid, parse_chord }
+import from theory.pitch { MAJOR_TONICS, MINOR_TONICS, Key, r2, iabs, signed }
+import from theory.vocab {
+    ChordSpec, spec_of, has_spec, key_for, key_id_of, tonic_cid, parse_chord, vocab_for, is_roman, read_note,
+    analyse, QUALITY_INTERVALS
+}
 import from theory.phrase { phrase_cost }
 import from theory.voicing { home_voicing, voicing_names, voicings_for, best_motion, best_motion_into, Mark }
+import from theory.leading { leads, RULES, degree_label }
 import from theory.cadence { CADENCE_NAMES, cadence }
 import from theory.syntax { syntax }
 import from graph.harmony { space_for, chord_in, gate_of, graph_stats }
@@ -61,7 +65,14 @@ obj Saved {
     has name: str,
         tonic: str,
         mode: str,
-        steps: list[Step];
+        steps: list[Step],
+        extended: bool = False;   # written with the added-note chords switched on
+}
+
+
+"""A saved progression's key id (progressions saved before `extended` existed have none)."""
+def saved_kid(kept: Saved) -> str {
+    return key_id_of(kept.tonic, kept.mode, hasattr(kept, "extended") and kept.extended);
 }
 
 
@@ -73,6 +84,7 @@ node Session {
         texture: str = "block",
         drum_grid: str = "",   # the Drums page's grid, as JSON ("" = engine default: no drums)
         llm_enabled: bool = False,
+        extended: bool = False,   # the walkers may use added-note chords (add9, add11, 6)
         bpm: float = 84.0,
         beats_per_chord: int = 4,
         # walker settings, read from walker.toml (1.0 multipliers = the defaults built into the rules)
@@ -189,6 +201,16 @@ obj AltView {
 }
 
 
+"""One voice-leading rule bearing on one voice of a chord change (theory.leading)."""
+obj LeadView {
+    has voice: int,
+        kind: str,
+        title: str,
+        text: str,
+        detail: str;
+}
+
+
 obj StepView {
     has index: int,
         cid: str,
@@ -199,7 +221,10 @@ obj StepView {
         names: list[str],
         rule: str,
         cadence: str,
-        alts: list[AltView] = [];
+        degrees: list[str] = [],      # scale degree of each voice, e.g. "2̂", "♯4̂"
+        alts: list[AltView] = [],
+        leads: list[LeadView] = [],   # the edge into this chord from the one before
+        typed: bool = False;          # typed in by the composer (removable)
 }
 
 
@@ -212,6 +237,7 @@ obj SessionView {
         texture: str,
         drum_grid: str,
         llm_enabled: bool,
+        extended: bool,
         bpm: float,
         beats_per_chord: int,
         steps: list[StepView],
@@ -229,7 +255,8 @@ obj SessionView {
 
 obj OptionResult {
     has nodes: list[ChordView],
-        notice: str;
+        notice: str,
+        info: str = "";   # set when another form of the typed chord was used
 }
 
 
@@ -330,7 +357,7 @@ def session -> Session {
     } else {
         s = (root ++> Session())[0];
     }
-    kid = key_id_of(s.tonic, s.mode);
+    kid = key_id(s);
     if not s.steps {
         cid = tonic_cid(kid);
         s.steps = [Step(cid=cid, notes=home_voicing(kid, spec_of(kid, cid)))];
@@ -341,7 +368,7 @@ def session -> Session {
     walker_config(s);
     know_typed(kid, s.steps);
     for kept in s.saved {
-        know_typed(key_id_of(kept.tonic, kept.mode), kept.steps);
+        know_typed(saved_kid(kept), kept.steps);
     }
     for past in s.history {
         know_typed(kid, past);
@@ -357,7 +384,7 @@ def remember(s: Session) {
 
 
 def key_id(s: Session) -> str {
-    return key_id_of(s.tonic, s.mode);
+    return key_id_of(s.tonic, s.mode, hasattr(s, "extended") and s.extended);
 }
 
 
@@ -375,12 +402,12 @@ def loop_end(s: Session) -> int {
 
 
 def saved_view(i: int, kept: Saved) -> SavedView {
-    kid = key_id_of(kept.tonic, kept.mode);
+    kid = saved_kid(kept);
     return SavedView(
         index=i,
         name=kept.name,
         key_name=key_for(kid).name(),
-        steps=[step_view(kid, j, st) for (j, st) in enumerate(kept.steps)]
+        steps=[step_view(kid, j, st, [], kept.steps[j - 1] if j > 0 else None) for (j, st) in enumerate(kept.steps)]
     );
 }
 
@@ -418,7 +445,17 @@ def alt_views(kid: str, steps: list[Step], i: int) -> list[AltView] {
 }
 
 
-def step_view(kid: str, i: int, st: Step, alts: list[AltView] = []) -> StepView {
+def lead_views(kid: str, prev: Step, st: Step) -> list[LeadView] {
+    out: list[LeadView] = [];
+    for l in leads(kid, spec_of(kid, prev.cid), prev.notes, spec_of(kid, st.cid), st.notes) {
+        r = RULES[l.rule];
+        out.append(LeadView(voice=l.voice, kind=r.kind, title=r.title, text=r.text, detail=l.detail));
+    }
+    return out;
+}
+
+
+def step_view(kid: str, i: int, st: Step, alts: list[AltView] = [], prev: Step | None = None) -> StepView {
     c = spec_of(kid, st.cid);
     return StepView(
         index=i,
@@ -430,7 +467,10 @@ def step_view(kid: str, i: int, st: Step, alts: list[AltView] = []) -> StepView 
         names=voicing_names(kid, c, st.notes),
         rule=st.rule,
         cadence=st.cadence,
-        alts=alts
+        degrees=[degree_label(key_for(kid), c, n) for n in st.notes],
+        alts=alts,
+        leads=lead_views(kid, prev, st) if prev is not None else [],
+        typed=bool(st.symbol)
     );
 }
 
@@ -446,9 +486,10 @@ def session_view(s: Session, notice: str = "") -> SessionView {
         texture=s.texture,
         drum_grid=s.drum_grid,
         llm_enabled=s.llm_enabled,
+        extended=key_id(s).endswith("|ext"),
         bpm=s.bpm,
         beats_per_chord=s.beats_per_chord,
-        steps=[step_view(kid, i, st, alt_views(kid, s.steps, i)) for (i, st) in enumerate(s.steps)],
+        steps=[step_view(kid, i, st, alt_views(kid, s.steps, i), s.steps[i - 1] if i > 0 else None) for (i, st) in enumerate(s.steps)],
         loop_from=loop_start(s),
         loop_to=loop_end(s),
         can_undo=len(s.history) > 0 or len(s.steps) > 1,
@@ -521,14 +562,144 @@ def:pub get_state -> SessionView {
 }
 
 
+# ---------------------------------------------------------------- transposing
+
+"""A note name moved from key `a` to key `b`, keeping its scale degree (and any text
+after it), so the spelling follows the new key."""
+def transpose_note(text: str, a: Key, b: Key) -> str {
+    (letter, pc, used) = read_note(text);
+    name = b.spell((letter - a.tonic_letter) % 7, (pc + b.tonic_pc - a.tonic_pc) % 12);
+    if name[1:] not in ["", "♭", "♯"] {
+        raise ValueError(f"{text} has no plain spelling in {b.name()}");
+    }
+    return name + text[used:];
+}
+
+
+"""A typed chord symbol ("F♯m7/A", "Bb") moved from key `a` to key `b`."""
+def transpose_symbol(text: str, a: Key, b: Key) -> str {
+    return "/".join([transpose_note(part, a, b) for part in text.split("/")]);
+}
+
+
+"""The chord of the new key's vocabulary that plays the same part as `c` did in a key
+of the other mode (I → i, ♭VI → VI, V⁷/vi → V⁷/VI), or None if it has none."""
+def counterpart(kid: str, c: ChordSpec) -> ChordSpec | None {
+    best: ChordSpec | None = None;
+    best_score = -1;
+    for n in vocab_for(kid) {
+        if n.root_deg != c.root_deg or n.is_seventh != c.is_seventh or n.target_deg != c.target_deg {
+            continue;
+        }
+        if (n.func == "CAD64") != (c.func == "CAD64") {
+            continue;
+        }
+        score = 8 * int(n.inversion == c.inversion)
+            + 4 * int(n.family == c.family or (c.family == "mixture" and n.family == "diatonic"))
+            + 2 * int(n.func == c.func)
+            + int(n.quality == c.quality);
+        if score > best_score {
+            best = n;
+            best_score = score;
+        }
+    }
+    return best;
+}
+
+
+"""A chord (cid, typed symbol) of key `a` as it stands in key `b`: the same Roman
+numeral in the same mode, its counterpart across modes, else the same chord moved
+literally with the tonic."""
+def transpose_chord(a_kid: str, b_kid: str, cid: str, symbol: str) -> tuple[str, str] {
+    (a, b) = (key_for(a_kid), key_for(b_kid));
+    if not has_spec(a_kid, cid) {
+        return (tonic_cid(b_kid), "");
+    }
+    old = spec_of(a_kid, cid);
+    tries: list[str] = [];
+    if symbol and is_roman(symbol) {
+        tries.append(symbol);
+    } elif not symbol and a.mode == b.mode and has_spec(b_kid, cid) {
+        return (cid, "");
+    } elif not symbol and a.mode != b.mode {
+        twin = counterpart(b_kid, old);
+        if twin is not None {
+            return (twin.cid, "");
+        }
+    }
+    for text in [symbol, old.symbol] {
+        if text and not is_roman(text) {
+            try {
+                tries.append(transpose_symbol(text, a, b));
+            } except ValueError {
+                continue;
+            }
+        }
+    }
+    tries.append(old.rn);
+    for text in tries {
+        try {
+            return (parse_chord(b_kid, text).cid, text);
+        } except ValueError {
+            continue;
+        }
+    }
+    return (tonic_cid(b_kid), "");
+}
+
+
+"""A step moved to key `b`: its chord and alternatives transposed, voiced as near as
+the new chord allows to the old voicing moved by the tonic's shift."""
+def transpose_step(a_kid: str, b_kid: str, st: Step) -> Step {
+    (cid, symbol) = transpose_chord(a_kid, b_kid, st.cid, st.symbol);
+    alts: list[Alt] = [];
+    for alt in alts_of(st) {
+        (acid, asym) = transpose_chord(a_kid, b_kid, alt.cid, alt.symbol);
+        alts.append(Alt(cid=acid, symbol=asym));
+    }
+    spec = spec_of(b_kid, cid);
+    shift = signed(key_for(b_kid).tonic_pc - key_for(a_kid).tonic_pc);
+    target = [n + shift for n in st.notes];
+    notes = home_voicing(b_kid, spec);
+    best = 1e9;
+    for v in voicings_for(b_kid, spec) {
+        d = sum([iabs(v.notes[i] - target[i]) for i in range(4)]) + 0.1 * v.static_cost;
+        if d < best {
+            best = d;
+            notes = v.notes;
+        }
+    }
+    return Step(cid=cid, notes=notes, rule=st.rule, cadence=st.cadence, symbol=symbol, alts=alts);
+}
+
+
+"""Let the walkers use the added-note chords (add9, add11, 6) or not. The progression
+is carried over: a chord the other vocabulary lacks becomes the same chord typed in."""
+def:pub set_extended(on: bool) -> SessionView {
+    s = session();
+    a_kid = key_id(s);
+    b_kid = key_id_of(s.tonic, s.mode, on);
+    if a_kid != b_kid {
+        s.steps = [transpose_step(a_kid, b_kid, st) for st in s.steps];
+        s.history = [[transpose_step(a_kid, b_kid, st) for st in past] for past in s.history];
+    }
+    s.extended = on;
+    s = session();
+    return session_view(s);
+}
+
+
+"""Change key: the progression (and its undo history) is transposed, not cleared."""
 def:pub set_key(tonic: str, mode: str) -> SessionView {
     s = session();
+    a_kid = key_id(s);
+    b_kid = key_id_of(tonic, "minor" if mode == "minor" else "major", s.extended);
+    if a_kid != b_kid {
+        s.steps = [transpose_step(a_kid, b_kid, st) for st in s.steps];
+        s.history = [[transpose_step(a_kid, b_kid, st) for st in past] for past in s.history];
+    }
     s.tonic = tonic;
     s.mode = "minor" if mode == "minor" else "major";
-    s.steps = [];
-    s.history = [];
-    s.loop_from = -1;
-    s.loop_to = -1;
     s = session();
     return session_view(s);
 }
@@ -812,8 +983,9 @@ def voiced_after(kid: str, prev: Step, c: ChordSpec) -> list[int] {
 
 
 """Add typed chords to the progression: "after" the last chord, "before" the first,
-or "replace" the whole progression. Each chord is analysed in the key and voice-led
-from (or, before, into) its neighbour, so the walkers can carry on from it."""
+"first" in place of the first chord, or "replace" the whole progression. Each chord
+is analysed in the key and voice-led from (or, before, into) its neighbour, so the
+walkers can carry on from it."""
 def:pub add_chords(text: str, where: str) -> SessionView {
     s = session();
     kid = key_id(s);
@@ -835,8 +1007,15 @@ def:pub add_chords(text: str, where: str) -> SessionView {
             _TYPED.append(kid + sym);
         }
     }
+    first = s.steps[0];
+    starting = where == "first";
     try {
         steps: list[Step] = list(s.steps);
+        if starting {
+            # the typed chords open the progression in place of its first chord
+            steps = steps[1:];
+            where = "before" if steps else "replace";
+        }
         if where == "before" {
             # insert last-typed first, so each chord is voiced into the one after it
             for i in range(len(specs) - 1, -1, -1) {
@@ -872,6 +1051,14 @@ def:pub add_chords(text: str, where: str) -> SessionView {
         }
     } except ValueError as e {
         return session_view(s, str(e));
+    }
+    if starting and steps[0].cid != first.cid {
+        # a new opening chord: the old one stays on offer beside it, to swap back
+        keep = [a for a in alts_of(first) if a.cid != steps[0].cid];
+        steps[0] = Step(
+            cid=steps[0].cid, notes=steps[0].notes, rule=steps[0].rule, cadence=steps[0].cadence,
+            symbol=steps[0].symbol, alts=[Alt(cid=first.cid, symbol=first.symbol)] + keep
+        );
     }
     remember(s);
     if where == "replace" {
@@ -933,18 +1120,18 @@ def:pub set_loop(start: int, end: int) -> SessionView {
 """Type a chord into a column of the map. It joins the tree once for every chord in
 the previous column (`parent_ids`) that may legally move to it - forwards, parent →
 chord; backwards, chord → parent - voice-led and scored like the walker's own.
+Its other inversions and seventh forms join it wherever the rules allow them, and
+stand in for it if it can go nowhere. `force` links the typed chord even where the
+rules forbid the move (it still needs a playable voicing).
 
 Then a mini walker searches on from the typed chord through the remaining columns
 (status "grown"). The client draws a found chord that is already in its column as
 one more arrow into the existing box, and anything else as a new entry."""
-def:pub add_option(search_id: int, parent_ids: list[int], text: str) -> OptionResult {
-    global _NEXT_TYPED;
+def:pub add_option(search_id: int, parent_ids: list[int], text: str, force: bool = False) -> OptionResult {
     if search_id != _SEARCH_ID {
         return OptionResult(nodes=[], notice="that search is no longer current");
     }
     kid = _SEARCH_KEY;
-    key = key_for(kid);
-    tune = session();
     symbol = text.strip();
     try {
         c = parse_chord(kid, symbol);
@@ -954,6 +1141,40 @@ def:pub add_option(search_id: int, parent_ids: list[int], text: str) -> OptionRe
     if (kid + symbol) not in _TYPED {
         _TYPED.append(kid + symbol);
     }
+    made = link_option(kid, c, symbol, parent_ids, force);
+    # its other inversions and seventh forms join it wherever the rules allow them
+    extra: list[ChordView] = [];
+    used: list[str] = [];
+    for (v, vsym) in chord_variants(kid, c) {
+        vm = link_option(kid, v, vsym, parent_ids);
+        if vm {
+            extra = extra + vm;
+            used.append(f"{v.rn}");
+            if (kid + vsym) not in _TYPED {
+                _TYPED.append(kid + vsym);
+            }
+        }
+    }
+    if not made and not extra {
+        return OptionResult(nodes=[], notice=f"no chord in the previous column can move to {c.symbol} ({c.rn}) under the walkers' rules, in any inversion or as a seventh");
+    }
+    info = "";
+    if not made {
+        info = f"{c.symbol} ({c.rn}) can't follow here under the walkers' rules; added " + ", ".join(used) + " instead";
+    }
+    # the mini walker grows on from the typed chord itself when it could go in
+    grow = made if made else extra;
+    best = _SEARCH[min(grow, key=lambda v: ChordView : v.total).id];
+    return OptionResult(nodes=made + extra + grow_from(best), notice="", info=info);
+}
+
+
+"""Link chord `c` (typed as `symbol`) from every given node it may legally follow
+(or, in the backward tree, precede); returns the new nodes."""
+def link_option(kid: str, c: ChordSpec, symbol: str, parent_ids: list[int], force: bool = False) -> list[ChordView] {
+    global _NEXT_TYPED;
+    key = key_for(kid);
+    tune = session();
     made: list[ChordView] = [];
     for pid in parent_ids {
         p = _SEARCH.get(pid, None);
@@ -963,32 +1184,71 @@ def:pub add_option(search_id: int, parent_ids: list[int], text: str) -> OptionRe
         ps = spec_of(kid, p.cid);
         back = is_back(pid);
         rule = syntax(c, ps, key) if back else syntax(ps, c, key);
-        if rule is None {
+        if rule is None and not force {
             continue;
         }
+        # a forced move costs as much as the costliest rule a walker may follow
+        rule_cost = rule.cost if rule is not None else tune.max_syntax;
+        first_rn = c.rn if back else ps.rn;
+        then_rn = ps.rn if back else c.rn;
+        rule_label = rule.label if rule is not None else f"forced: {first_rn} → {then_rn} is outside the walkers' rules";
         m = best_motion_into(kid, c, ps, p.notes, tune.smooth) if back else best_motion(kid, ps, p.notes, c, tune.smooth);
         if m is None {
             continue;
         }
         cad = cadence(key, c, ps, p.notes) if back else cadence(key, ps, c, m.notes);
         (pc, pmarks) = phrase_cost(kid, p.path, c, cad, back, tune.colour, tune.cadence_pull);
-        step = max(0.05, tune.syntax_weight * rule.cost + m.cost + pc);
+        step = max(0.05, tune.syntax_weight * rule_cost + m.cost + pc);
         _NEXT_TYPED += 1;
         nid = _NEXT_TYPED + (BACK_BASE if back else 0);
         h = Hyp(
             id=nid, parent=pid, layer=p.layer + 1, first=p.first if p.layer > 0 else nid,
-            cid=c.cid, notes=m.notes, path=p.path + [c.cid], syntax_cost=rule.cost, vl_cost=m.cost,
-            phrase_cost=pc, step_cost=step, total=p.total + step, rule=rule.label,
+            cid=c.cid, notes=m.notes, path=p.path + [c.cid], syntax_cost=rule_cost, vl_cost=m.cost,
+            phrase_cost=pc, step_cost=step, total=p.total + step, rule=rule_label,
             marks=m.marks + pmarks, cadence=cad, symbol=symbol
         );
         _SEARCH[nid] = h;
         _LIVE.append(nid);
         made.append(chord_view(kid, h, "custom"));
     }
-    if not made {
-        return OptionResult(nodes=[], notice=f"no chord in the previous column can move to {c.symbol} ({c.rn}) under the walkers' rules");
+    return made;
+}
+
+
+"""Other forms of a typed chord, nearest first: its other inversions, then (for a
+triad) the seventh chord on the same root, typed inversion first. Each comes with a
+chord symbol that reads back as it."""
+def chord_variants(kid: str, c: ChordSpec) -> list[tuple[ChordSpec, str]] {
+    if c.func in ["CAD64", "AUG6"] {
+        return [];
     }
-    return OptionResult(nodes=made + grow_from(_SEARCH[min(made, key=lambda v: ChordView : v.total).id]), notice="");
+    key = key_for(kid);
+    forms: list[tuple[str, int]] = [(c.quality, i) for i in range(len(QUALITY_INTERVALS[c.quality])) if i != c.inversion];
+    seventh = (key.degree_pc(c.root_deg + 6) - c.root_pc) % 12;
+    q7 = "";
+    if c.quality == "maj" {
+        q7 = "dom7" if c.func in ["D", "APP"] or seventh != 11 else "maj7";
+    } elif c.quality == "min" {
+        q7 = "min7";
+    } elif c.quality == "dim" {
+        q7 = "dim7" if seventh == 9 or c.func == "APP" else "hdim7";
+    } elif c.quality == "sus4" {
+        q7 = "7sus4";
+    }
+    if q7 {
+        first = min(c.inversion, 3);
+        forms = forms + [(q7, first)] + [(q7, i) for i in range(4) if i != first];
+    }
+    out: list[tuple[ChordSpec, str]] = [];
+    for (q, inv) in forms {
+        try {
+            sym = analyse(kid, c.root_deg, c.root_pc, q, inv).symbol;
+            out.append((parse_chord(kid, sym), sym));
+        } except Exception {
+            continue;
+        }
+    }
+    return out;
 }
 
 
@@ -1031,12 +1291,25 @@ def grow_from(h: Hyp) -> list[ChordView] {
 def:pub commit_progression(name: str) -> SessionView {
     s = session();
     label = name.strip() if name.strip() else f"Progression {len(s.saved) + 1}";
-    s.saved = s.saved + [Saved(name=label, tonic=s.tonic, mode=s.mode, steps=list(s.steps))];
+    s.saved = s.saved + [Saved(name=label, tonic=s.tonic, mode=s.mode, steps=list(s.steps), extended=s.extended)];
     s.steps = [];
     s.history = [];
     s.loop_from = -1;
     s.loop_to = -1;
     s = session();
+    return session_view(s);
+}
+
+
+"""Rename a committed progression (a blank name leaves it as it was)."""
+def:pub rename_saved(index: int, name: str) -> SessionView {
+    s = session();
+    if 0 <= index and index < len(s.saved) and name.strip() {
+        s.saved = [
+            Saved(name=name.strip(), tonic=k.tonic, mode=k.mode, steps=k.steps, extended=hasattr(k, "extended") and k.extended) if i == index else k
+            for (i, k) in enumerate(s.saved)
+        ];
+    }
     return session_view(s);
 }
 
@@ -1061,16 +1334,112 @@ def:pub resume_saved(index: int) -> SessionView {
     kept = s.saved[index];
     rest = [k for (i, k) in enumerate(s.saved) if i != index];
     if len(s.steps) > 1 {
-        rest = rest + [Saved(name=f"Progression {len(s.saved) + 1}", tonic=s.tonic, mode=s.mode, steps=list(s.steps))];
+        rest = rest + [Saved(name=f"Progression {len(s.saved) + 1}", tonic=s.tonic, mode=s.mode, steps=list(s.steps), extended=s.extended)];
     }
     s.saved = rest;
     s.tonic = kept.tonic;
     s.mode = kept.mode;
+    s.extended = hasattr(kept, "extended") and kept.extended;
     s.steps = list(kept.steps);
     s.history = [];
     s.loop_from = -1;
     s.loop_to = -1;
     return session_view(s);
+}
+
+
+"""Remove a typed chord from the progression. A chord typed in place of another gives
+that chord back; any other is taken out. The chords after it are voice-led again."""
+def:pub remove_step(index: int) -> SessionView {
+    s = session();
+    kid = key_id(s);
+    if index < 0 or index >= len(s.steps) or not s.steps[index].symbol {
+        return session_view(s);
+    }
+    steps = list(s.steps);
+    back = [a for a in alts_of(steps[index]) if has_spec(kid, a.cid)];
+    if back {
+        c = spec_of(kid, back[0].cid);
+        notes = voice_at(kid, steps, index, c);
+        if notes is None {
+            return session_view(s, f"{c.symbol} has no playable voicing here");
+        }
+        steps[index] = Step(cid=c.cid, notes=notes, symbol=back[0].symbol, alts=back[1:]);
+        steps = relink(kid, steps, index);
+    } else {
+        steps = steps[:index] + steps[index + 1:];
+        if steps and index == 0 {
+            steps[0] = restep(steps[0], "", "");
+        }
+        steps = relink(kid, steps, index, False);
+    }
+    remember(s);
+    s.steps = steps;
+    s.loop_from = -1;
+    s.loop_to = -1;
+    s = session();
+    return session_view(s);
+}
+
+
+"""Replace the kept chord at `index` (after the first) with a typed one, voice-led from
+the chord before. The chord it replaces stays on offer beside it (× gives it back)."""
+def:pub replace_step(index: int, text: str) -> SessionView {
+    s = session();
+    kid = key_id(s);
+    symbol = text.strip();
+    if index <= 0 or index >= len(s.steps) or not symbol {
+        return session_view(s);
+    }
+    try {
+        c = parse_chord(kid, symbol);
+    } except ValueError as e {
+        return session_view(s, str(e));
+    }
+    if (kid + symbol) not in _TYPED {
+        _TYPED.append(kid + symbol);
+    }
+    steps = list(s.steps);
+    old = steps[index];
+    notes = voice_at(kid, steps, index, c);
+    if notes is None {
+        return session_view(s, f"{c.symbol} has no playable four-voice voicing here");
+    }
+    alts = [Alt(cid=old.cid, symbol=old.symbol)] + [a for a in alts_of(old) if a.cid != c.cid and a.cid != old.cid];
+    steps[index] = Step(cid=c.cid, notes=notes, symbol=symbol, alts=alts);
+    remember(s);
+    s.steps = relink(kid, steps, index);
+    return session_view(s);
+}
+
+
+"""Recompute the move into step `changed` (from the one before) and voice-lead every
+chord after it again; `keep` keeps the changed step's own voicing. A changed first
+chord keeps the second's voicing (it was voiced into it); only the move into the
+second is recomputed."""
+def relink(kid: str, steps: list[Step], changed: int, keep: bool = True) -> list[Step] {
+    key = key_for(kid);
+    if changed <= 0 {
+        if len(steps) > 1 {
+            a = spec_of(kid, steps[0].cid);
+            b = spec_of(kid, steps[1].cid);
+            steps[1] = restep(steps[1], describe_move(kid, a, b), cadence(key, a, b, steps[1].notes));
+        }
+        return steps;
+    }
+    for j in range(changed, len(steps)) {
+        led = steps[j - 1];
+        ps = spec_of(kid, led.cid);
+        st = steps[j];
+        cs = spec_of(kid, st.cid);
+        vb = st.notes;
+        if j > changed or not keep {
+            m = best_motion(kid, ps, led.notes, cs);
+            vb = m.notes if m is not None else st.notes;
+        }
+        steps[j] = Step(cid=st.cid, notes=vb, rule=describe_move(kid, ps, cs), cadence=cadence(key, ps, cs, vb), symbol=st.symbol, alts=alts_of(st));
+    }
+    return steps;
 }
 
 
@@ -1094,7 +1463,8 @@ def:pub swap_step(index: int, cid: str) -> SessionView {
     if notes is None {
         return session_view(s, f"{c.symbol} has no playable voicing here");
     }
-    alts = [a for a in alts_of(old) if a.cid != cid] + [Alt(cid=old.cid, symbol=old.symbol)];
+    # the old chord stays on offer, unless it was typed in: swapped out, it is gone (like ×)
+    alts = [a for a in alts_of(old) if a.cid != cid] + ([] if old.symbol else [Alt(cid=old.cid, symbol=old.symbol)]);
     rule = "";
     cad = "";
     if index > 0 {

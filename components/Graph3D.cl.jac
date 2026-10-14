@@ -26,6 +26,7 @@ the ⓧ buttons are screen-space HTML pinned to a 3D point, which stays accurate
 
 sv import from ..services.atlas { SearchView, ChordView, StepView, SavedView }
 import from .paths { node_map, reachable, lock_at, is_back_id }
+import from .VoiceLeading { VoiceLeading, worst, KIND_COLOR }
 import from react { useEffect, useRef }
 import from "@react-three/fiber" { Canvas, useThree, useFrame }
 import from "@react-three/drei" { OrbitControls, Html, Edges, CubicBezierLine, Line }
@@ -73,8 +74,8 @@ glob SERIF: str = "\"Iowan Old Style\", \"Palatino Linotype\", Palatino, Georgia
 
 
 """A chord label as a texture, laid out like the 2D map's box text, cached by content."""
-def chord_texture(rn: str, symbol: str, score: str, cadence: str, ink: str, w: int, h: int) -> any {
-    k = rn + "|" + symbol + "|" + score + "|" + cadence + "|" + ink + "|" + str(w) + "x" + str(h);
+def chord_texture(rn: str, symbol: str, cadence: str, ink: str, w: int, h: int) -> any {
+    k = rn + "|" + symbol + "|" + cadence + "|" + ink + "|" + str(w) + "x" + str(h);
     if k in _TEX {
         return _TEX[k];
     }
@@ -90,14 +91,10 @@ def chord_texture(rn: str, symbol: str, score: str, cadence: str, ink: str, w: i
     g.fillText(rn, 10, 13 if small else 23);
     g.textAlign = "right";
     if symbol {
+        # bottom right, clear of the cadence badge (a short box has one line: beside it)
         g.fillStyle = MUTED;
         g.font = "10.5px " + SANS;
-        g.fillText(short(symbol), w - 8, 13);
-    }
-    if score {
-        g.fillStyle = "#56607a";
-        g.font = "9.5px " + MONO;
-        g.fillText(score, w - 8, 13 if small else 29);
+        g.fillText(short(symbol), w - (38 if small and cadence else 8), 13 if small else 29);
     }
     if cadence {
         g.fillStyle = WARN;
@@ -271,12 +268,16 @@ def:pub Graph3D(
     typed: list[ChordView],
     onAddTyped: Callable[[bool, int, str], None],
     onRemoveTyped: Callable[[list[int]], None],
+    onStepTyped: Callable[[int, str], None],
+    onRemoveStep: Callable[[int], None],
     saved: list[SavedView],
     viewing: int,
     savedSounding: int,
     onPickSaved: Callable[[int], None]
 ) -> JsxElement {
-    has editing: str = "";   # the typing slot whose text box is open ("f2" = forward column 2)
+    has editing: str = "",   # the typing slot whose text box is open ("f2" = forward column 2)
+        leadAt: int = -1,    # the step whose incoming edge shows its voice-leading diagram
+        edgeHover: int = -1;
 
     depth = search.depth;
     animating = anim >= 0 and anim <= depth;
@@ -521,8 +522,8 @@ def:pub Graph3D(
         </group>;
     }
 
-    def chord_label(rn: str, symbol: str, score: str, cadence: str) -> any {
-        return chord_texture(rn, symbol, score, cadence, INK, NODE_W, NODE_H);
+    def chord_label(rn: str, symbol: str, cadence: str) -> any {
+        return chord_texture(rn, symbol, cadence, INK, NODE_W, NODE_H);
     }
 
     """A text label centred at layout (x, y) on plane z. cls: col | name | name-on."""
@@ -553,7 +554,7 @@ def:pub Graph3D(
     }
 
     # --- the other options each kept chord was chosen from, fanned above and below it:
-    # hover to hear one in place, click to swap it in ---
+    # hover to highlight one, click to swap it in ---
     others: list[list[any]] = [];
     for i in range(len(steps)) {
         others.append([o for o in steps[i].alts]);
@@ -594,7 +595,7 @@ def:pub Graph3D(
         is_hot = any([i in hot for i in ids]);
         is_locked = any([i in locks for i in ids]);
         fill = FILL_SOUNDING if soundingId in ids else (FILL_HOT if is_hot or is_locked else FILL);
-        label = chord_texture(n.rn, n.symbol, f"{n.total:.1f}", n.cadence, ACCENT if is_locked else INK, NODE_W, NODE_H);
+        label = chord_texture(n.rn, n.symbol, n.cadence, ACCENT if is_locked else INK, NODE_W, NODE_H);
         return <group key={"n" + str(n.id)}>
             {box(
                 "b" + str(n.id), x, y, 0.0, NODE_W, NODE_H, color_of(n.func), fill, 1.0 if live else 0.25, label,
@@ -619,9 +620,13 @@ def:pub Graph3D(
 
     """A dashed slot under a column: click it to type a chord into that column."""
     def slot_g(back: bool, L: int) -> JsxElement {
-        x = x_back(L) if back else x_fwd(L);
-        y = slot_y[("b" if back else "f") + str(L)];
         k = ("b" if back else "f") + str(L);
+        return typing_slot(k, x_back(L) if back else x_fwd(L), slot_y[k], lambda text: str { onAddTyped(back, L, text); });
+    }
+
+    """A dashed slot at layout (x, y), keyed `k`: click it to type a chord, Enter
+    hands the text to `submit`."""
+    def typing_slot(k: str, x: float, y: float, submit: any) -> JsxElement {
         hw = NODE_W * S / 2;
         hh = NODE_H * S / 2;
         hint = text_texture("+ type a chord", "12px " + MONO, "#56607a");
@@ -655,7 +660,7 @@ def:pub Graph3D(
                         title="Type a chord symbol (Dm7, G7/B, Ebmaj7) or a Roman numeral (ii7, V65, V7/V, bVI); Enter adds it, Esc cancels"
                         onKeyDown={lambda e: KeyboardEvent {
                             if e.key == "Enter" and e.target.value {
-                                onAddTyped(back, L, e.target.value);
+                                submit(e.target.value);
                                 editing = "";
                             } elif e.key == "Escape" {
                                 editing = "";
@@ -683,11 +688,44 @@ def:pub Graph3D(
                     {box(
                         "sb" + str(k) + "-" + str(i), px(i), y0, z, NODE_W, NODE_H, color_of(st.func),
                         FILL_SOUNDING if on and i == savedSounding else (FILL_HOT if on else FILL), 1.0 if on else 0.75,
-                        chord_label(st.rn, st.symbol, "", st.cadence),
+                        chord_label(st.rn, st.symbol, st.cadence),
                         None, None,
                         lambda e: any { e.stopPropagation(); onPickSaved(k); }
                     )}
                 </group>
+            }}
+        </group>;
+    }
+
+    """The edge into kept step i: click it (or its dot) to open the voice-leading
+    diagram for that change; the dot takes the colour of the worst rule on it."""
+    def lead_edge(i: int) -> JsxElement {
+        x1 = px(i - 1) + NODE_W;
+        x2 = px(i);
+        ym = wy(y0 + NODE_H / 2);
+        is_open = leadAt == i;
+        on = is_open or edgeHover == i;
+        kind = worst(steps[i].leads) if len(steps[i].leads) > 0 else "hold";
+        return <group key={"le" + str(i)}>
+            <mesh
+                position={[wx((x1 + x2) / 2), ym, 0.0]}
+                onPointerOver={lambda e: any { e.stopPropagation(); edgeHover = i; document.body.style.setProperty("cursor", "pointer"); }}
+                onPointerOut={lambda e: any { edgeHover = -1; document.body.style.removeProperty("cursor"); }}
+                onClick={lambda e: any { e.stopPropagation(); leadAt = -1 if is_open else i; }}
+            >
+                <planeGeometry args={[(x2 - x1) * S, 0.22]}/>
+                <meshBasicMaterial transparent={True} opacity={0.0} depthWrite={False}/>
+            </mesh>
+            <mesh position={[wx((x1 + x2) / 2), ym, 0.01]}>
+                <circleGeometry args={[0.07 if on else 0.05, 24]}/>
+                <meshBasicMaterial color={KIND_COLOR[kind]} toneMapped={False}/>
+            </mesh>
+            {if is_open {
+                <Html position={[wx((x1 + x2) / 2), ym + 0.12, 0.02]} zIndexRange={[400, 0]}>
+                    <div className="vl-anchor">
+                        <VoiceLeading prev={steps[i - 1]} step={steps[i]} onClose={lambda { leadAt = -1; }}/>
+                    </div>
+                </Html>
             }}
         </group>;
     }
@@ -731,7 +769,7 @@ def:pub Graph3D(
                             {box(
                                 "ob" + str(i) + "-" + str(j), px(i), opt_y(j), 0.0, NODE_W, NODE_H, color_of(o.func),
                                 FILL_HOT if alt_on(i, j) else FILL, 1.0 if alt_on(i, j) else 0.45,
-                                chord_label(o.rn, o.symbol, "", ""),
+                                chord_label(o.rn, o.symbol, ""),
                                 lambda e: any { e.stopPropagation(); onAltHover(i, j); },
                                 lambda e: any { onAltLeave(); },
                                 lambda e: any { e.stopPropagation(); onAltPick(i, o.cid); }
@@ -745,13 +783,20 @@ def:pub Graph3D(
                 <group key={"step" + str(i)}>
                     {tag("sl" + str(i), px(i) + NODE_W / 2, lo - 18, 0.0, step_label(i), "col")}
                     {curve("st" + str(i), px(i - 1), y0, px(i), y0, 0.0, color_of(steps[i].func), "hot") if i > 0 else None}
+                    {lead_edge(i) if i > 0 else None}
                     {box(
                         "sb" + str(i), px(i), y0, 0.0, NODE_W, NODE_H, color_of(steps[i].func),
                         FILL_SOUNDING if i == soundingStep else FILL, 1.0,
-                        chord_label(steps[i].rn, steps[i].symbol, "", steps[i].cadence),
+                        chord_label(steps[i].rn, steps[i].symbol, steps[i].cadence),
                         None, None,
-                        lambda e: any { e.stopPropagation(); onStep(i); }
+                        lambda e: any { e.stopPropagation(); onStep(i); },
+                        steps[i].typed
                     )}
+                    {if steps[i].typed {
+                        <Html center={True} position={[wx(px(i) + 1), wy(y0 + 1), BOX_D / 2 + 0.01]} zIndexRange={[200, 0]}>
+                            <button className="n3-remove" title="Remove this chord" onClick={lambda e: MouseEvent { e.stopPropagation(); onRemoveStep(i); }}>×</button>
+                        </Html>
+                    }}
                 </group>
             }}
 
@@ -766,6 +811,10 @@ def:pub Graph3D(
             {[
                 node_g(rep_of[k], [v.id for v in group_of[k]], "typed" if any([v.status == "custom" for v in group_of[k]]) else "grown")
                 for k in group_keys if not animating
+            ]}
+            {[
+                typing_slot("s" + str(i), px(i), y0 + (int((len(others[i]) + 1) / 2) + 1) * ROW_H, lambda text: str { onStepTyped(i, text); })
+                for i in range(len(steps)) if not animating
             ]}
             {[slot_g(False, L) for L in range(1, depth + 1) if not animating]}
             {[slot_g(True, L) for L in range(1, depth + 1) if not animating]}
@@ -793,6 +842,6 @@ def:pub Graph3D(
 
             {[saved_row(k, slot, saved[k]) for (slot, k) in enumerate(shown_saved)]}
         </Canvas>
-        <div className="graph3d-hint">faint boxes beside a kept chord: hover to hear, click to swap · drag to pan · right-drag to rotate · scroll to zoom</div>
+        <div className="graph3d-hint">faint boxes beside a kept chord: click to swap · "+ type a chord" under a kept chord replaces it · click the dot on an edge for its voice leading · drag to pan · right-drag to rotate · scroll to zoom</div>
     </div>;
 }

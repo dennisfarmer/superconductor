@@ -18,11 +18,28 @@ def:pub SidePanel(
     onTab: Callable[[str], None],
     onOpen: Callable[[bool], None],
     onHidden: Callable[[list[str]], None],
+    onResize: Callable[[int], None],
     children: any
 ) -> JsxElement {
     has editing: bool = False;
 
     shown = [t for t in TABS if t[0] not in hidden or t[0] == tab];
+
+    """Drag the panel's left border to resize it (kept between 260 px and 75% of the window)."""
+    def start_drag(e: any) -> None {
+        e.preventDefault();
+        document.body.classList.add("resizing");
+        def move(ev: any) -> None {
+            onResize(int(max(260, min(window.innerWidth * 0.75, window.innerWidth - ev.clientX))));
+        }
+        def up(ev: any) -> None {
+            window.removeEventListener("mousemove", move);
+            window.removeEventListener("mouseup", up);
+            document.body.classList.remove("resizing");
+        }
+        window.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
+    }
 
     def toggle_hidden(tid: str) -> None {
         if tid in hidden {
@@ -47,6 +64,7 @@ def:pub SidePanel(
     }
 
     return <aside className="sidepanel">
+        <div className="side-resize" title="Drag to resize the panel" onMouseDown={start_drag}></div>
         <nav className="tabs">
             {for t in shown {
                 <button

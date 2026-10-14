@@ -24,12 +24,14 @@ sv import from services.atlas {
     SessionView, SearchView, ChordView, PathStory, StepView,
     get_state, set_key, set_tempo, set_style_layers, set_texture, set_llm, explore,
     add_path, undo, clear_progression, describe, add_chords, restart_engine, set_loop, add_option,
-    commit_progression, delete_saved, resume_saved, swap_step, shutdown_app
+    commit_progression, rename_saved, delete_saved, resume_saved, swap_step, remove_step, replace_step, set_extended, shutdown_app
 }
 
 # Non-reactive module state: timers and values read from long-lived callbacks.
 glob _search_id: int = -1,
      _engine_url: str = "",
+     # the session loaded at startup: its saved locks are put back on the first map
+     _restore_sig: str = "",
      _engine_was_ok: bool = False,
      _restarting: bool = False,
      _bpm: float = 84.0,
@@ -131,6 +133,49 @@ def pref_set(key: str, value: any) -> None {
 }
 
 
+"""The progression the map's locks were made on: locks saved for it are put back
+when the app is reopened on the same progression."""
+def lock_sig(s: SessionView) -> str {
+    return JSON.stringify([s.tonic, s.mode, [st.cid for st in s.steps]]);
+}
+
+
+"""Save the locks as chord paths from their tree's start (node ids change with
+every search)."""
+def save_locks(by_id: dict[int, ChordView], lock_ids: list[int], sig: str) -> None {
+    paths: list[any] = [];
+    for l in lock_ids {
+        if l in by_id {
+            paths.append({"back": is_back_id(l), "path": [c.cid for c in chain_in(by_id, l)]});
+        }
+    }
+    pref_set("locks", {"sig": sig, "locks": paths});
+}
+
+
+"""The nodes of a fresh search standing where the saved locks were (a lock whose
+path the search no longer has, e.g. through a typed chord, is dropped)."""
+def restore_locks(res: SearchView, sig: str) -> list[int] {
+    stored = pref_get("locks", None);
+    if not stored or stored["sig"] != sig {
+        return [];
+    }
+    by_id = node_map(res, []);
+    found: list[int] = [];
+    for want in stored["locks"] {
+        path = JSON.stringify(want["path"]);
+        column: list[ChordView] = res.back_nodes if want["back"] else res.nodes;
+        for n in column {
+            if n.layer == len(want["path"]) and JSON.stringify([c.cid for c in chain_in(by_id, n.id)]) == path {
+                found.append(n.id);
+                break;
+            }
+        }
+    }
+    return found;
+}
+
+
 def sleep_ms(ms: int) -> any {
     return new(Promise, lambda(resolve: any, reject: any) { setTimeout(resolve, ms); });
 }
@@ -176,11 +221,14 @@ def:pub app -> JsxElement {
         playing_idx: int = -1,
         # the 3D view: every saved progression behind the current one, or only the current one
         show_all: bool = False,
+        # chords typed into the map's columns skip the walkers' rules
+        force_add: bool = False,
         show_legend: bool = True,
         # the side panel: open tab, collapsed or not, tabs hidden from its bar
         side_tab: str = pref_get("side_tab", "inspect"),
         side_open: bool = pref_get("side_open", True),
         side_hidden: list[str] = pref_get("side_hidden", []),
+        side_w: int = pref_get("side_w", 400),   # the side panel's width, dragged at its border
         story: PathStory | None = None,
         story_loading: bool = False,
         error: str = "",
@@ -231,6 +279,11 @@ def:pub app -> JsxElement {
         pref_set("side_open", v);
     }
 
+    def set_side_w(w: int) -> None {
+        side_w = w;
+        pref_set("side_w", w);
+    }
+
     def set_side_hidden(h: list[str]) -> None {
         side_hidden = h;
         pref_set("side_hidden", h);
@@ -256,6 +309,9 @@ def:pub app -> JsxElement {
     def on_leave -> None;
     async def on_select(node_id: int) -> None;
     async def do_commit(whole: bool) -> None;
+    async def do_remove_step(index: int) -> None;
+    async def do_replace_step(index: int, text: str) -> None;
+    async def do_set_extended(on: bool) -> None;
     async def do_swap(index: int, cid: str) -> None;
     async def do_undo -> None;
     async def do_clear -> None;
@@ -278,7 +334,8 @@ def:pub app -> JsxElement {
     async def do_loop(index: int, extend: bool) -> None;
     def view_loop(index: int, extend: bool) -> None;
     def pick_saved(index: int) -> None;
-    async def do_commit_progression -> None;
+    async def do_commit_progression(name: str) -> None;
+    async def do_rename_saved(index: int, name: str) -> None;
     async def do_delete_saved -> None;
     async def do_resume_saved -> None;
     async def add_typed(back: bool, layer: int, text: str) -> None;
@@ -345,23 +402,9 @@ def:pub app -> JsxElement {
         } elif not play_all and selected_id > 0 and selected_id != BACK_BASE and selected_id in by_now {
             target = selected_id;
         }
-        if len(alt_hover) == 2 and alt_hover[0] < len(steps) and alt_hover[1] < len(steps[alt_hover[0]].alts) {
-            # an alternative of a kept chord: hear it in place, between its neighbours
-            ai = alt_hover[0];
-            alt = steps[ai].alts[alt_hover[1]];
-            want_role = "preview";
-            target = 0;
-            if ai > 0 {
-                want_chords.append(engine_chord(steps[ai - 1].rn, steps[ai - 1].symbol, steps[ai - 1].notes));
-                want_slots.append("s" + str(ai - 1));
-            }
-            want_chords.append(engine_chord(alt.rn, alt.symbol, alt.notes));
-            want_slots.append("a" + str(ai));
-            if ai < last_idx {
-                want_chords.append(engine_chord(steps[ai + 1].rn, steps[ai + 1].symbol, steps[ai + 1].notes));
-                want_slots.append("s" + str(ai + 1));
-            }
-        } elif target > 0 {
+        # (an alternative beside a kept chord only highlights on hover: a column that
+        # already has its chord is never auditioned by hovering; click it to swap)
+        if target > 0 {
             want_role = "preview";
             path = chain_in(by_now, target);
             if target >= BACK_BASE {
@@ -410,7 +453,7 @@ def:pub app -> JsxElement {
     want_id: str = _want["id"];
     if want_id != _scheduled_id {
         _scheduled_id = want_id;
-        if (target > 0 and target == hover_id) or len(alt_hover) == 2 {
+        if target > 0 and target == hover_id {
             # hover: debounced, so sweeping the mouse across the map doesn't flood the engine
             schedule_push(150);
         } else {
@@ -519,7 +562,7 @@ def:pub app -> JsxElement {
         </div>;
     }
 
-    return <div className={"atlas" + ("" if side_open else " side-closed")}>
+    return <div className={"atlas" + ("" if side_open else " side-closed")} style={{"--side-w": str(side_w) + "px"}}>
         {header}
         <main className="stage">
             {if search is not None {
@@ -536,7 +579,7 @@ def:pub app -> JsxElement {
                     showAll={show_all}
                     steps={steps}
                     altHover={alt_hover}
-                    onAltHover={lambda i: int, j: int { alt_hover = [i, j]; play_all = False; }}
+                    onAltHover={lambda i: int, j: int { alt_hover = [i, j]; }}
                     onAltLeave={lambda { alt_hover = []; }}
                     onAltPick={do_swap}
                     onHover={on_hover}
@@ -546,6 +589,8 @@ def:pub app -> JsxElement {
                     typed={typed}
                     onAddTyped={add_typed}
                     onRemoveTyped={remove_typed}
+                    onStepTyped={lambda i: int, text: str { if i == 0 { do_add(text, "first"); } else { do_replace_step(i, text); } }}
+                    onRemoveStep={do_remove_step}
                     saved={session.saved}
                     viewing={viewing if viewing_ok else -1}
                     savedSounding={saved_sounding}
@@ -569,6 +614,14 @@ def:pub app -> JsxElement {
                     <input type="checkbox" checked={show_all} onChange={lambda e: ChangeEvent { show_all = not show_all; }}/>
                     show all progressions
                 </label>
+                <label className="stage-toggle" title="Chords typed into the graph's columns are added even where the walkers' rules forbid the move (they still need a playable voicing)">
+                    <input type="checkbox" checked={force_add} onChange={lambda e: ChangeEvent { force_add = not force_add; }}/>
+                    force-add typed chords
+                </label>
+                <label className="stage-toggle" title="Let the walkers use added-note chords: add9, add11 and 6 on the diatonic triads (where the added tone is in the scale). Typing also reads C6 as an added-sixth chord; add13 can always be typed.">
+                    <input type="checkbox" checked={session.extended} onChange={lambda e: ChangeEvent { do_set_extended(not session.extended); }}/>
+                    add9 / add11 / 6 chords
+                </label>
             </div>
             <div className={"legend" + ("" if show_legend else " folded")} onClick={lambda e: MouseEvent { show_legend = not show_legend; }} title="Click to fold or unfold the legend">
                 <span><i style={{"background": "var(--f-T)"}}></i>tonic</span>
@@ -590,6 +643,7 @@ def:pub app -> JsxElement {
             onTab={open_tab}
             onOpen={set_side_open}
             onHidden={set_side_hidden}
+            onResize={set_side_w}
         >{side_body}</SidePanel>
         <Progression
             steps={shown_steps}
@@ -607,14 +661,15 @@ def:pub app -> JsxElement {
             onClear={do_clear}
             onPlay={lambda { if play_all { play_all = False; } else { do_play(); } }}
             playAll={play_all}
-            onAdd={do_add}
             saved={session.saved}
             viewing={viewing if viewing_ok else -1}
             onPick={pick_saved}
             onCommit={do_commit_progression}
+            onRename={do_rename_saved}
             onDelete={do_delete_saved}
             onResume={do_resume_saved}
-            onGuide={lambda { open_tab("typing"); set_side_open(True); }}
+            keepPath={chain if focus is not None and focus.id != 0 else []}
+            onKeep={do_commit}
         />
         <Tooltip/>
     </div>;

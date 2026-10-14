@@ -11,7 +11,7 @@ voicing a path arrives with, so the beam-search walker scores it per path.
 """
 
 import from theory.pitch { Key }
-import from theory.vocab { ChordSpec }
+import from theory.vocab { ChordSpec, ADDED_BASE }
 
 
 obj Rule {
@@ -35,8 +35,15 @@ def syntax(a: ChordSpec, b: ChordSpec, key: Key) -> Rule | None {
         if a.quality == b.quality {
             return Rule(cost=0.9, label="prolongation: same harmony, new inversion");
         }
-        if b.is_seventh and not a.is_seventh and QUALITY_BASE.get(b.quality, "") == a.quality {
+        base_a = QUALITY_BASE.get(a.quality, a.quality);
+        if b.is_seventh and not a.is_seventh and QUALITY_BASE.get(b.quality, "") == base_a {
             return Rule(cost=0.5, label="adds the chordal 7th over a held harmony");
+        }
+        if not a.is_seventh and not b.is_seventh and base_a == QUALITY_BASE.get(b.quality, b.quality) {
+            if b.quality in ADDED_BASE {
+                return Rule(cost=0.6, label="colours the held harmony with an added tone");
+            }
+            return Rule(cost=0.7, label="the added tone settles into the plain triad");
         }
         if not b.is_seventh and a.is_seventh {
             return None;
@@ -236,4 +243,6 @@ def syntax(a: ChordSpec, b: ChordSpec, key: Key) -> Rule | None {
 }
 
 
-glob QUALITY_BASE: dict[str, str] = {"dom7": "maj", "min7": "min", "maj7": "maj", "hdim7": "dim", "dim7": "dim", "7sus4": "sus4"};
+glob QUALITY_BASE: dict[str, str] = {
+    "dom7": "maj", "min7": "min", "maj7": "maj", "hdim7": "dim", "dim7": "dim", "7sus4": "sus4", **ADDED_BASE
+};

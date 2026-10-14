@@ -1,9 +1,10 @@
 """The dock along the bottom: the progression being written (or a saved one being
-played) as a strip of chips, with the chord Magenta is sounding lit up; the chord
-typer; and the progression actions, including the list of saved progressions.
+played) as a strip of chips, with the chord Magenta is sounding lit up, and the
+progression actions, including the list of saved progressions. The strip scrolls
+sideways (the mouse wheel scrolls it too) when it is wider than the dock.
 
 The path under the mouse (or pinned) on the graph shows up as dashed chips on
-whichever side it extends. The typing guide lives in the side panel (onGuide)."""
+whichever side it extends."""
 
 import from react { useEffect }
 sv import from ..services.atlas { StepView, ChordView, SavedView }
@@ -34,18 +35,21 @@ def:pub Progression(
     onClear: Callable[[], None],
     onPlay: Callable[[], None],
     playAll: bool,
-    onAdd: Callable[[str, str], None],
     saved: list[SavedView],
     viewing: int,
     onPick: Callable[[int], None],
-    onCommit: Callable[[], None],
+    onCommit: Callable[[str], None],
+    onRename: Callable[[int, str], None],
     onDelete: Callable[[], None],
     onResume: Callable[[], None],
-    onGuide: Callable[[], None]
+    keepPath: list[ChordView],
+    onKeep: Callable[[bool], None]
 ) -> JsxElement {
-    has text: str = "",
-        more: bool = False,
-        lib: bool = False;
+    has more: bool = False,
+        lib: bool = False,
+        # the Save popover: open, and the name being typed
+        naming: bool = False,
+        name: str = "";
 
     # keep the sounding chip in view as playback moves along the strip
     useEffect(lambda {
@@ -59,7 +63,29 @@ def:pub Progression(
         }
     }, [soundingStep, soundingId, len(steps)]);
 
+    # a vertical mouse wheel scrolls the strip sideways
+    def scroll_chips(e: any) -> None {
+        strip: any = e.currentTarget;
+        if e.deltaY != 0 and Math.abs(e.deltaY) > Math.abs(e.deltaX) and strip.scrollWidth > strip.clientWidth {
+            strip.scrollLeft = strip.scrollLeft + e.deltaY;
+        }
+    }
+
     viewing_ok = viewing >= 0 and viewing < len(saved);
+
+    def save -> None {
+        onCommit(name);
+        naming = False;
+        name = "";
+    }
+
+    def rename(e: any) -> None {
+        if e.target.value.strip() and e.target.value.strip() != saved[viewing].name {
+            onRename(viewing, e.target.value);
+        } else {
+            e.target.value = saved[viewing].name;
+        }
+    }
     # the loop: loopFrom..loopTo, loopFrom..end, or (default) just the last chord
     lo = loopFrom if loopFrom >= 0 else len(steps) - 1;
     hi = loopTo if loopTo >= 0 else len(steps) - 1;
@@ -78,17 +104,21 @@ def:pub Progression(
         }
     }
 
-    def add(where: str) -> None {
-        if text.strip() {
-            onAdd(text, where);
-            text = "";
-        }
-    }
-
     return <footer className={"dock" + (" viewing" if viewing_ok else "")}>
         {if viewing_ok {
             <div className="dock-band">
-                <b>{"Saved: " + saved[viewing].name}</b>
+                <b>Saved:</b>
+                <input
+                    className="saved-name"
+                    key={"nm" + str(viewing) + saved[viewing].name}
+                    defaultValue={saved[viewing].name}
+                    title="Rename this progression (Enter to keep the name)"
+                    onBlur={lambda e: FocusEvent { rename(e); }}
+                    onKeyDown={lambda e: KeyboardEvent {
+                        if e.key == "Enter" { e.target.blur(); }
+                        elif e.key == "Escape" { e.target.value = saved[viewing].name; e.target.blur(); }
+                    }}
+                />
                 <span>{saved[viewing].key_name + " · click a chord to loop from it, shift-click to end the loop"}</span>
                 <span className="tb-sp"></span>
                 <button className="btn primary" onClick={lambda e: MouseEvent { onPick(-1); }}>← Back to current</button>
@@ -113,7 +143,7 @@ def:pub Progression(
                 <span className="loop-label">Loop</span>
                 <span className="loop-names">{loop_names}</span>
             </div>
-            <div className="chips" title="Your progression. Click a chord to loop from it (click it again for the default loop); shift-click another to end the loop there. Dashed chords are the path you are hovering or have pinned on the graph, not yet kept.">
+            <div className="chips" onWheel={scroll_chips} title="Your progression. Click a chord to loop from it (click it again for the default loop); shift-click another to end the loop there. Dashed chords are the path you are hovering or have pinned on the graph, not yet kept.">
                 {for c in previewBefore {
                     <div key={"pb" + str(c.id)} className="chip-wrap">
                         <div className={"chip tentative" + (" sounding" if c.id == soundingId else "")} title={c.rule}>
@@ -153,39 +183,50 @@ def:pub Progression(
             </div>
 
             {if not viewing_ok {
-                <div className="typer">
-                    <button className="icon-btn" title="Insert before the first chord" onClick={lambda e: MouseEvent { add("before"); }}>⇤</button>
-                    <input
-                        className="typer-in"
-                        placeholder={"Type chords in " + keyName + "…  Gm/D Cm/Eb  or  ii64 V7/V"}
-                        value={text}
-                        onChange={lambda e: ChangeEvent { text = e.target.value; }}
-                        onKeyDown={lambda e: KeyboardEvent { if e.key == "Enter" { add("before" if e.shiftKey else "after"); } }}
-                        title="Enter: append after the last chord · Shift-Enter: insert before the first"
-                    />
-                    <button className="icon-btn" title="Append after the last chord (Enter)" onClick={lambda e: MouseEvent { add("after"); }}>⇥</button>
-                    <button className="icon-btn" title="How to type chords" onClick={lambda e: MouseEvent { onGuide(); }}>?</button>
-                </div>
-            }}
-
-            {if not viewing_ok {
                 <div className="dock-actions">
                     <button className="icon-btn" disabled={not canUndo} title="Undo" onClick={lambda e: MouseEvent { onUndo(); }}>↶</button>
                     <button
                         className="btn primary"
-                        disabled={len(steps) < 2}
-                        title="Shelve this progression (it moves behind in the graph view) and start a new one"
-                        onClick={lambda e: MouseEvent { onCommit(); }}
-                    >✓ Save</button>
+                        disabled={len(keepPath) == 0}
+                        title={"Put it into the progression; the other options stay beside it, so you can swap later" if len(keepPath) > 0 else "Hover or pin a chord on the graph to keep it"}
+                        onClick={lambda e: MouseEvent { onKeep(False); }}
+                    >{"Keep " + keepPath[0].rn if len(keepPath) > 0 else "Keep"}</button>
+                    {if len(keepPath) > 1 {
+                        <button className="btn" title="Put every chord on this path into the progression at once" onClick={lambda e: MouseEvent { onKeep(True); }}>
+                            {"Keep whole path (" + str(len(keepPath)) + ")"}
+                        </button>
+                    }}
                     <div className="pop-anchor">
-                        <button className={"icon-btn" + (" on" if more else "")} title="More" onClick={lambda e: MouseEvent { more = not more; lib = False; }}>⋯</button>
+                        <button
+                            className={"btn" + (" on" if naming else "")}
+                            disabled={len(steps) < 2}
+                            title="Name this progression, shelve it (it moves behind in the graph view) and start a new one"
+                            onClick={lambda e: MouseEvent { naming = not naming; more = False; lib = False; }}
+                        >✓ Save</button>
+                        {if naming {
+                            <div className="menu up save-menu">
+                                <input
+                                    className="save-name"
+                                    autoFocus={True}
+                                    placeholder={"Progression " + str(len(saved) + 1)}
+                                    value={name}
+                                    onChange={lambda e: ChangeEvent { name = e.target.value; }}
+                                    onKeyDown={lambda e: KeyboardEvent {
+                                        if e.key == "Enter" { save(); }
+                                        elif e.key == "Escape" { naming = False; }
+                                    }}
+                                />
+                                <div className="confirm-actions">
+                                    <button className="btn ghost" onClick={lambda e: MouseEvent { naming = False; }}>Cancel</button>
+                                    <button className="btn primary" onClick={lambda e: MouseEvent { save(); }}>Save</button>
+                                </div>
+                            </div>
+                        }}
+                    </div>
+                    <div className="pop-anchor">
+                        <button className={"icon-btn" + (" on" if more else "")} title="More" onClick={lambda e: MouseEvent { more = not more; lib = False; naming = False; }}>⋯</button>
                         {if more {
                             <div className="menu up" onMouseLeave={lambda e: MouseEvent { more = False; }}>
-                                <button
-                                    disabled={not text.strip()}
-                                    title="Start a new progression from the typed chords"
-                                    onClick={lambda e: MouseEvent { more = False; add("replace"); }}
-                                >Replace all with typed chords</button>
                                 <button disabled={len(steps) < 2} onClick={lambda e: MouseEvent { more = False; onClear(); }}>Clear progression</button>
                             </div>
                         }}
@@ -198,7 +239,7 @@ def:pub Progression(
                     className={"btn ghost" + (" on" if lib or viewing_ok else "")}
                     disabled={len(saved) == 0}
                     title="Saved progressions: pick one to hear it and see it highlighted behind the current one in the graph"
-                    onClick={lambda e: MouseEvent { lib = not lib; more = False; }}
+                    onClick={lambda e: MouseEvent { lib = not lib; more = False; naming = False; }}
                 >{"Saved " + str(len(saved)) + " ▴"}</button>
                 {if lib {
                     <div className="menu up right" onMouseLeave={lambda e: MouseEvent { lib = False; }}>

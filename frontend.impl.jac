@@ -1,7 +1,7 @@
 """Handler bodies for the SuperConductor Atlas shell (frontend.cl.jac)."""
 
 impl app.load -> None {
-    global _engine_url;
+    global _engine_url, _restore_sig;
     # jac-client classifies every endpoint here as a read-only "reader" and caches
     # repeat calls with the same arguments for 60 s, so e.g. "Loop it" on the pinned
     # node never reached the server. Every endpoint here changes state: no caching.
@@ -12,6 +12,7 @@ impl app.load -> None {
         mix_texts = s.style_texts;
         mix_weights = s.style_weights;
         _engine_url = s.engine_url;
+        _restore_sig = lock_sig(s);
     } except Exception as e {
         error = "could not load session: " + str(e);
         return;
@@ -21,7 +22,7 @@ impl app.load -> None {
 
 """Spawn the BeamSearch walker server-side, then replay its layers on the map."""
 impl app.send_walkers -> None {
-    global _search_id;
+    global _search_id, _restore_sig;
     walking = True;
     error = "";
     hover_id = -1;
@@ -29,11 +30,25 @@ impl app.send_walkers -> None {
     locks = [];
     typed = [];
     story = None;
+    if not _restore_sig {
+        pref_set("locks", None);
+    }
     try {
         res = await explore();
         _search_id = res.search_id;
         anim = 0;
         search = res;
+        if _restore_sig {
+            # reopened on the progression the saved locks were made on: put them back
+            held = restore_locks(res, _restore_sig);
+            _restore_sig = "";
+            if held {
+                by_id = node_map(res, []);
+                deepest = deepest_lock(by_id, held, False);
+                locks = held;
+                selected_id = deepest if deepest >= 0 else deepest_lock(by_id, held, True);
+            }
+        }
         for k in range(res.depth + 1) {
             anim = k;
             await sleep_ms(620);
@@ -193,6 +208,7 @@ impl app.on_select(node_id: int) -> None {
         kept.append(node_id);
     }
     locks = kept;
+    save_locks(by_id, kept, lock_sig(session));
     pin_deepest(back, kept, typed);
     hover_id = -1;
 }
@@ -237,11 +253,12 @@ impl app.add_typed(back: bool, layer: int, text: str) -> None {
             }
         }
     }
-    res = await add_option(_search_id, parents, text);
+    res = await add_option(_search_id, parents, text, force_add);
     error = res.notice;
     if res.notice {
         return;
     }
+    notice = res.info;
     # the typed chord first, then the mini walker's finds one column at a time
     shown: list[ChordView] = typed + [n for n in res.nodes if n.status == "custom"];
     typed = shown;
@@ -272,6 +289,7 @@ impl app.remove_typed(ids: list[int]) -> None {
     if any([l in gone for l in locks]) {
         held = [l for l in locks if l not in gone];
         locks = held;
+        save_locks(node_map(search, remaining), held, lock_sig(session));
         pin_deepest(selected_id >= BACK_BASE, held, remaining);
     }
     if hover_id in gone {
@@ -288,6 +306,32 @@ impl app.do_commit(whole: bool) -> None {
     }
     s = await add_path(_search_id, target, whole);
     session = s;
+    await send_walkers();
+}
+
+"""Type a chord in place of the kept chord at step `index` (after the first)."""
+impl app.do_replace_step(index: int, text: str) -> None {
+    s = await replace_step(index, text);
+    session = s;
+    notice = s.notice;
+    if s.notice {
+        return;
+    }
+    await send_walkers();
+}
+
+"""Switch the added-note chords (add9, add11, 6) in or out of the walkers' vocabulary."""
+impl app.do_set_extended(on: bool) -> None {
+    session = await set_extended(on);
+    await send_walkers();
+}
+
+"""Remove a typed chord from the progression (an opening chord typed in place of
+another gives that one back)."""
+impl app.do_remove_step(index: int) -> None {
+    s = await remove_step(index);
+    session = s;
+    notice = s.notice;
     await send_walkers();
 }
 
@@ -410,7 +454,8 @@ impl app.mix_reset -> None {
     session = await set_style_layers([DEFAULT_SOUND], [1.0]);
 }
 
-"""Typed chords: "before" the first chord, "after" the last, or "replace" everything."""
+"""Typed chords: "before" the first chord, "after" the last, "first" in place of the
+first chord, or "replace" everything."""
 impl app.do_add(text: str, where: str) -> None {
     before = len(session.steps);
     s = await add_chords(text, where);
@@ -482,12 +527,18 @@ impl app.pick_saved(index: int) -> None {
     play_all = False;
 }
 
-"""Save: shelve this progression (it moves behind in the graph view) and start a new one."""
-impl app.do_commit_progression -> None {
-    s = await commit_progression("");
+"""Save: shelve this progression under a name (blank: "Progression N"; it moves
+behind in the graph view) and start a new one."""
+impl app.do_commit_progression(name: str) -> None {
+    s = await commit_progression(name);
     session = s;
     viewing = -1;
     await send_walkers();
+}
+
+impl app.do_rename_saved(index: int, name: str) -> None {
+    s = await rename_saved(index, name);
+    session = s;
 }
 
 impl app.do_delete_saved -> None {

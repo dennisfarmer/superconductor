@@ -34,11 +34,35 @@ glob QUALITY_INTERVALS: dict[str, list[int]] = {
     "dim7": [0, 3, 6, 9],
     "sus4": [0, 5, 7],
     "sus2": [0, 2, 7],
-    "7sus4": [0, 5, 7, 10]
+    "7sus4": [0, 5, 7, 10],
+    # added-note chords: a triad plus one tone that is not a seventh
+    "add9": [0, 4, 7, 2],
+    "madd9": [0, 3, 7, 2],
+    "add11": [0, 4, 7, 5],
+    "madd11": [0, 3, 7, 5],
+    "add13": [0, 4, 7, 9],
+    "madd13": [0, 3, 7, 9],
+    "maj6": [0, 4, 7, 9],
+    "min6": [0, 3, 7, 9]
 };
 
+"""Added-note qualities: the added tone's name (its role in the chord), and the
+triad underneath."""
+glob ADDED_TONE: dict[str, str] = {
+        "add9": "9", "madd9": "9", "add11": "11", "madd11": "11",
+        "add13": "13", "madd13": "13", "maj6": "6", "min6": "6"
+     },
+     ADDED_BASE: dict[str, str] = {
+        "add9": "maj", "madd9": "min", "add11": "maj", "madd11": "min",
+        "add13": "maj", "madd13": "min", "maj6": "maj", "min6": "min"
+     };
+
 """Scale steps of each chord tone above the root (stacked thirds unless suspended)."""
-glob QUALITY_STEPS: dict[str, list[int]] = {"sus4": [0, 3, 4], "sus2": [0, 1, 4], "7sus4": [0, 3, 4, 6]};
+glob QUALITY_STEPS: dict[str, list[int]] = {
+    "sus4": [0, 3, 4], "sus2": [0, 1, 4], "7sus4": [0, 3, 4, 6],
+    "add9": [0, 2, 4, 1], "madd9": [0, 2, 4, 1], "add11": [0, 2, 4, 3], "madd11": [0, 2, 4, 3],
+    "add13": [0, 2, 4, 5], "madd13": [0, 2, 4, 5], "maj6": [0, 2, 4, 5], "min6": [0, 2, 4, 5]
+};
 
 glob ROLES: list[str] = ["R", "3", "5", "7"],
      TRIAD_FIGURES: list[str] = ["", "⁶", "⁶₄"],
@@ -46,7 +70,9 @@ glob ROLES: list[str] = ["R", "3", "5", "7"],
      SYMBOL_SUFFIX: dict[str, str] = {
         "maj": "", "min": "m", "dim": "°", "aug": "+", "dom7": "7",
         "maj7": "maj7", "min7": "m7", "hdim7": "ø7", "dim7": "°7",
-        "sus4": "sus4", "sus2": "sus2", "7sus4": "7sus4"
+        "sus4": "sus4", "sus2": "sus2", "7sus4": "7sus4",
+        "add9": "add9", "madd9": "madd9", "add11": "add11", "madd11": "madd11",
+        "add13": "add13", "madd13": "madd13", "maj6": "6", "min6": "m6"
      };
 
 
@@ -115,7 +141,7 @@ obj ChordSpec {
 
 
 def is_minor_quality(quality: str) -> bool {
-    return quality in ["min", "dim", "min7", "hdim7", "dim7"];
+    return quality in ["min", "dim", "min7", "hdim7", "dim7"] or ADDED_BASE.get(quality, "") == "min";
 }
 
 
@@ -138,13 +164,14 @@ def tertian(
     numeral_override: str = ""
 ) -> ChordSpec {
     intervals = QUALITY_INTERVALS[quality];
-    is_seventh = len(intervals) == 4;
+    added = ADDED_TONE.get(quality, "");
+    is_seventh = len(intervals) == 4 and not added;
     tones: list[Tone] = [];
     steps = QUALITY_STEPS.get(quality, [0, 2, 4, 6]);
     for (i, iv) in enumerate(intervals) {
-        tones.append(Tone(pc=(root_pc + iv) % 12, deg=(root_deg + steps[i]) % 7, role=ROLES[i]));
+        tones.append(Tone(pc=(root_pc + iv) % 12, deg=(root_deg + steps[i]) % 7, role=added if i == 3 and added else ROLES[i]));
     }
-    bass_role = ROLES[inversion];
+    bass_role = tones[inversion].role;
 
     # Roman numeral: case from quality, accidental from chromatic root, figures from inversion.
     numeral: str = numeral_override;
@@ -165,7 +192,11 @@ def tertian(
     mark = quality_mark(quality);
     rn: str = numeral + mark + figures[inversion];
     harmony: str = numeral + mark + ("⁷" if is_seventh else "");
-    if quality in QUALITY_STEPS {
+    if added {
+        # the added tone is named after the figure: IV(add6), I⁶(add9)
+        rn = numeral + figures[inversion] + "(add" + added + ")";
+        harmony = numeral + "(add" + added + ")";
+    } elif quality in QUALITY_STEPS {
         sus = "sus2" if quality == "sus2" else "sus4";
         rn = numeral + figures[inversion] + sus;
         harmony = numeral + ("⁷" if is_seventh else "") + sus;
@@ -291,7 +322,7 @@ def aug_sixth(key: Key, kind: str) -> ChordSpec {
 }
 
 
-def build_vocab(key: Key) -> list[ChordSpec] {
+def build_vocab(key: Key, extended: bool = False) -> list[ChordSpec] {
     v: list[ChordSpec] = [];
     major = key.mode == "major";
     applied_targets: list[tuple[int, str]] = [];
@@ -377,6 +408,25 @@ def build_vocab(key: Key) -> list[ChordSpec] {
 
     # Cadential 6/4: tonic pitches over 5̂, functioning as an embellished V.
     v.append(tertian(key, 0, key.tonic_pc, "maj" if major else "min", 2, "CAD64", "cadential"));
+
+    # Added-note chords: each diatonic major or minor triad with an added 9th, 11th
+    # or 6th, where that tone is in the scale too; same function as the triad. (An
+    # added 13th is the same pitches as an added 6th, so only the 6th is offered.)
+    if extended {
+        scale = [key.degree_pc(d) for d in range(7)];
+        triads = [c for c in v if c.family == "diatonic" and c.quality in ["maj", "min"] and c.inversion == 0];
+        for t in triads {
+            minor = t.quality == "min";
+            for q in (["madd9", "madd11", "min6"] if minor else ["add9", "add11", "maj6"]) {
+                if (t.root_pc + QUALITY_INTERVALS[q][3]) % 12 not in scale {
+                    continue;
+                }
+                for inv in [0, 1] {
+                    v.append(tertian(key, t.root_deg, t.root_pc, q, inv, t.func, "diatonic"));
+                }
+            }
+        }
+    }
     return v;
 }
 
@@ -386,8 +436,15 @@ glob _VOCAB: dict[str, list[ChordSpec]] = {},
      _KEYS: dict[str, Key] = {};
 
 
-def key_id_of(tonic: str, mode: str) -> str {
-    return tonic + "|" + mode;
+"""A key's id: "C|major", or "C|major|ext" for its vocabulary with the added-note
+chords (add9, add11, 6) that the walkers may then use."""
+def key_id_of(tonic: str, mode: str, extended: bool = False) -> str {
+    return tonic + "|" + mode + ("|ext" if extended else "");
+}
+
+
+def is_extended(key_id: str) -> bool {
+    return key_id.endswith("|ext");
 }
 
 
@@ -402,7 +459,7 @@ def key_for(key_id: str) -> Key {
 
 def vocab_for(key_id: str) -> list[ChordSpec] {
     if key_id not in _VOCAB {
-        chords = build_vocab(key_for(key_id));
+        chords = build_vocab(key_for(key_id), is_extended(key_id));
         _VOCAB[key_id] = chords;
         _BY_CID[key_id] = {c.cid: c for c in chords};
     }
@@ -436,6 +493,10 @@ def tonic_cid(key_id: str) -> str {
 glob SUFFIX_QUALITY: list[tuple[str, str]] = [
     ("7sus4", "7sus4"), ("7sus", "7sus4"), ("sus4", "sus4"), ("sus2", "sus2"), ("sus", "sus4"),
     ("min6", "m6"), ("m6", "m6"), ("6", "6"),
+    ("add9", "add9"), ("add2", "add9"), ("madd9", "madd9"), ("m(add9)", "madd9"), ("madd2", "madd9"),
+    ("add11", "add11"), ("add4", "add11"), ("madd11", "madd11"), ("m(add11)", "madd11"), ("madd4", "madd11"),
+    ("add13", "add13"), ("add6", "maj6"), ("madd13", "madd13"), ("m(add13)", "madd13"), ("madd6", "min6"),
+    ("(add9)", "add9"), ("(add11)", "add11"), ("(add13)", "add13"),
     ("m7b5", "hdim7"), ("m7♭5", "hdim7"), ("maj7", "maj7"), ("dim7", "dim7"), ("min7", "min7"),
     ("ø7", "hdim7"), ("°7", "dim7"), ("o7", "dim7"), ("Δ7", "maj7"), ("M7", "maj7"),
     ("m7", "min7"), ("-7", "min7"), ("dim", "dim"), ("aug", "aug"), ("min", "min"),
@@ -508,8 +569,12 @@ def parse_chord(key_id: str, symbol: str) -> ChordSpec {
     if not quality {
         raise ValueError(f"unknown chord quality “{rest}” in {text} (try m, 7, maj7, m7, dim, ø7, °7, aug)");
     }
-    # C6 is Am7 over C and Cm6 is Aø7 over C: spell them from the sixth, with the
-    # written root in the bass unless another bass is given.
+    # With the added-note chords switched on, C6 and Cm6 are added-sixth chords.
+    if quality in ["6", "m6"] and is_extended(key_id) {
+        quality = "maj6" if quality == "6" else "min6";
+    }
+    # Otherwise C6 is Am7 over C and Cm6 is Aø7 over C: spell them from the sixth,
+    # with the written root in the bass unless another bass is given.
     named_root = "";
     if quality in ["6", "m6"] {
         named_root = text[:used] + ("6" if quality == "6" else "m6");
@@ -529,6 +594,9 @@ def parse_chord(key_id: str, symbol: str) -> ChordSpec {
             raise ValueError(f"'{bass_text}' is not a note of {text.split('/')[0]}");
         }
         inversion = pcs.index(bass_pc);
+        if inversion == 3 and quality in ADDED_TONE {
+            raise ValueError(f"put the added {ADDED_TONE[quality]} of {text.split('/')[0]} above the bass (with it in the bass it is a different chord)");
+        }
     }
     made = analyse(key_id, (letter - key.tonic_letter) % 7, root_pc, quality, inversion, bool(named_root));
     if named_root {
@@ -625,7 +693,8 @@ def roman_head(text: str) -> str {
 Chord roots are A-G, so a leading I/V/i/v (after an accidental) can't be a symbol;
 a lone "b"/"#" before a numeral is an accidental, not the note B."""
 def is_roman(text: str) -> bool {
-    if text.startswith("N") or text.lower().startswith("cad") {
+    # "Cad64" is the cadential 6/4; "Cadd9" is a C chord with an added 9th
+    if text.startswith("N") or (text.lower().startswith("cad") and not text.lower().startswith("cadd")) {
         return True;
     }
     for a6 in AUG_SIXTHS {
@@ -664,7 +733,7 @@ def parse_roman(key_id: str, raw: str) -> ChordSpec {
 
     # specials: Neapolitan, augmented sixths, cadential 6/4 - all in the vocabulary
     low = text.lower();
-    if low.startswith("cad") {
+    if low.startswith("cad") and not low.startswith("cadd") {
         for c in vocab_for(key_id) {
             if c.func == "CAD64" {
                 return c;

@@ -13,7 +13,7 @@ augmented sixths, cadential 6/4 suspensions, ♭2̂, ♭6̂).
 """
 
 import from theory.pitch { Key, iabs }
-import from theory.vocab { ChordSpec, key_for }
+import from theory.vocab { ChordSpec, key_for, ADDED_TONE }
 
 # Bass, tenor, alto, soprano ranges (MIDI, inclusive).
 glob RANGES: list[list[int]] = [[40, 62], [48, 67], [55, 74], [60, 79]],
@@ -99,7 +99,7 @@ def voicings_for(key_id: str, c: ChordSpec) -> list[Voicing] {
     bass_pc = c.bass_pc();
     no_double = undoublable(c);
     fifth_pc = -1;
-    if c.inversion == 0 and c.quality in ["maj", "min", "dom7", "min7", "maj7"] {
+    if c.inversion == 0 and c.quality in ["maj", "min", "dom7", "min7", "maj7"] + list(ADDED_TONE.keys()) {
         fifth_pc = c.tones[2].pc;
     }
     out: list[Voicing] = [];

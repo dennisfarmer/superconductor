@@ -83,6 +83,9 @@ def:pub Header(
 ) -> JsxElement {
     has menu_open: bool = False,
         confirm_quit: bool = False,
+        # where an open menu sits on screen: the bar scrolls sideways, so menus are
+        # fixed-position (a scrolling bar would clip them) and placed under their button
+        menu_at: dict = {},
         # the tempo while the knob is being turned (-1: not turning)
         drag_bpm: float = -1.0;
     tonics = session.major_tonics if session.mode == "major" else session.minor_tonics;
@@ -97,11 +100,16 @@ def:pub Header(
         }
     }
 
-    return <header className="topbar">
+    def place_menu(e: any) -> None {
+        r: any = e.currentTarget.getBoundingClientRect();
+        menu_at = {"top": str(r.bottom + 6) + "px", "right": str(max(8, window.innerWidth - r.right)) + "px"};
+    }
+
+    return <header className="topbar" onScroll={lambda e: UIEvent { menu_open = False; confirm_quit = False; }}>
         <div className="brand" title="Walkers search a graph of chord progressions; Magenta RT plays what you hover, pin and keep">SuperConductor Atlas</div>
 
         <div className="tb-group">
-            <select className="tb-select key-select" title="Tonic of the key. Changing key re-analyses the progression and sends the walkers again." value={session.tonic} onChange={lambda e: ChangeEvent { onKey(e.target.value, session.mode); }}>
+            <select className="tb-select key-select" title="Tonic of the key. Changing key transposes the progression and sends the walkers again." value={session.tonic} onChange={lambda e: ChangeEvent { onKey(e.target.value, session.mode); }}>
                 {for t in tonics { <option key={t} value={t}>{t}</option> }}
             </select>
             <div className="seg" title="Major or minor mode">
@@ -195,9 +203,9 @@ def:pub Header(
                 title="Restart the audio engine (fixes glitching audio). It is asked to stop, then started again; the model takes a few seconds to load."
                 onClick={lambda e: MouseEvent { onRestart(); }}
             >{restart_icon()}</button>
-            <button className={"icon-btn" + (" on" if menu_open else "")} title="Engine options" onClick={lambda e: MouseEvent { menu_open = not menu_open; }}>⋯</button>
+            <button className={"icon-btn" + (" on" if menu_open else "")} title="Engine options" onClick={lambda e: MouseEvent { place_menu(e); menu_open = not menu_open; }}>⋯</button>
             {if menu_open {
-                <div className="menu" onMouseLeave={lambda e: MouseEvent { menu_open = False; }}>
+                <div className="menu fixed" style={menu_at} onMouseLeave={lambda e: MouseEvent { menu_open = False; }}>
                     <label title="LLM calls (Ollama) share the GPU with Magenta; switch off for glitch-free real time">
                         <input type="checkbox" checked={session.llm_enabled} onChange={lambda e: ChangeEvent { onLlm(not session.llm_enabled); }}/>
                         LLM path descriptions
@@ -215,10 +223,10 @@ def:pub Header(
                 className={"icon-btn quit" + (" on" if confirm_quit else "")}
                 disabled={quitting}
                 title="Quit SuperConductor Atlas: stop the audio engine and the app server"
-                onClick={lambda e: MouseEvent { confirm_quit = not confirm_quit; }}
+                onClick={lambda e: MouseEvent { place_menu(e); confirm_quit = not confirm_quit; }}
             >{power_icon()}</button>
             {if confirm_quit {
-                <div className="menu confirm">
+                <div className="menu confirm fixed" style={menu_at}>
                     <p>Quit SuperConductor Atlas?</p>
                     <span>The audio engine and the app server shut down. Your session is kept for next time.</span>
                     <div className="confirm-actions">
