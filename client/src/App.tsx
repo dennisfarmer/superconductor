@@ -7,7 +7,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import * as api from "./api";
 import type { ChordView, PathStory, SearchView, SessionView, StepView } from "./api";
-import { engine_chord, lock_sig, make_timeline, page_of, pref_get, pref_set, restore_locks, save_locks, sleep_ms } from "./appLogic";
+import { engine_chord, lock_sig, make_timeline, page_of, pref_get, pref_set, restore_locks, save_locks, sleep_ms, tonic_pc } from "./appLogic";
 import type { EngineChord, Timeline } from "./appLogic";
 import { beat_sync } from "./components/BeatLights";
 import { DrumsPage } from "./components/DrumGrid";
@@ -504,7 +504,8 @@ export function App() {
   async function change_key(tonic: string, mode: string) {
     if (session == null) return;
     const tonics = mode === "major" ? session.major_tonics : session.minor_tonics;
-    const t = tonics.includes(tonic) ? tonic : tonics[0];
+    // a spelling the mode lacks (D♭ minor, D♯ major) becomes its enharmonic twin
+    const t = tonics.includes(tonic) ? tonic : (tonics.find((x) => tonic_pc(x) === tonic_pc(tonic)) ?? tonics[0]);
     setSession(await api.setKey(t, mode));
     await send_walkers();
   }

@@ -94,6 +94,13 @@ export function sleep_ms(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Pitch class of a tonic name like "E♭" or "F♯" (as server/theory/pitch.py Key.parse). */
+export function tonic_pc(name: string): number {
+  let pc = [0, 2, 4, 5, 7, 9, 11]["CDEFGAB".indexOf(name[0])];
+  for (const ch of name.slice(1)) pc += ch === "♯" ? 1 : ch === "♭" ? -1 : 0;
+  return ((pc % 12) + 12) % 12;
+}
+
 /** The page under the top bar: /#drums, /#bpm, or the Harmony page. */
 export function page_of(hash: string): string {
   return hash === "#drums" ? "drums" : hash === "#bpm" ? "bpm" : "harmony";

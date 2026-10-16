@@ -15,9 +15,9 @@ MAJOR_SCALE: list[int] = [0, 2, 4, 5, 7, 9, 11]
 MINOR_SCALE: list[int] = [0, 2, 3, 5, 7, 8, 10]
 NUMERALS: list[str] = ["I", "II", "III", "IV", "V", "VI", "VII"]
 
-# Tonic names offered in the UI (major keys, then minor keys).
-MAJOR_TONICS: list[str] = ["C", "G", "D", "A", "E", "F", "B♭", "E♭", "A♭", "D♭"]
-MINOR_TONICS: list[str] = ["A", "E", "B", "F♯", "C♯", "D", "G", "C", "F"]
+# Tonic names offered in the UI: every key signature, 0 to 7 sharps then 1 to 7 flats.
+MAJOR_TONICS: list[str] = ["C", "G", "D", "A", "E", "B", "F♯", "C♯", "F", "B♭", "E♭", "A♭", "D♭", "G♭", "C♭"]
+MINOR_TONICS: list[str] = ["A", "E", "B", "F♯", "C♯", "G♯", "D♯", "A♯", "D", "G", "C", "F", "B♭", "E♭", "A♭"]
 
 
 def accidental(diff: int) -> str:
