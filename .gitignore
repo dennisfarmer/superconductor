@@ -36,5 +36,5 @@ superconductor.egg-info
 *.mov
 *.avi
 
-# objects removed with the "forget" command
-library/.trash/
+# object library (views, embeddings, object.json, backups, .trash, combos/settings)
+library/
