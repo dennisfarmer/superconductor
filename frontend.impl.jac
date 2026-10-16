@@ -34,6 +34,8 @@ impl app.send_walkers -> None {
         pref_set("locks", None);
     }
     try {
+        # fresh options beside every kept chord, ranked against its neighbours as they are now
+        session = await refresh_options();
         res = await explore();
         _search_id = res.search_id;
         anim = 0;

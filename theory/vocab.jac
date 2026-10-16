@@ -114,7 +114,11 @@ obj ChordSpec {
         is_seventh: bool,
         target_pc: int = -1,
         target_deg: int = -1,
-        tendencies: list[Tendency] = [];
+        tendencies: list[Tendency] = [],
+        # the other Roman numeral these pitches go by ("VI" for V/ii), and why each
+        # applies ("" if none)
+        alt_rn: str = "",
+        also: str = "";
 
     def pcs -> list[int] {
         return [t.pc for t in self.tones];
@@ -174,19 +178,19 @@ def tertian(
     bass_role = tones[inversion].role;
 
     # Roman numeral: case from quality, accidental from chromatic root, figures from inversion.
+    # `plain` is the numeral read in the home key; an applied chord overrides it (V/ii).
+    plain = NUMERALS[root_deg % 7];
+    if is_minor_quality(quality) {
+        plain = plain.lower();
+    }
+    diff = signed(root_pc - key.degree_pc(root_deg));
+    # the raised leading tone in minor is conventionally unmarked (vii°7, not ♯vii°7)
+    if not (key.mode == "minor" and root_deg % 7 == 6 and diff == 1) {
+        plain = {-1: "♭", 1: "♯"}.get(diff, "") + plain;
+    }
     numeral: str = numeral_override;
     if not numeral {
-        numeral = NUMERALS[root_deg % 7];
-        if is_minor_quality(quality) {
-            numeral = numeral.lower();
-        }
-        if target_deg < 0 {
-            diff = signed(root_pc - key.degree_pc(root_deg));
-            # the raised leading tone in minor is conventionally unmarked (vii°7, not ♯vii°7)
-            if not (key.mode == "minor" and root_deg % 7 == 6 and diff == 1) {
-                numeral = {-1: "♭", 1: "♯"}.get(diff, "") + numeral;
-            }
-        }
+        numeral = plain if target_deg < 0 else (plain.lstrip("♭♯"));
     }
     figures = SEVENTH_FIGURES if is_seventh else TRIAD_FIGURES;
     mark = quality_mark(quality);
@@ -200,6 +204,27 @@ def tertian(
         sus = "sus2" if quality == "sus2" else "sus4";
         rn = numeral + figures[inversion] + sus;
         harmony = numeral + ("⁷" if is_seventh else "") + sus;
+    }
+    # the same chord named with another numeral in place of this one (same figures)
+    def renamed(other: str) -> str {
+        return other + rn[len(numeral):].split("/")[0];
+    }
+    alt_rn = "";
+    also = "";
+    if target_deg >= 0 and numeral != plain {
+        alt_rn = renamed(plain);
+        also = f"{rn}/{target_rn} names what it does (leads to {target_rn}); {alt_rn} names what it is in the key";
+    } elif target_deg < 0 and func not in ["CAD64", "AUG6", "NEAP"] and (quality in ["maj", "dom7"] or ADDED_BASE.get(quality, "") == "maj") {
+        # a major or dominant-7th chord a 5th above a diatonic degree, not itself
+        # diatonic, could also be that degree's applied dominant
+        tdeg = (root_deg + 3) % 7;
+        scale = [key.degree_pc(d) for d in range(7)];
+        core = [t.pc for t in tones[:3]];
+        if tdeg != 0 and (root_pc + 5) % 12 == key.degree_pc(tdeg) and not all([p in scale for p in core]) {
+            trn = diatonic_numeral(key, tdeg);
+            alt_rn = renamed("V") + "/" + trn;
+            also = f"{rn} names what it is in the key; {alt_rn} names what it does when it leads to {trn}";
+        }
     }
     target_pc = -1;
     if target_deg >= 0 {
@@ -236,7 +261,9 @@ def tertian(
         inversion=inversion,
         is_seventh=is_seventh,
         target_pc=target_pc,
-        target_deg=target_deg
+        target_deg=target_deg,
+        alt_rn=alt_rn,
+        also=also
     );
     spec.tendencies = tendencies_for(key, spec, target_rn);
     return spec;
@@ -641,7 +668,10 @@ def analyse(key_id: str, root_deg: int, root_pc: int, quality: str, inversion: i
     # 3. analyse from scratch
     diatonic = all([p in [key.degree_pc(d) for d in range(7)] for p in pcs]);
     tdeg = (root_deg + 3) % 7;
-    if quality in ["maj", "dom7"] and not diatonic and tdeg != 0 and (root_pc + 5) % 12 == key.degree_pc(tdeg) {
+    # an added-note major chord is read by its triad: C(add9) in E♭ is V(add9)/ii
+    major_core = quality in ["maj", "dom7"] or ADDED_BASE.get(quality, "") == "maj";
+    core_diatonic = all([p in [key.degree_pc(d) for d in range(7)] for p in pcs[:3]]);
+    if major_core and not core_diatonic and tdeg != 0 and (root_pc + 5) % 12 == key.degree_pc(tdeg) {
         return tertian(key, root_deg, root_pc, quality, inversion, "APP", "applied", tdeg, diatonic_numeral(key, tdeg), "V");
     }
     if diatonic {
@@ -835,6 +865,14 @@ def parse_roman(key_id: str, raw: str) -> ChordSpec {
         root_pc = key.rel(11);
     }
     return register_chord(key_id, analyse(key_id, root_deg, root_pc, quality, inversion));
+}
+
+
+"""Let `spec_of` find chord `c` by an older id as well (a stored step whose chord
+has since been re-analysed under a new name)."""
+def alias_chord(key_id: str, cid: str, c: ChordSpec) {
+    vocab_for(key_id);
+    _BY_CID[key_id][cid] = c;
 }
 
 

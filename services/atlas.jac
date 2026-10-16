@@ -7,7 +7,7 @@ cached so the UI can audition, inspect, and commit any node of the search tree.
 
 import from theory.pitch { MAJOR_TONICS, MINOR_TONICS, Key, r2, iabs, signed }
 import from theory.vocab {
-    ChordSpec, spec_of, has_spec, key_for, key_id_of, tonic_cid, parse_chord, vocab_for, is_roman, read_note,
+    ChordSpec, spec_of, has_spec, alias_chord, key_for, key_id_of, tonic_cid, parse_chord, vocab_for, is_roman, read_note,
     analyse, QUALITY_INTERVALS
 }
 import from theory.phrase { phrase_cost }
@@ -136,7 +136,9 @@ obj ChordView {
         marks: list[MarkView],
         cadence: str,
         cadence_name: str,
-        status: str;
+        status: str,
+        alt_rn: str = "",   # the other Roman numeral for the same pitches (VI for V/ii)
+        also: str = "";     # why each name applies
 }
 
 
@@ -197,7 +199,8 @@ obj AltView {
         rn: str,
         symbol: str,
         func: str,
-        notes: list[int];   # voiced from the chord before (or into the one after)
+        notes: list[int],   # voiced from the chord before (or into the one after)
+        alt_rn: str = "";
 }
 
 
@@ -222,6 +225,8 @@ obj StepView {
         rule: str,
         cadence: str,
         degrees: list[str] = [],      # scale degree of each voice, e.g. "2̂", "♯4̂"
+        alt_rn: str = "",             # the other Roman numeral for the same pitches
+        also: str = "",               # why each name applies
         alts: list[AltView] = [],
         leads: list[LeadView] = [],   # the edge into this chord from the one before
         typed: bool = False;          # typed in by the composer (removable)
@@ -307,14 +312,19 @@ def is_back(node_id: int) -> bool {
 
 
 """Typed chords live outside the vocabulary, so after a restart they must be
-re-analysed before anything asks for them by cid."""
+re-analysed before anything asks for them by cid. A chord stored under the id of an
+older analysis (C(add9) in E♭ was VI(add9), now V(add9)/ii) is found by that id too."""
 def know_typed(kid: str, steps: list[Step]) {
     for st in steps {
-        symbols = [st.symbol] + [a.symbol for a in alts_of(st)];
-        for sym in symbols {
-            if sym and (kid + sym) not in _TYPED {
-                parse_chord(kid, sym);
-                _TYPED.append(kid + sym);
+        typed = [[st.cid, st.symbol]] + [[a.cid, a.symbol] for a in alts_of(st)];
+        for pair in typed {
+            (cid, sym) = (pair[0], pair[1]);
+            if sym and (kid + cid + "|" + sym) not in _TYPED {
+                c = parse_chord(kid, sym);
+                if cid != c.cid and not has_spec(kid, cid) {
+                    alias_chord(kid, cid, c);
+                }
+                _TYPED.append(kid + cid + "|" + sym);
             }
         }
     }
@@ -438,7 +448,7 @@ def alt_views(kid: str, steps: list[Step], i: int) -> list[AltView] {
         c = spec_of(kid, a.cid);
         notes = voice_at(kid, steps, i, c);
         if notes is not None {
-            out.append(AltView(cid=a.cid, rn=c.rn, symbol=c.symbol, func=c.func, notes=notes));
+            out.append(AltView(cid=a.cid, rn=c.rn, symbol=c.symbol, func=c.func, notes=notes, alt_rn=c.alt_rn));
         }
     }
     return out;
@@ -468,6 +478,8 @@ def step_view(kid: str, i: int, st: Step, alts: list[AltView] = [], prev: Step |
         rule=st.rule,
         cadence=st.cadence,
         degrees=[degree_label(key_for(kid), c, n) for n in st.notes],
+        alt_rn=c.alt_rn,
+        also=c.also,
         alts=alts,
         leads=lead_views(kid, prev, st) if prev is not None else [],
         typed=bool(st.symbol)
@@ -531,7 +543,9 @@ def chord_view(kid: str, h: Hyp, status: str) -> ChordView {
         marks=mark_views(h.marks),
         cadence=h.cadence,
         cadence_name=CADENCE_NAMES.get(h.cadence, ""),
-        status=status
+        status=status,
+        alt_rn=c.alt_rn,
+        also=c.also
     );
 }
 
@@ -792,6 +806,99 @@ def tree_nodes(kid: str, searcher: BeamSearch) -> list[ChordView] {
     kept_ids = [h.id for h in searcher.kept];
     nodes = [chord_view(kid, h, "kept") for h in searcher.kept];
     return nodes + [chord_view(kid, h, "dest") for h in searcher.destinations if h.id not in kept_ids];
+}
+
+
+"""The options beside kept step `i`: every chord of the vocabulary that can follow
+the chord before it and lead into the chord after it (either side may be missing at
+the ends), ranked like a walker's move - syntax cost × weight plus voice leading on
+each side - with the best inversion of each harmony, best `s.options` of them."""
+def ranked_options(s: Session, kid: str, i: int) -> list[Alt] {
+    key = key_for(kid);
+    steps = s.steps;
+    here = steps[i];
+    before = spec_of(kid, steps[i - 1].cid) if i > 0 else None;
+    after = spec_of(kid, steps[i + 1].cid) if i + 1 < len(steps) else None;
+    scored: list[tuple[float, ChordSpec]] = [];
+    for b in vocab_for(kid) {
+        if b.cid == here.cid {
+            continue;
+        }
+        cost = 0.0;
+        if before is not None {
+            r = syntax(before, b, key);
+            if r is None or r.cost > s.max_syntax {
+                continue;
+            }
+            cost += s.syntax_weight * r.cost;
+        }
+        if after is not None {
+            r = syntax(b, after, key);
+            if r is None or r.cost > s.max_syntax {
+                continue;
+            }
+            cost += s.syntax_weight * r.cost;
+        }
+        scored.append((cost, b));
+    }
+    # voice leading only for chords the syntax allows (the costly part)
+    ranked: list[tuple[float, ChordSpec]] = [];
+    for (cost, b) in scored {
+        notes: list[int] = [];
+        if before is not None {
+            m = best_motion(kid, before, steps[i - 1].notes, b, s.smooth);
+            if m is None {
+                continue;
+            }
+            cost += m.cost;
+            notes = m.notes;
+        }
+        if after is not None {
+            if notes {
+                m2 = best_motion(kid, b, notes, after, s.smooth);
+            } else {
+                m2 = best_motion_into(kid, b, after, steps[i + 1].notes, s.smooth);
+            }
+            if m2 is None {
+                continue;
+            }
+            cost += m2.cost;
+        }
+        ranked.append((cost, b));
+    }
+    ranked.sort(key=lambda t: any : t[0]);
+    out: list[Alt] = [];
+    seen: list[str] = [];
+    for (_, b) in ranked {
+        if b.harmony in seen {
+            continue;
+        }
+        seen.append(b.harmony);
+        out.append(Alt(cid=b.cid));
+        if len(out) >= s.options {
+            break;
+        }
+    }
+    return out;
+}
+
+
+"""Re-rank the options beside every kept chord against its neighbours as they are
+now (Send walkers). Chords the composer typed in as options stay."""
+def:pub refresh_options -> SessionView {
+    s = session();
+    kid = key_id(s);
+    if len(s.steps) < 2 {
+        return session_view(s);
+    }
+    steps: list[Step] = [];
+    for (i, st) in enumerate(s.steps) {
+        typed = [a for a in alts_of(st) if a.symbol];
+        fresh = [a for a in ranked_options(s, kid, i) if a.cid not in [t.cid for t in typed]];
+        steps.append(Step(cid=st.cid, notes=st.notes, rule=st.rule, cadence=st.cadence, symbol=st.symbol, alts=typed + fresh));
+    }
+    s.steps = steps;
+    return session_view(s);
 }
 
 

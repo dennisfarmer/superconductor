@@ -24,7 +24,7 @@ sv import from services.atlas {
     SessionView, SearchView, ChordView, PathStory, StepView,
     get_state, set_key, set_tempo, set_style_layers, set_texture, set_llm, explore,
     add_path, undo, clear_progression, describe, add_chords, restart_engine, set_loop, add_option,
-    commit_progression, rename_saved, delete_saved, resume_saved, swap_step, remove_step, replace_step, set_extended, shutdown_app
+    commit_progression, rename_saved, refresh_options, delete_saved, resume_saved, swap_step, remove_step, replace_step, set_extended, shutdown_app
 }
 
 # Non-reactive module state: timers and values read from long-lived callbacks.

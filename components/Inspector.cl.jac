@@ -70,11 +70,17 @@ def:pub Inspector(
         <div className="card-b">
             <div className="insp-title">
                 <span className="rn">{cv.rn}</span>
+                {if cv.alt_rn {
+                    <span className="rn alt">{cv.alt_rn}</span>
+                }}
                 <span className="sym">{cv.symbol}</span>
                 {if cv.cadence {
                     <span className="pill">{cv.cadence_name}</span>
                 }}
             </div>
+            {if cv.also {
+                <div className="also">{cv.also}</div>
+            }}
             <div className="path-line">{arrow_join(path_rns)}</div>
             {if cv.id != 0 {
                 <div className="rule">{"Move: " + cv.rule}</div>

@@ -222,7 +222,9 @@ body.resizing canvas { pointer-events: none; }
 /* inspector */
 .insp-title { display: flex; align-items: baseline; gap: 10px; }
 .insp-title .rn { font-family: var(--serif); font-size: 34px; }
+.insp-title .rn.alt { font-size: 22px; color: var(--muted); }
 .insp-title .sym { color: var(--muted); font-size: 14px; }
+.also { margin: 4px 0 6px; font-size: var(--fs-s); color: var(--ink-2); line-height: 1.4; }
 .path-line { font-family: var(--serif); color: var(--ink-2); font-size: 15px; margin: 4px 0 10px; line-height: 1.5; }
 .satb { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0 12px; }
 .satb div { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-1); padding: 5px 0; text-align: center; }
@@ -362,6 +364,7 @@ a.unit.bpm-link.on { color: var(--ink); cursor: default; }
 }
 .chip .rn { font-family: var(--serif); font-size: 18px; line-height: 1.1; white-space: nowrap; }
 .chip .sym { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.chip .alt { font-family: var(--serif); font-size: 12px; line-height: 1.1; color: var(--muted); white-space: nowrap; }
 .chip.current { border-color: var(--accent); }
 .chip.clickable { cursor: pointer; }
 .chip.clickable:hover { border-color: var(--accent); }

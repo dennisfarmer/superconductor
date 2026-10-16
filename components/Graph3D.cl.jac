@@ -73,9 +73,11 @@ glob SERIF: str = "\"Iowan Old Style\", \"Palatino Linotype\", Palatino, Georgia
      _TEX: dict[str, any] = {};
 
 
-"""A chord label as a texture, laid out like the 2D map's box text, cached by content."""
-def chord_texture(rn: str, symbol: str, cadence: str, ink: str, w: int, h: int) -> any {
-    k = rn + "|" + symbol + "|" + cadence + "|" + ink + "|" + str(w) + "x" + str(h);
+"""A chord label as a texture, laid out like the 2D map's box text, cached by content.
+`alt` is the chord's other Roman numeral (VI for V/ii): drawn under the numeral,
+so both names are on the box."""
+def chord_texture(rn: str, symbol: str, cadence: str, ink: str, w: int, h: int, alt: str = "") -> any {
+    k = rn + "|" + alt + "|" + symbol + "|" + cadence + "|" + ink + "|" + str(w) + "x" + str(h);
     if k in _TEX {
         return _TEX[k];
     }
@@ -86,9 +88,16 @@ def chord_texture(rn: str, symbol: str, cadence: str, ink: str, w: int, h: int) 
     g.scale(TEX_SCALE, TEX_SCALE);
     small = h < 30;
     g.fillStyle = ink;
-    g.font = ("13px " if small else "17px ") + SERIF;
+    two = alt and not small;
+    g.font = ("13px " if small else ("15px " if two else "17px ")) + SERIF;
     g.textAlign = "left";
-    g.fillText(rn, 10, 13 if small else 23);
+    g.fillText(rn, 10, 13 if small else (17 if two else 23));
+    if two {
+        g.fillStyle = MUTED;
+        g.font = "11px " + SERIF;
+        g.fillText(alt, 10, 30);
+        g.fillStyle = ink;
+    }
     g.textAlign = "right";
     if symbol {
         # bottom right, clear of the cadence badge (a short box has one line: beside it)
@@ -522,8 +531,8 @@ def:pub Graph3D(
         </group>;
     }
 
-    def chord_label(rn: str, symbol: str, cadence: str) -> any {
-        return chord_texture(rn, symbol, cadence, INK, NODE_W, NODE_H);
+    def chord_label(rn: str, symbol: str, cadence: str, alt: str = "") -> any {
+        return chord_texture(rn, symbol, cadence, INK, NODE_W, NODE_H, alt);
     }
 
     """A text label centred at layout (x, y) on plane z. cls: col | name | name-on."""
@@ -595,7 +604,7 @@ def:pub Graph3D(
         is_hot = any([i in hot for i in ids]);
         is_locked = any([i in locks for i in ids]);
         fill = FILL_SOUNDING if soundingId in ids else (FILL_HOT if is_hot or is_locked else FILL);
-        label = chord_texture(n.rn, n.symbol, n.cadence, ACCENT if is_locked else INK, NODE_W, NODE_H);
+        label = chord_texture(n.rn, n.symbol, n.cadence, ACCENT if is_locked else INK, NODE_W, NODE_H, n.alt_rn);
         return <group key={"n" + str(n.id)}>
             {box(
                 "b" + str(n.id), x, y, 0.0, NODE_W, NODE_H, color_of(n.func), fill, 1.0 if live else 0.25, label,
@@ -688,7 +697,7 @@ def:pub Graph3D(
                     {box(
                         "sb" + str(k) + "-" + str(i), px(i), y0, z, NODE_W, NODE_H, color_of(st.func),
                         FILL_SOUNDING if on and i == savedSounding else (FILL_HOT if on else FILL), 1.0 if on else 0.75,
-                        chord_label(st.rn, st.symbol, st.cadence),
+                        chord_label(st.rn, st.symbol, st.cadence, st.alt_rn),
                         None, None,
                         lambda e: any { e.stopPropagation(); onPickSaved(k); }
                     )}
@@ -769,7 +778,7 @@ def:pub Graph3D(
                             {box(
                                 "ob" + str(i) + "-" + str(j), px(i), opt_y(j), 0.0, NODE_W, NODE_H, color_of(o.func),
                                 FILL_HOT if alt_on(i, j) else FILL, 1.0 if alt_on(i, j) else 0.45,
-                                chord_label(o.rn, o.symbol, ""),
+                                chord_label(o.rn, o.symbol, "", o.alt_rn),
                                 lambda e: any { e.stopPropagation(); onAltHover(i, j); },
                                 lambda e: any { onAltLeave(); },
                                 lambda e: any { e.stopPropagation(); onAltPick(i, o.cid); }
@@ -787,7 +796,7 @@ def:pub Graph3D(
                     {box(
                         "sb" + str(i), px(i), y0, 0.0, NODE_W, NODE_H, color_of(steps[i].func),
                         FILL_SOUNDING if i == soundingStep else FILL, 1.0,
-                        chord_label(steps[i].rn, steps[i].symbol, steps[i].cadence),
+                        chord_label(steps[i].rn, steps[i].symbol, steps[i].cadence, steps[i].alt_rn),
                         None, None,
                         lambda e: any { e.stopPropagation(); onStep(i); },
                         steps[i].typed

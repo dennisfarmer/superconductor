@@ -10,9 +10,11 @@ import from react { useEffect }
 sv import from ..services.atlas { StepView, ChordView, SavedView }
 
 
-def chip_body(rn: str, symbol: str, cadence: str) -> list[any] {
+"""A chip's text; `alt` is the chord's other Roman numeral (VI for V/ii), shown under it."""
+def chip_body(rn: str, symbol: str, cadence: str, alt: str = "") -> list[any] {
     return [
         <div key="rn" className="rn">{rn}</div>,
+        (<div key="alt" className="alt">{alt}</div>) if alt else None,
         <div key="sym" className="sym">{symbol}</div>,
         (<span key="cad" className="cad">{cadence}</span>) if cadence else None
     ];
@@ -147,7 +149,7 @@ def:pub Progression(
                 {for c in previewBefore {
                     <div key={"pb" + str(c.id)} className="chip-wrap">
                         <div className={"chip tentative" + (" sounding" if c.id == soundingId else "")} title={c.rule}>
-                            {chip_body(c.rn, c.symbol, c.cadence)}
+                            {chip_body(c.rn, c.symbol, c.cadence, c.alt_rn)}
                         </div>
                         <span className="arrow">→</span>
                     </div>
@@ -164,11 +166,11 @@ def:pub Progression(
                             title={(
                                 "Looping from here: click again for the default loop" if i == loopFrom
                                 else "Click: loop from this chord · Shift-click: end the loop here"
-                            ) + ("\n" + st.rule if st.rule else "")}
+                            ) + ("\n" + st.also if st.also else "") + ("\n" + st.rule if st.rule else "")}
                             onClick={lambda e: MouseEvent { onLoop(i, e.shiftKey); }}
                         >
                             {if i == lo and not playAll { <span className="loop-tag">LOOP</span> }}
-                            {chip_body(st.rn, st.symbol, st.cadence)}
+                            {chip_body(st.rn, st.symbol, st.cadence, st.alt_rn)}
                         </div>
                     </div>
                 }}
@@ -176,7 +178,7 @@ def:pub Progression(
                     <div key={"pa" + str(c.id)} className="chip-wrap">
                         <span className="arrow">→</span>
                         <div className={"chip tentative" + (" sounding" if c.id == soundingId else "")} title={c.rule}>
-                            {chip_body(c.rn, c.symbol, c.cadence)}
+                            {chip_body(c.rn, c.symbol, c.cadence, c.alt_rn)}
                         </div>
                     </div>
                 }}
