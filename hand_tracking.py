@@ -12,7 +12,7 @@ Key Functions:
 
 Timestamp Handling:
     - Video files: Uses CAP_PROP_POS_MSEC from OpenCV (reliable, based on file metadata)
-    - Camera/Unknown: Falls back to CLOCK_MONOTONIC_RAW (session-relative time)
+    - Live camera: Uses monotonic capture time, ignoring file-position metadata
 
 Note: There was a frame-skipping bug where cap.grab() was called before cap.read(),
 causing exactly half the frames to be skipped from video files, resulting in 2x playback
@@ -20,7 +20,8 @@ speed in the output video. This has been removed for proper frame retrieval.
 
 MediaPipe Hand Landmarks:
     - 21 landmarks per hand
-    - Landmark 0: Wrist (used in tempo detection)
+    - Landmark 0: Wrist (used for hand labels)
+    - Landmark 12: Middle fingertip (used in tempo detection)
     - Normalized coordinates: x, y (0-1)
 
 Horizontal Flip:
@@ -41,7 +42,7 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 
-def frame(cap, hand_landmarker, show_preview=False):
+def frame(cap, hand_landmarker, show_preview=False, *, live=False):
     """
     Capture and process a single video frame with hand landmark detection.
 
@@ -57,6 +58,7 @@ def frame(cap, hand_landmarker, show_preview=False):
         cap: OpenCV VideoCapture object (video file or camera)
         hand_landmarker: MediaPipe HandLandmarker instance configured for VIDEO mode
         show_preview: If True, display frame in preview window
+        live: Use monotonic capture time, ignoring camera file-position metadata
 
     Returns:
         tuple containing:
@@ -66,34 +68,34 @@ def frame(cap, hand_landmarker, show_preview=False):
             - frame_img: The processed frame image (or None if failed)
 
     Timestamp Handling:
-        - If cap.get(cv2.CAP_PROP_POS_MSEC) returns valid value (video files):
+        - With live=True: Uses the capture timestamp or time.monotonic_ns()
+        - Otherwise, if CAP_PROP_POS_MSEC returns a valid value (video files):
           Uses that value (milliseconds * 1e6 → nanoseconds)
         - Otherwise (cameras or unsupported sources):
-          Uses time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+          Uses time.monotonic_ns()
 
     Coordinates:
         - Original: (0,0) is top-left, (1,1) is bottom-right
         - After flip: Image is mirrored horizontally for natural interaction
-        - Wrist detection: Uses landmark 12 from detected hands
+        - Hand label position: Uses wrist landmark 0 from detected hands
     """
     # Read the next frame from the video capture
     success, img = cap.read()
-
-    # Short wait for OpenCV's event loop (does nothing if no window)
-    _ = cv2.waitKey(1) & 0xFF
 
     if not success:
         return False, [], 0, None
 
     # Get frame timestamp
-    # Try to use video's embedded timestamp first (for video files)
-    pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-    if pos_msec is not None and pos_msec >= 0:
+    # Cameras commonly report zero file-position timestamps; never use them live.
+    pos_msec = None if live else cap.get(cv2.CAP_PROP_POS_MSEC)
+    if live:
+        frame_timestamp_ns = getattr(cap, "read_timestamp_ns", None) or time.monotonic_ns()
+    elif pos_msec is not None and pos_msec >= 0:
         # Convert milliseconds to nanoseconds
         frame_timestamp_ns = int(pos_msec * 1e6)
     else:
         # Fall back to monotonic clock for cameras or unsupported sources
-        frame_timestamp_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+        frame_timestamp_ns = time.monotonic_ns()
 
     # Convert BGR (OpenCV default) to RGB (MediaPipe expects RGB)
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -164,6 +166,7 @@ def frame(cap, hand_landmarker, show_preview=False):
     # Display preview if requested
     if show_preview:
         cv2.imshow("Image", img)
+        cv2.waitKey(1)
 
     return True, hand_landmarks_list, frame_timestamp_ns, img
 

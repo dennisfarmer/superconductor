@@ -27,6 +27,14 @@ def _fmt_num(value, digits=4):
         return str(value)
 
 
+def _fmt_video_time(seconds):
+    """Format elapsed video time as minutes:seconds.centiseconds."""
+    centiseconds = round(seconds * 100)
+    minutes, remainder = divmod(centiseconds, 6000)
+    whole_seconds, fraction = divmod(remainder, 100)
+    return f"{minutes:02d}:{whole_seconds:02d}.{fraction:02d}"
+
+
 def draw_direction_arrow(
     frame_img,
     direction_str: str,
@@ -92,11 +100,13 @@ def write_annotated_video(captured_frames, output_video_path: str, frame_records
         if frame_img is None:
             continue
 
-        cv2.putText(frame_img, f"frame={row['frame_index']} t_ns={row['timestamp_ns']}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        video_time_s = row.get("video_time_s", idx / fps)
+        cv2.putText(frame_img, f"frame={row['frame_index']} time={_fmt_video_time(video_time_s)}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(frame_img, f"x={_fmt_num(row['x'])} y={_fmt_num(row['y'])}", (10, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(frame_img, f"vx={_fmt_num(row['vx'])} vy={_fmt_num(row['vy'])}", (10, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(frame_img, f"ax={_fmt_num(row['ax'])} ay={_fmt_num(row['ay'])}", (10, 96), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(frame_img, f"tempo_bpm={_fmt_num(row['tempo_bpm'], 2)}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 210, 0), 1, cv2.LINE_AA)
+        tempo_text = f"tempo_bpm={_fmt_num(row['tempo_bpm'], 2)}" if row["tempo_bpm"] is not None else "tempo: waiting for steady motion"
+        cv2.putText(frame_img, tempo_text, (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 210, 0), 1, cv2.LINE_AA)
         cv2.putText(frame_img, f"closest_beat_frame={row['closest_beat_frame_index']} dt_ms={_fmt_num(row['closest_beat_dt_ms'], 2)}", (10, 144), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 200, 100), 1, cv2.LINE_AA)
 
         if row.get("is_beat_frame", False):
@@ -127,8 +137,8 @@ def save_frame_metadata(frame_records, beat_frame_mappings, json_path: Path, csv
         - frames: Array of frame records with kinematic data
 
     CSV columns:
-        frame_index, timestamp_ns, x, y, vx, vy, ax, ay,
-        tempo_bpm, is_beat_frame, closest_beat_timestamp_ns,
+        frame_index, timestamp_ns, video_time_s, x, y, vx, vy, ax, ay,
+        tempo_bpm, tempo_method, tempo_correlation, is_beat_frame, closest_beat_timestamp_ns,
         closest_beat_frame_index, closest_beat_dt_ms, vibe_direction
     """
     payload = {
@@ -146,6 +156,7 @@ def save_frame_metadata(frame_records, beat_frame_mappings, json_path: Path, csv
     fieldnames = [
         "frame_index",
         "timestamp_ns",
+        "video_time_s",
         "x",
         "y",
         "vx",
@@ -153,6 +164,8 @@ def save_frame_metadata(frame_records, beat_frame_mappings, json_path: Path, csv
         "ax",
         "ay",
         "tempo_bpm",
+        "tempo_method",
+        "tempo_correlation",
         "is_beat_frame",
         "closest_beat_timestamp_ns",
         "closest_beat_frame_index",

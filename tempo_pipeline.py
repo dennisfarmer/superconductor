@@ -2,7 +2,7 @@
 Core tempo detection pipeline for SuperConductor system.
 
 This module processes video frames to detect hand movements, track beats,
-and calculate tempo (BPM) using MediaPipe hand tracking and Kalman filtering.
+and calculate tempo (BPM) from repeating four-beat hand motion.
 
 Key Functions:
     - process_video_collect_kinematics(): Main processing loop that extracts
@@ -16,7 +16,8 @@ Data Flow:
 
 Kalman Filter Architecture:
     - Kalman2D: Filters 2D hand position (x, y) with velocity state variables
-    - Kalman1D: Filters 1D tempo (BPM) measurements to smooth tempo output
+    - CycleTempoEstimator: Default BPM from raw repeating 4/4 motion
+    - Kalman1D: Smooths interval BPM in optional legacy "beats" mode
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ import cv2
 import numpy as np
 
 from beat_tracker import BeatTracker
+from cycle_tempo import CycleTempoEstimator
+from vibe import VIBE_FOURFOUR
 from hand_tracking import create_hand_landmarker, ensure_task_file, frame
 from kalman_filters import Kalman1D, Kalman2D
 from tempo_constants import MIN_DT_SECONDS, NS_TO_SECONDS
@@ -34,7 +37,10 @@ from video_output import save_frame_metadata, write_annotated_video
 from filterconst import TEMPO_VARIANCE, POS_VARIANCE, VEL_VARIANCE, MEAS_VARIANCE
 
 
-def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: bool = False, release_cap: bool = False):
+def process_video_collect_kinematics(
+    cap, hand_landmarker_input, show_preview: bool = False, release_cap: bool = False,
+    tempo_method: str = "cycle", tempo_window_seconds: float = 3.0,
+):
     """
     Process video frames to collect kinematic hand movement data.
 
@@ -51,6 +57,8 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
         hand_landmarker_input: MediaPipe HandLandmarker instance
         show_preview: If True, display live preview window during processing
         release_cap: If True, release VideoCapture when done
+        tempo_method: "cycle" for stable 4/4 monitoring, "beats" for legacy intervals
+        tempo_window_seconds: History and startup delay for cycle mode
 
     Returns:
         tuple containing:
@@ -69,6 +77,10 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
         - vibe_direction: Current directional goal for beat detection
         - is_beat_frame: Whether this frame contains a detected beat
     """
+    if tempo_method not in ("cycle", "beats"):
+        raise ValueError("tempo_method must be cycle or beats")
+    cycle_tempo = CycleTempoEstimator(window_seconds=tempo_window_seconds) if tempo_method == "cycle" else None
+
     # Validate video capture object
     if cap is None or not cap.isOpened():
         raise RuntimeError("Could not use provided video capture object.")
@@ -86,7 +98,7 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
     tempo_kf = Kalman1D(meas_var=TEMPO_VARIANCE)
 
     # Initialize beat tracker with mirror pattern for alternating directional beats
-    tracker = BeatTracker(100, max_beats=3000, mirror_pattern=True)
+    tracker = BeatTracker(100, vibe_pattern=VIBE_FOURFOUR, max_beats=3000, mirror_pattern=True)
 
     # Storage for processing results
     frame_records = []  # Metadata for each frame
@@ -118,10 +130,18 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
         if did_backup_switch:
             print("Backup: interval too long, assuming a missed beat and switching direction.")
 
+        # Estimate tempo independently of individual beat detections. Missing hand
+        # samples must also reach the estimator so stale BPM can be cleared.
+        raw_x, raw_y = (1 - landmarks[0][12].x, landmarks[0][12].y) if landmarks else (None, None)
+        if cycle_tempo is not None:
+            last_tempo_bpm = cycle_tempo.update(raw_x, raw_y, timestamp_ns)
+
         # Initialize frame record with default values
         record = {
             "frame_index": frame_index,
             "timestamp_ns": int(timestamp_ns),
+            # Playback time in the constant-FPS annotated video.
+            "video_time_s": frame_index / fps,
             "x": None,
             "y": None,
             "vx": None,
@@ -129,6 +149,8 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
             "ax": None,
             "ay": None,
             "tempo_bpm": last_tempo_bpm,
+            "tempo_method": tempo_method,
+            "tempo_correlation": cycle_tempo.confidence if cycle_tempo is not None else None,
             "is_beat_frame": False,
             "closest_beat_timestamp_ns": None,
             "closest_beat_frame_index": None,
@@ -138,9 +160,6 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
 
         # Process hand landmarks if detected
         if landmarks:
-            # Extract wrist position (landmark 12), apply horizontal flip
-            raw_x, raw_y = 1 - landmarks[0][12].x, landmarks[0][12].y
-
             # Apply Kalman filter to smooth position and track velocity
             filt_x, filt_y = position_kf.update(raw_x, raw_y, timestamp_ns)
 
@@ -185,7 +204,7 @@ def process_video_collect_kinematics(cap, hand_landmarker_input, show_preview: b
                 detected_beat_timestamps.append(int(beat_ts))
 
             # Calculate tempo from beat intervals
-            if counted_for_tempo and len(tracker.get_recent_beats()) >= 2:
+            if tempo_method == "beats" and counted_for_tempo and len(tracker.get_recent_beats()) >= 2:
                 beat_times = tracker.get_recent_beats()
                 # BPM = 60 seconds / beat_interval in nanoseconds * 1e9
                 measured_bpm = 60 * 1e9 / (beat_times[-1] - beat_times[-2])
@@ -309,6 +328,8 @@ def run_tempo_pipeline(
     output_csv_path: str | None = None,
     show_preview: bool = False,
     release_cap: bool = False,
+    tempo_method: str = "cycle",
+    tempo_window_seconds: float = 3.0,
 ):
     """
     Run the complete tempo detection pipeline.
@@ -328,23 +349,28 @@ def run_tempo_pipeline(
         output_csv_path: Path for CSV metadata output (auto-generated if None)
         show_preview: Display live preview during processing
         release_cap: Release VideoCapture when done
+        tempo_method: "cycle" (default) or legacy "beats"
+        tempo_window_seconds: Rolling history for cycle tempo (default 3 seconds)
 
-    Output Files (auto-named if paths not provided):
+    Output Files (under outputs/annotations beside the source, unless paths are provided):
         - {source_name}_annotated.mp4: Video with beat annotations
         - {source_name}_frame_data.json: JSON metadata
         - {source_name}_frame_data.csv: CSV metadata
     """
     # Generate output file paths from source name if not provided
     input_path = Path(source_name)
+    output_dir = input_path.parent / "outputs" / "annotations"
+    if any(path is None for path in (output_video_path, output_json_path, output_csv_path)):
+        output_dir.mkdir(parents=True, exist_ok=True)
     if output_video_path is None:
-        output_video_path = str(input_path.with_name(f"{input_path.stem}_annotated.mp4"))
+        output_video_path = str(output_dir / f"{input_path.stem}_annotated.mp4")
     if output_json_path is None:
-        output_json_path = str(input_path.with_name(f"{input_path.stem}_frame_data.json"))
+        output_json_path = str(output_dir / f"{input_path.stem}_frame_data.json")
     if output_csv_path is None:
-        output_csv_path = str(input_path.with_name(f"{input_path.stem}_frame_data.csv"))
+        output_csv_path = str(output_dir / f"{input_path.stem}_frame_data.csv")
 
     # Ensure MediaPipe hand model is downloaded
-    task_file = Path("hand_landmarker.task")
+    task_file = Path(__file__).with_name("hand_landmarker.task")
     ensure_task_file(task_file)
 
     # Create hand landmarker configured for VIDEO mode
@@ -356,6 +382,8 @@ def run_tempo_pipeline(
         hand_landmarker_input=hand_landmarker_input,
         show_preview=show_preview,
         release_cap=release_cap,
+        tempo_method=tempo_method,
+        tempo_window_seconds=tempo_window_seconds,
     )
 
     # Map detected beats to nearest video frames

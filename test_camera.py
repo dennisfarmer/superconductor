@@ -19,6 +19,8 @@ Features:
 
 import cv2
 
+from camera_capture import open_camera
+
 
 def test_camera(camera_index=0):
     """Test camera at specified index and display preview.
@@ -30,10 +32,10 @@ def test_camera(camera_index=0):
         bool: True if camera was opened successfully
     """
     print(f"Opening camera at index {camera_index}...")
-    cap = cv2.VideoCapture(camera_index)
-
-    if not cap.isOpened():
-        print(f"ERROR: Could not open camera at index {camera_index}")
+    try:
+        cap = open_camera(camera_index)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
         return False
 
     # Get camera properties
@@ -41,9 +43,12 @@ def test_camera(camera_index=0):
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     backend = cap.getBackendName()
+    fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+    codec = "".join(chr((fourcc >> (8 * i)) & 0xFF) for i in range(4))
 
     print(f"Camera opened successfully!")
     print(f"  Backend: {backend}")
+    print(f"  Format: {codec} (requested MJPG)")
     print(f"  Resolution: {width}x{height}")
     print(f"  FPS: {fps}")
     print(f"  Press 'q' to exit...")
