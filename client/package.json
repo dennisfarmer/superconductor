@@ -1,0 +1,29 @@
+{
+  "name": "superconductor-atlas-client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "gen-types": "openapi-typescript http://localhost:8001/openapi.json -o src/api-types.ts"
+  },
+  "dependencies": {
+    "@react-three/drei": "9.122.0",
+    "@react-three/fiber": "8.18.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-error-boundary": "5.0.0",
+    "three": "0.160.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "0.160.0",
+    "@vitejs/plugin-react": "4.7.0",
+    "openapi-typescript": "^7.4.0",
+    "typescript": "5.9.3",
+    "vite": "6.4.3"
+  }
+}

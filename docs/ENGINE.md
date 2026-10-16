@@ -26,11 +26,11 @@ Everything the engine does (audio_engine/engine.py)
 4. Switches on the beat. A new preview waits for the next beat boundary. If it starts with the chord already sounding, the engine skips straight to the next chord, so hovering gives you the move out of your chord almost immediately.
 5. Handles style. It embeds your prompts with MusicCoCa on a side thread so audio never stalls. With several sound layers, it averages their embeddings by knob weight before tokenizing, and it caches embeddings per prompt.
 6. Sets the sampling controls: temperature, top-k, how strongly to follow the style vs. the notes (CFG), drums on/off, and output gain.
-7. Serves an HTTP API for the Jac server: /timeline, /release, /style, /settings, and /status. /status reports what's audible right now, which drives the ms/frame readout and the glowing "sounding" chord in the UI.
+7. Serves an HTTP API for the app server: /timeline, /release, /style, /settings, and /status. /status reports what's audible right now, which drives the ms/frame readout and the glowing "sounding" chord in the UI.
 8. Presets and recording. --preset warm_piano restores the saved voice with its exact style tokens, and --record writes everything played to a wav.
 
 The split between the two processes
 
-- Jac decides which chords, voiced how: the graph, the walker's beam search and the music theory.
+- The app server decides which chords, voiced how: the graph, the walker's beam search and the music theory.
 - The engine decides what Magenta hears each 40 ms, and when: timing, articulation, texture and style.
 - Magenta turns that stream of conditioning into audio.

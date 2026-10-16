@@ -7,15 +7,15 @@ where does each choice lead?"**
 
 - Every chord is a **node** in a graph. Every allowed move between chords is an
   **edge**.
-- A Jac **walker** starts on your current chord and walks outward along the
+- A **walker** starts on your current chord and walks outward along the
   edges, a few chords deep.
 - Every move it tries gets a **penalty score**. **Lower is better.**
 - After each step outward, it throws away all but the best few paths, then
   keeps walking from the survivors.
 - You see the survivors as a map and can click any path to hear it.
 
-The rest of this document explains the score, then the search, then where Jac
-fits in.
+The rest of this document explains the score, then the search, then where it
+lives in the code.
 
 ---
 
@@ -145,8 +145,8 @@ The menu from that run (score in brackets):
          (number on each arrow = grammar penalty)
 ```
 
-- **Nodes** are chords (`node Chord` in `graph/harmony.jac`).
-- **Edges** are allowed moves (`edge Progression`). Each edge stores its grammar
+- **Nodes** are chords (`Chord` in `server/graph/harmony.py`).
+- **Edges** are allowed moves (`Progression`). Each edge stores its grammar
   penalty and a sentence explaining it, for example
   `cost=0.2, rule="authentic resolution (D → T)"`.
 - **Missing edges are banned moves.** If grammar says a move is illegal (for
@@ -154,8 +154,8 @@ The menu from that run (score in brackets):
   ever made, so the walker can't take it. Of the 3,136 possible chord pairs in
   C major, only 1,123 become edges.
 - **The graph builds itself as you explore.** At the start it holds a single
-  chord. The first time the walker arrives at a chord, a helper walker
-  (`Expand`) creates that chord's outgoing edges. After one search, 25 of the 56
+  chord. The first time the walker arrives at a chord, a helper
+  (`expand`) creates that chord's outgoing edges. After one search, 25 of the 56
   chords have been filled in. A second search reuses them and runs about 4× faster.
 
 The **grammar** part of the score lives on the edges, because it depends only
@@ -164,26 +164,23 @@ so the walker computes them as it walks.
 
 ---
 
-## 4. Where Jac comes in
+## 4. Where it lives in the code
 
-Jac is a language where graphs and "walkers that travel through graphs" are
-built in, rather than something you'd build out of classes and loops. Each
-feature below maps to one thing the app does:
+The search is written as a graph and a walker that travels it. Each piece below
+maps to one thing the app does:
 
-| What the app needs | The Jac feature | Code |
+| What the app needs | How it is done | Code |
 |---|---|---|
-| Chords and moves stored as a graph | `node Chord`, `edge Progression` with fields | `graph/harmony.jac:19, 33` |
-| Create a move with its penalty attached | `here +>:Progression(cost=…, rule=…):+> next_chord` | `graph/harmony.jac:77` |
-| "Which chords can I go to from here?" | `[here ->:Progression:->]` (follows only move edges) | `graph/beam.jac:108` |
-| "What's the grammar penalty of each move?" | `[edge here ->:Progression:->]` (returns the edges themselves) | `graph/beam.jac:109` |
-| Something that travels the graph carrying each path's notes and scores | `walker BeamSearch` | `graph/beam.jac:74` |
-| Do different work at different stops | `can extend with Chord entry` scores moves, `can checkpoint with BeamGate entry` does the cutting | `graph/beam.jac:99, 153` |
-| Go to all surviving chords, then come back to cut | `visit stops; visit here;` (the walker's to-do list) | `graph/beam.jac:179` |
-| Build the graph only where we've explored | the search walker launches a second walker: `here spawn Expand()` | `graph/beam.jac:100` |
-| Stop when done | `disengage` | `graph/beam.jac:164` |
-| Remember the graph and the user's progression between clicks | attach them to `root` | `graph/harmony.jac:93`, `services/atlas.jac:189` |
-| The browser calls the search directly | `def:pub explore` on the server, `sv import` in the UI | `services/atlas.jac:398`, `frontend.cl.jac:14` |
-| Describe a path in words (optional) | `by llm` with `sem` hints. The LLM only *describes* a path the search already chose. It never picks chords. | `services/atlas.jac:165` |
+| Chords and moves stored as a graph | `Chord` nodes, `Progression` edges with fields | `server/graph/harmony.py:33, 49` |
+| Create a move with its penalty attached | `connect(a, b, cost, rule)` adds the edge to `a.out` and `b.inc` | `server/graph/harmony.py:57` |
+| "Which chords can I go to from here?" and "what's the grammar penalty of each move?" | `here.out` (backwards: `here.inc`), the edges themselves | `server/graph/beam.py:141` |
+| Something that travels the graph carrying each path's notes and scores | `BeamSearch`, whose hypotheses (`Hyp`) carry voicing, path and costs | `server/graph/beam.py:42, 85` |
+| Do different work at different stops | `extend` scores moves from one chord; `prune` does the cutting after each layer | `server/graph/beam.py:130, 187` |
+| Go to all surviving chords, then come back to cut | `run` visits each distinct chord on the frontier, layer by layer | `server/graph/beam.py:110` |
+| Build the graph only where we've explored | `extend` calls `expand` (or `expand_back`) the first time it stands on a chord | `server/graph/harmony.py:68, 95` |
+| Remember the graph and the user's progression between clicks | the graph per key in memory (`space_for`); the session in `data/session.json` | `server/graph/harmony.py:125`, `server/atlas.py:208` |
+| The browser calls the search directly | `POST /function/explore`, typed from the server's OpenAPI schema | `server/atlas.py:673`, `client/src/api.ts` |
+| Describe a path in words (optional) | an Ollama call with a JSON schema for the answer. The LLM only *describes* a path the search already chose. It never picks chords. | `server/narrate.py:34` |
 
 ### The one idea worth remembering
 
@@ -205,5 +202,5 @@ That split is what lets 960 scored moves stand in for 430,000.
   rules reduce this but don't eliminate it.
 - The penalty numbers were set by hand from standard music-theory textbook
   rules. They weren't learned from data.
-- The music-theory rules themselves (`theory/`) are ordinary functions written
-  in Jac. The graph and walker features are in `graph/` and `services/`.
+- The music-theory rules themselves (`server/theory/`) are ordinary functions.
+  The graph and walker are in `server/graph/`, the session in `server/atlas.py`.

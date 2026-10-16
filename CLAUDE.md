@@ -1,17 +1,21 @@
-
-
-
 I have access to Elevenlabs Creator Plan
 see .env: ELEVENLABS_API_KEY
 
-Ollama is installed with qwen3:4b-instruct, so byllm can run locally without an API key.
+Ollama is installed with qwen3:4b-instruct, so the path descriptions (server/narrate.py) run locally without an API key.
 
-Track Selected: Full-Stack Open Track
-https://jachacks.org/a2tech-guide/
+# Layout
 
-Codebase must be 40% jac (.jac files, can contain python, react, etc.)
-
-Resets 6:40pm
+- `server/`: Python (FastAPI). `theory/` is the music theory, `graph/` the harmony graph and
+  the `BeamSearch` walker, `atlas.py` the session and endpoints, `app.py` the HTTP server
+  (`POST /function/<name>`, `/healthz`, the built client), `store.py` the session file
+  (`data/session.json`), `narrate.py` the LLM call, `engine_client.py` the audio engine's API.
+- `client/`: React + TypeScript (Vite, strict). `src/App.tsx` owns the page state;
+  `src/components/` are the sections. `src/api-types.ts` is generated from the server's
+  OpenAPI schema: `npm --prefix client run gen-types` with the API on :8001.
+- `audio_engine/`: the Magenta / SuperConductor-sink engine (separate process).
+- Conda env `sc_env_atlas`. `make run` / `make start` build the client when needed;
+  `make dev` runs the API with reload on :8001 and Vite on :8000.
+- `pytest tests/` checks that the session file saves and loads.
 
 
 # sndpeek

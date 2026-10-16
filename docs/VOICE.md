@@ -15,7 +15,7 @@ Two runs were audible, and both used **identical sound parameters**:
 | Run | C-major voicing (MIDI → notes) | Notes |
 |---|---|---|
 | **A/B test** (`ab.py`, the one saved as the preset) | `[48, 55, 64, 72]` → C3 G3 E4 C5 | Engine's built-in idle chord. Clean playback, 0 underruns. Third on top of the inner voices, open spacing. |
-| **Live engine** (driven by the Jac app) | `[48, 52, 60, 67]` → C3 E3 C4 G4 | The app's "home voicing" for I (`theory/voicing.jac: home_voicing`). The first time it played it stuttered, from GPU contention with the headless browser. On a re-run it played clean with 0 underruns. |
+| **Live engine** (driven by the app) | `[48, 52, 60, 67]` → C3 E3 C4 G4 | The app's "home voicing" for I (`server/theory/voicing.py: home_voicing`). The first time it played it stuttered, from GPU contention with the headless browser. On a re-run it played clean with 0 underruns. |
 
 To use the live-engine voicing in the preset instead, set `"idle_chord.notes"` to `[48, 52, 60, 67]`.
 
@@ -26,7 +26,7 @@ To use the live-engine voicing in the preset instead, set `"idle_chord.notes"` t
 | Item | Value |
 |---|---|
 | Machine | MacBook Pro, Apple M3 Pro (MLX, Metal GPU) |
-| Conda env | `sc_env_jaclang`, Python 3.12 |
+| Conda env | `sc_env_atlas`, Python 3.12 |
 | `magenta-rt` | 2.0.3 (`magenta-rt[mlx]`) |
 | `mlx` | **0.32.0**, pinned. The `.mlxfn` format breaks at 0.32.1, and 0.32.0 loads files exported by 0.31.x and 0.32.0. |
 | Model files | `~/Documents/Magenta/magenta-rt-v2/models/mrt2_small/` (`mrt2_small.mlxfn`, header says exported by MLX 0.31.1; `mrt2_small_state.safetensors`) |
@@ -105,7 +105,7 @@ all four pitches as onsets (`2`), and every frame after that was `3`.
 
 - Engine and defaults: `audio_engine/engine.py` (`Settings` dataclass, `Conductor.next_frame`, `Engine.generate_one`)
 - Preset: `audio_engine/presets/warm_piano.json`
-- The Jac app sends the same style prompt and tempo on load (`services/atlas.jac`, `Session` defaults), so the app's sound matches this preset.
+- The app sends the same style prompt and tempo on load (`server/atlas.py`, `Session` defaults), so the app's sound matches this preset.
 
 ## 9. Hiss: the `warm_piano_clean` variant
 

@@ -1,5 +1,8 @@
-jaclang
-jaseci
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+pytest
 magenta-rt[mlx]
 mlx==0.32.0
 sounddevice

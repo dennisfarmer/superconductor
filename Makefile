@@ -1,4 +1,5 @@
-# SuperConductor Atlas: start/stop the audio engine and the Jac app.
+# SuperConductor Atlas: start/stop the audio engine and the app (FastAPI server in
+# server/, React client in client/, built into client/dist when its sources change).
 #
 # SuperConductor (the default): the engine is a sink. It sends the notes and drums to
 # the SuperConductor client (make server + make client in ../superconductor_client),
@@ -19,11 +20,16 @@
 #   make restart       stop, then start (SuperConductor)
 #   make status        show what's running
 #   make logs          follow both logs
+#
+# Development: the engine (SuperConductor sink), the API with auto-reload on
+# DEV_API_PORT, and the Vite dev server on PORT (hot reload; it proxies the API).
+#
+#   make dev
 
-ENV_PREFIX ?= $(shell conda info --base 2>/dev/null)/envs/sc_env_jaclang
+ENV_PREFIX ?= $(shell conda info --base 2>/dev/null)/envs/sc_env_atlas
 PY         := $(ENV_PREFIX)/bin/python
-JAC        := $(ENV_PREFIX)/bin/jac
 PORT       ?= 8000
+DEV_API_PORT := 8001
 ENGINE_PORT?= 8765
 PRESET     ?= warm_piano
 LOGS       := logs
@@ -35,7 +41,7 @@ SC_SERVER  ?= http://localhost:9100
 SC_ENGINE    := audio_engine/engine.py --sink superconductor --client-midi $(CLIENT_MIDI) --sc-server $(SC_SERVER) --preset $(PRESET) --port $(ENGINE_PORT)
 LOCAL_ENGINE := audio_engine/engine.py --preset $(PRESET) --port $(ENGINE_PORT)
 
-.PHONY: run start check-client run-local start-local stop restart status logs app
+.PHONY: run start check-client run-local start-local stop restart status logs app client-build dev
 
 # Ask the engine on ENGINE_PORT to exit (POST /shutdown: it finishes its chunk, closes
 # the audio stream and its server), then wait up to 15 s until it no longer answers.
@@ -54,7 +60,7 @@ define RUN_FG
 	trap 'stop_engine; exit 130' INT TERM; trap stop_engine EXIT; \
 	$(PY) $(1) > $(LOGS)/engine.log 2>&1 & E=$$!; \
 	echo "$(2) starting (log: $(LOGS)/engine.log); app on http://localhost:$(PORT)"; \
-	PATH="$(ENV_PREFIX)/bin:$$PATH" $(JAC) start main.jac --port $(PORT)
+	$(PY) -m server.app --port $(PORT)
 endef
 
 # Background: start the engine with $(1) unless one is already up, wait until it answers.
@@ -83,7 +89,7 @@ endef
 # client at CLIENT_MIDI
 # ==================================================================================
 
-run: check-client
+run: check-client client-build
 	$(call RUN_FG,$(SC_ENGINE),engine (SuperConductor sink))
 
 start: check-client
@@ -101,7 +107,7 @@ check-client:
 # Standalone: local Magenta RT 2 engine, no SuperConductor
 # ==================================================================================
 
-run-local:
+run-local: client-build
 	$(call RUN_FG,$(LOCAL_ENGINE),engine (local Magenta))
 
 start-local:
@@ -114,13 +120,13 @@ start-local:
 # Shared by both modes
 # ==================================================================================
 
-app:
+app: client-build
 	@mkdir -p $(LOGS) $(RUN)
 	@if curl -s -o /dev/null http://localhost:$(PORT)/healthz; then \
 		echo "app already running"; \
 	else \
-		echo "starting Jac app..."; \
-		PATH="$(ENV_PREFIX)/bin:$$PATH" nohup $(JAC) start main.jac --port $(PORT) < /dev/null > $(LOGS)/app.log 2>&1 & echo $$! > $(RUN)/app.pid; \
+		echo "starting the app..."; \
+		nohup $(PY) -m server.app --port $(PORT) < /dev/null > $(LOGS)/app.log 2>&1 & echo $$! > $(RUN)/app.pid; \
 		for i in $$(seq 1 120); do curl -s -o /dev/null http://localhost:$(PORT)/healthz && break; sleep 1; done; \
 		curl -s -o /dev/null http://localhost:$(PORT)/healthz || { echo "app failed to start; see $(LOGS)/app.log"; exit 1; }; \
 	fi
@@ -136,6 +142,26 @@ stop:
 	@echo "SuperConductor Atlas stopped"
 
 restart: stop start
+
+# Install the client's packages if needed, and rebuild client/dist when its sources are
+# newer than the last build.
+client-build:
+	@[ -d client/node_modules ] || npm --prefix client ci
+	@if [ ! -f client/dist/index.html ] || [ -n "$$(find client/src client/index.html client/package.json client/vite.config.ts -newer client/dist/index.html | head -1)" ]; then \
+		npm --prefix client run build; \
+	fi
+
+# Engine (SuperConductor sink) + API (reloads on server/ changes) + Vite (hot reload).
+# Ctrl-C stops all three.
+dev: check-client
+	@[ -d client/node_modules ] || npm --prefix client ci
+	@mkdir -p $(LOGS)
+	@stop_engine() { $(STOP_ENGINE); }; \
+	trap 'kill $$A 2>/dev/null; stop_engine; exit 130' INT TERM; trap 'kill $$A 2>/dev/null; stop_engine' EXIT; \
+	$(PY) $(SC_ENGINE) > $(LOGS)/engine.log 2>&1 & \
+	$(PY) -m uvicorn server.app:app --reload --reload-dir server --port $(DEV_API_PORT) > $(LOGS)/app.log 2>&1 & A=$$!; \
+	echo "engine log: $(LOGS)/engine.log, API log: $(LOGS)/app.log; app on http://localhost:$(PORT)"; \
+	npm --prefix client run dev
 
 status:
 	@curl -s -o /dev/null http://localhost:$(PORT)/healthz && echo "app:    up   http://localhost:$(PORT)" || echo "app:    down"

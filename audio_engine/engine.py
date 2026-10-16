@@ -1,7 +1,7 @@
 """SuperConductor Atlas audio engine: Magenta RealTime 2, streaming forever.
 
 The engine owns the model and the sound card. It never stops generating; what it
-plays is steered by *timelines* posted over HTTP by the Jac backend:
+plays is steered by *timelines* posted over HTTP by the app server:
 
   idle     the current chord of the composer's progression, vamped
   preview  the path being auditioned (current chord -> candidate path), looped
@@ -117,7 +117,7 @@ def drum_grid(body: dict | None = None) -> dict:
 
 # the drum grid's bar, and the bar the tempo sync lines up with the server's
 BAR_BEATS = 4
-# the tempo range the page allows (services/atlas.jac set_tempo)
+# the tempo range the page allows (server/atlas.py set_tempo)
 SYNC_BPM_MIN, SYNC_BPM_MAX = 40.0, 180.0
 
 
@@ -587,7 +587,7 @@ class SinkEngine:
     """The engine without a model: the conductor runs on a 40 ms clock, and each
     timeline it enters (or a settings change) is rendered into a Pattern and sent
     to the SuperConductor client's client_midi, which plays it through the MRT2
-    server. Same HTTP API as Engine, so the page and the Jac app don't change."""
+    server. Same HTTP API as Engine, so the page and the app server don't change."""
 
     MAX_PLAY_FRAMES = FRAME_RATE * 600  # a "play" timeline is rendered to its end, up to 10 min
 

@@ -1,7 +1,7 @@
 # SuperConductor Atlas
 
 A harmony explorer that drives SuperConductor's music model. You build a chord
-progression on a 3D graph: beam-search walkers (Jac) propose what could come before
+progression on a 3D graph: beam-search walkers propose what could come before
 and after it, scored on harmonic syntax, voice leading and cadences. Hovering a chord
 plays the path to it, clicking keeps it, and the Drums page sets when drum hits fall.
 Atlas decides **which pitches and when**; SuperConductor's prompts decide **what it
@@ -10,10 +10,14 @@ sounds like**.
 ## Run
 
 ```bash
-bash setup_env.sh          # once: creates the conda env sc_env_jaclang
+bash setup_env.sh          # once: creates the conda env sc_env_atlas
 make run                   # SuperConductor mode (default), app on http://localhost:8000
 make run-local             # standalone: local Magenta RT 2, no SuperConductor needed
+make dev                   # development: API reloads on change, client hot-reloads
 ```
+
+The client is built into `client/dist` (needs Node and npm) whenever its sources
+changed; `make run` and `make start` do this first.
 
 For `make run`, start `make server` and `make client` in `../superconductor_client`
 first (Atlas starts anyway and connects once they are up). `make start` / `make
@@ -24,7 +28,8 @@ for both.
 
 ```
 browser (Harmony / Drums pages)
-   │  Jac app (main.jac, services/atlas.jac): progression, walkers, session
+   │  app: React client (client/) + FastAPI server (server/app.py, server/atlas.py):
+   │  progression, walkers, session
    ▼
 audio_engine/engine.py --sink superconductor        (port 8765)
    │  HTTP POST /pattern                            (MIDI message protocol)
@@ -86,3 +91,16 @@ The model picks the drum sounds; the lane only says when hits happen.
   HTTP address, for tempo sync), `PRESET` (local mode).
 - More detail: `docs/ENGINE.md` (engine), `docs/CRITERIA.md` (how chords are scored),
   `docs/VOICE.md` (local-mode sound presets).
+
+## Layout
+
+- `server/theory/`: the music theory (vocabulary, voicing, syntax, voice-leading rules,
+  cadences, phrase costs).
+- `server/graph/`: the harmony graph, grown lazily, and the `BeamSearch` walker.
+- `server/atlas.py`: the session and every endpoint; `server/app.py` serves them as
+  `POST /function/<name>`, plus `/healthz` and the built client. The session is saved
+  to `data/session.json` (`ATLAS_DATA` sets the folder).
+- `server/narrate.py`: the optional LLM description of a path (Ollama, `LLM_MODEL`).
+- `client/src/`: the React + TypeScript page. `api-types.ts` is generated from the
+  server's OpenAPI schema with `npm --prefix client run gen-types` (API on :8001).
+- `tests/`: `pytest tests/` checks that the session file saves and loads.

@@ -1,4 +1,4 @@
-name: sc_env_jaclang
+name: sc_env_atlas
 channels:
   - conda-forge
   - defaults
@@ -10,8 +10,11 @@ dependencies:
   - matplotlib
   - jupyter
   - pip:
-    - jaclang
-    - jaseci
+    - fastapi
+    - uvicorn[standard]
+    - pydantic
+    - httpx
+    - pytest
     - magenta-rt[mlx]
     - mlx==0.32.0
     - sounddevice

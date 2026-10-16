@@ -1,10 +1,10 @@
 # Walker settings: the shape of the beam search and its scoring dials.
 #
-# The server reads this file whenever it needs the session (services/atlas.jac,
+# The server reads this file whenever it needs the session (server/atlas.py,
 # walker_config), so an edit applies the next time the walkers are sent. Values out
 # of range are clamped; a missing key keeps its default. The defaults below
-# reproduce the behaviour built into the rules (theory/syntax.jac, theory/phrase.jac,
-# theory/voicing.jac).
+# reproduce the behaviour built into the rules (server/theory/syntax.py,
+# server/theory/phrase.py, server/theory/voicing.py).
 #
 #   step = syntax_weight × rule cost + voice leading + phrase
 
