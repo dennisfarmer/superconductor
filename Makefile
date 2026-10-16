@@ -13,8 +13,9 @@
 #                     VLM descriptions of new objects; needs Ollama running
 #   make midi         MIDI player (../superconductor_midi/Makefile): plays .mid files through
 #                     the running client's notes input, page on http://localhost:8475
-#   make worktrees    server / describe / midi_experiment_dennis branches into ../superconductor_server,
-#                     ../superconductor_describe, ../superconductor_midi (local branch superconductor_midi)
+#   make worktrees    server / describe / midi_experiment_dennis / client-web branches into ../superconductor_server,
+#                     ../superconductor_describe, ../superconductor_midi (local branch superconductor_midi),
+#                     ../superconductor_client_web
 #   make vision       webcam tracking only, no music
 #   make test         unit tests for tracking / library / combos
 
@@ -26,6 +27,7 @@ ARGS ?=
 SERVER_DIR := ../superconductor_server
 DESCRIBE_DIR := ../superconductor_describe
 MIDI_DIR := ../superconductor_midi
+CLIENT_WEB_DIR := ../superconductor_client_web
 
 .PHONY: worktrees server describe midi client client-iphone client-remote client-remote-iphone vision test check-env
 
@@ -37,6 +39,7 @@ worktrees:
 	@test -e $(MIDI_DIR) || { git show-ref -q --verify refs/heads/superconductor_midi \
 		&& git worktree add $(MIDI_DIR) superconductor_midi \
 		|| git worktree add --track -b superconductor_midi $(MIDI_DIR) origin/midi_experiment_dennis; }
+	@test -e $(CLIENT_WEB_DIR) || git worktree add $(CLIENT_WEB_DIR) client-web
 	@git config push.default upstream
 	@git worktree list
 

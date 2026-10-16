@@ -4,7 +4,7 @@ Setup
 ```bash
 git clone https://github.com/dennisfarmer/superconductor.git superconductor_client
 cd superconductor_client
-make worktrees    # server, describe and superconductor_midi branches into ../superconductor_server, ../superconductor_describe, ../superconductor_midi
+make worktrees    # server, describe, superconductor_midi and client-web branches into ../superconductor_server, ../superconductor_describe, ../superconductor_midi, ../superconductor_client_web
 scripts/setup_env.sh                       # the sc_env conda env (client, MRT2 server, MIDI player) + MRT2 weights
 make -C ../superconductor_describe pull    # the describe server's VLM, into Ollama (~3 GB)
 ```
