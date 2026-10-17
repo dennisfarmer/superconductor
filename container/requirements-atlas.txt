@@ -1,0 +1,8 @@
+# SuperConductor Atlas (app server and sink engine), same versions as sc_env_atlas. Its
+# MLX / magenta-rt / sounddevice are only for local mode, which the container doesn't run.
+# A layer of its own, after the client's (torch) one, so changing these doesn't reinstall that.
+fastapi==0.143.2
+uvicorn==0.54.0
+pydantic==2.14.1
+httpx==0.28.1
+typing-extensions==4.16.0    # pydantic 2.14 needs >= 4.16 (the client's list has 4.15.0)

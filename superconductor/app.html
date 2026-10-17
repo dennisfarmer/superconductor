@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperConductor</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #deded8;
+    --accent: #2f6fdb; --live: #1f9d55; --danger: #c2412d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --card: #20201e; --text: #ececea; --muted: #9a9a94; --line: #34342f;
+      --accent: #6c9cf0; --live: #4cc47f; --danger: #ef7a62;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { padding: 20px 16px 8px; max-width: 1300px; margin: 0 auto;
+           display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  nav { display: flex; gap: 14px; flex-wrap: wrap; font-size: 14px; }
+  a { color: var(--accent); }
+  main { max-width: 1300px; margin: 0 auto; padding: 8px 16px 40px; }
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  button, select { font: inherit; padding: 6px 12px; border-radius: 7px; border: 1px solid var(--line);
+                   background: var(--card); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  label.switch { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); }
+  #stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px;
+           overflow: hidden; cursor: crosshair; }
+  /* the camera shown mirrored, like a mirror; the overlay flips its x to match */
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #status { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .ok { color: var(--live); } .bad { color: var(--danger); }
+  .hint { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SuperConductor</h1>
+  <nav id="links"><a href="/objects" target="_blank" rel="noopener">Objects</a></nav>
+</header>
+<main>
+  <div class="controls">
+    <button id="start" class="primary">Start camera + sound</button>
+    <select id="camera" title="camera" hidden></select>
+    <select id="size" title="resolution sent to the client">
+      <option value="640x360">640 × 360</option>
+      <option value="960x540" selected>960 × 540</option>
+      <option value="1280x720">1280 × 720</option>
+    </select>
+    <label class="switch" title="detect in the client process instead of this browser (as without WebGPU)">
+      <input type="checkbox" id="compat"> compatibility mode</label>
+    <span class="hint">Click the view to move the reference point. Keys: [ ] combo distance, c calibrate.</span>
+  </div>
+  <div id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div id="status">Press Start: the browser asks for the camera, then the music plays here.</div>
+</main>
+<canvas id="frame" hidden></canvas>
+
+<script type="module">
+// The browser is the camera, the screen and the speakers; the client process (collab.py)
+// does recognition and the music. Each frame goes up /ws/camera as a header (with the
+// objects this page detected: YOLOE + BoT-SORT on WebGPU, vision_js) plus the JPEG, one
+// frame at a time: the next only after the client answered the last with its overlay
+// (what to draw), so nothing queues up over a slow link. Without WebGPU, or in
+// compatibility mode, the header has no objects and the client detects. The overlay is
+// drawn over the live video; boxes trail moving objects by the client's delay. Audio
+// comes from client_midi's /audio (magenta_remote.py, AUDIO_PROTOCOL.md): as the clock,
+// each block is acked once played, which gives the MRT2 server its credits back; when
+// another player (sc-audio) is the clock, this page goes quiet.
+import { startDetector } from "/web/vision_js/index.js";
+import { drawOverlay } from "/web/overlay.js";
+
+const SAMPLE_RATE = 48000, CHANNELS = 2;
+const STALE_MS = 1000;
+const $ = id => document.getElementById(id);
+const wsUrl = path => new URL(path, location.href.replace(/^http/, "ws")).href;
+const stats = { sent: 0, answered: 0, fps: 0, delay: 0, detectMs: 0, audio: "off", role: null, clock: null,
+                underruns: 0, buffered: 0 };
+let config = {}, camWs = null, audioWs = null, stream = null, worklet = null, bus = null, ctx = null;
+let detector = null, detectorState = "off";  // "starting" | "ready" | "unavailable: ..." | "off"
+let inFlight = false, lastSend = 0, seq = 0, overlay = null, overlayAt = 0;
+const sentAt = new Map();  // seq -> when it was captured
+const session = crypto.randomUUID();  // this page's detector; the client keeps its track ids apart
+
+config = await fetch("/api/web").then(r => r.json()).catch(() => ({}));
+{
+  const names = { atlas: "Atlas", midi_player: "MIDI player", describe: "Describe server", server: "Music server (tempo)" };
+  const paths = { server: "/tempo" };
+  for (const [key, url] of Object.entries(config.links || {})) {
+    if (!names[key]) continue;
+    const a = document.createElement("a");
+    a.href = url.replace(/\/$/, "") + (paths[key] || "");
+    a.target = "_blank"; a.rel = "noopener"; a.textContent = names[key];
+    $("links").append(a);
+  }
+  if (config.detector?.mode === "container") $("compat").checked = true;
+}
+
+// ---------- detection ----------
+
+const useDetector = () => detectorState === "ready" && !$("compat").checked;
+
+async function initDetector() {
+  const cfg = config.detector || {};
+  if (cfg.mode === "container") { detectorState = "unavailable: the client detects ([web] detection)"; return; }
+  detectorState = "starting";
+  detector = startDetector(cfg);
+  const { ok, reason } = await detector.ready;
+  detectorState = ok ? "ready" : `unavailable: ${reason}`;
+  if (!ok) { detector.stop(); detector = null; }
+}
+
+// ---------- camera ----------
+
+async function openCamera() {
+  const [w, h] = $("size").value.split("x").map(Number);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const deviceId = $("camera").value;
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: w }, height: { ideal: h }, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) },
+    audio: false });
+  $("video").srcObject = stream;
+  await $("video").play();
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  const current = stream.getVideoTracks()[0].getSettings().deviceId;
+  $("camera").innerHTML = cams.map((d, i) =>
+    `<option value="${d.deviceId}" ${d.deviceId === current ? "selected" : ""}>${d.label || "camera " + (i + 1)}</option>`).join("");
+  $("camera").hidden = cams.length < 2;
+}
+
+function connectCamera() {
+  camWs = new WebSocket(wsUrl("/ws/camera"));
+  camWs.onopen = () => { inFlight = false; };
+  camWs.onmessage = e => {
+    let m;
+    try { m = JSON.parse(e.data); } catch { return; }
+    if (m.type === "overlay") {
+      overlay = m;
+      overlayAt = performance.now();
+      if (m.seq != null && sentAt.has(m.seq)) {
+        stats.delay = 0.7 * stats.delay + 0.3 * (overlayAt - sentAt.get(m.seq));
+        for (const s of sentAt.keys()) if (s <= m.seq) sentAt.delete(s);
+      }
+      stats.answered++;
+      inFlight = false;
+    } else if (m.type === "error") {
+      console.warn("client:", m.error);
+      inFlight = false;
+    }
+  };
+  camWs.onclose = () => setTimeout(connectCamera, 1000);
+}
+
+// one frame at a time: capture, detect (if this page detects), send header + JPEG
+async function sendFrame() {
+  const video = $("video"), canvas = $("frame");
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  const id = ++seq;
+  sentAt.set(id, performance.now());
+  const detect = useDetector();
+  const [jpeg, result] = await Promise.all([
+    new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.7)),
+    detect ? createImageBitmap(canvas).then(b => detector.detect(b)) : null,
+  ]);
+  if (!jpeg || !camWs || camWs.readyState !== 1) { inFlight = false; return; }
+  const header = { type: "frame", seq: id, session, width: canvas.width, height: canvas.height };
+  if (detect) {
+    header.objects = result.objects;
+    stats.detectMs = 0.7 * stats.detectMs + 0.3 * result.ms;
+  }
+  const head = new TextEncoder().encode(JSON.stringify(header));
+  const len = new Uint8Array(4);
+  new DataView(len.buffer).setUint32(0, head.length, true);
+  camWs.send(new Blob([len, head, jpeg]));
+  stats.sent++;
+}
+
+function frameLoop() {
+  const now = performance.now();
+  // the next frame once the last was answered; give up on a lost one after a second
+  if (camWs && camWs.readyState === 1 && $("video").videoWidth && detectorState !== "starting" &&
+      (!inFlight || now - lastSend > 1000)) {
+    inFlight = true;
+    lastSend = now;
+    sendFrame().catch(e => { console.warn(e); inFlight = false; });
+  }
+  draw();
+  requestAnimationFrame(frameLoop);
+}
+
+// ---------- overlay ----------
+
+function draw() {
+  const c = $("overlay"), r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) {
+    c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+  }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawOverlay(g, r.width, r.height, overlay, { stale: overlay && performance.now() - overlayAt > STALE_MS });
+}
+
+$("stage").addEventListener("click", e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  // the frame letterboxed by object-fit: contain; 0..1 as displayed (mirrored)
+  const iw = $("video").videoWidth || 16, ih = $("video").videoHeight || 9;
+  const scale = Math.min(r.width / iw, r.height / ih);
+  const x = (e.clientX - r.left - (r.width - iw * scale) / 2) / (iw * scale);
+  const y = (e.clientY - r.top - (r.height - ih * scale) / 2) / (ih * scale);
+  if (x >= 0 && x <= 1 && y >= 0 && y <= 1 && camWs && camWs.readyState === 1)
+    camWs.send(JSON.stringify({ type: "click", x, y }));
+});
+document.addEventListener("keydown", e => {
+  if (e.target.closest("select, input, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (["[", "]", "c"].includes(e.key) && camWs && camWs.readyState === 1)
+    camWs.send(JSON.stringify({ type: "key", key: e.key }));
+});
+
+// ---------- audio ----------
+
+// Plays interleaved stereo float32 blocks in order; "played" once a block is done,
+// "underrun" once per stretch of silence after playback started.
+const WORKLET = `
+class Player extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.blocks = []; this.pos = 0; this.started = false; this.starved = false;
+    this.port.onmessage = e => {
+      const m = e.data;
+      if (m.type === "block") { this.blocks.push(m.samples); this.started = true; }
+      else if (m.type === "pause") this.started = false;
+      else if (m.type === "reset") { this.blocks = []; this.pos = 0; this.started = false; }
+    };
+  }
+  process(_inputs, outputs) {
+    const [left, right] = outputs[0];
+    let i = 0;
+    while (i < left.length && this.blocks.length) {
+      const b = this.blocks[0];
+      const n = Math.min(left.length - i, (b.length - this.pos) / 2);
+      for (let k = 0; k < n; k++, i++) { left[i] = b[this.pos++]; right[i] = b[this.pos++]; }
+      if (this.pos >= b.length) { this.blocks.shift(); this.pos = 0; this.port.postMessage("played"); }
+    }
+    for (; i < left.length; i++) { left[i] = 0; right[i] = 0; }
+    const empty = !this.blocks.length;
+    if (empty && this.started && !this.starved) this.port.postMessage("underrun");
+    this.starved = empty;
+    return true;
+  }
+}
+registerProcessor("player", Player);`;
+
+async function startAudio() {
+  ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  worklet = new AudioWorkletNode(ctx, "player", { numberOfInputs: 0, outputChannelCount: [CHANNELS] });
+  // the output bus: everything this page plays goes through it (muted while another player is the clock)
+  bus = new GainNode(ctx, { gain: 1 });
+  worklet.connect(bus).connect(ctx.destination);
+  worklet.port.onmessage = e => {
+    const clock = stats.role === "clock" && audioWs && audioWs.readyState === 1;
+    if (e.data === "played") {
+      stats.buffered--;
+      if (clock) audioWs.send('{"type": "ack"}');
+    } else if (e.data === "underrun") {
+      if (stats.role === "clock") stats.underruns++;
+      if (clock) audioWs.send('{"type": "underrun"}');
+    }
+  };
+  connectAudio();
+}
+
+function connectAudio() {
+  const base = config.audio_url ? wsUrl(config.audio_url)
+    : `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:${config.audio_port || 8470}/audio`;
+  audioWs = new WebSocket(`${base}${base.includes("?") ? "&" : "?"}role=clock&name=browser`);
+  audioWs.binaryType = "arraybuffer";
+  audioWs.onopen = () => {
+    worklet.port.postMessage({ type: "reset" });
+    stats.buffered = 0;
+    stats.audio = "connected";
+  };
+  audioWs.onmessage = e => {
+    if (typeof e.data === "string") {
+      const m = JSON.parse(e.data);
+      if (m.type === "pause") worklet.port.postMessage({ type: "pause" });
+      else if (m.type === "role") {
+        if (m.role === "clock" && stats.role !== "clock") {
+          // the client sends every block not acked yet again, so start from an empty queue
+          worklet.port.postMessage({ type: "reset" });
+          stats.buffered = 0;
+        }
+        stats.role = m.role; stats.clock = m.clock;
+        bus.gain.value = m.role === "clock" ? 1 : 0;
+      }
+      return;
+    }
+    // [uint32 LE seq][float32 LE samples (n, 2)]
+    const samples = new Float32Array(e.data, 4);
+    worklet.port.postMessage({ type: "block", samples }, [e.data]);
+    stats.buffered++;
+  };
+  audioWs.onclose = () => { stats.audio = "reconnecting"; stats.role = null; setTimeout(connectAudio, 1000); };
+}
+
+// ---------- start ----------
+
+$("start").onclick = async () => {
+  $("start").disabled = true;
+  try {
+    await openCamera();
+  } catch (e) {
+    $("status").innerHTML = `<span class="bad">camera: ${e.name}: ${e.message}</span> ` +
+      (window.isSecureContext ? "" : "(the camera needs http://localhost: open this page through the forwarded port)");
+    $("start").disabled = false;
+    return;
+  }
+  $("start").hidden = true;
+  try { await startAudio(); } catch (e) { stats.audio = `error: ${e.message}`; }
+  initDetector();
+  connectCamera();
+  requestAnimationFrame(frameLoop);
+};
+$("camera").onchange = $("size").onchange = () => { if (stream) openCamera(); };
+
+let lastAnswered = 0, lastTick = performance.now();
+setInterval(() => {
+  const now = performance.now();
+  stats.fps = 0.5 * stats.fps + 0.5 * (stats.answered - lastAnswered) / ((now - lastTick) / 1000);
+  lastAnswered = stats.answered; lastTick = now;
+  if (!stream) return;
+  const cam = camWs && camWs.readyState === 1 ? '<span class="ok">● client</span>' : '<span class="bad">○ client</span>';
+  const where = useDetector() ? `detecting here (WebGPU, ${stats.detectMs.toFixed(0)} ms)`
+    : `detecting in the client${detectorState.startsWith("unavailable") ? ` (${detectorState.slice(13)})`
+                                : $("compat").checked ? " (compatibility mode)" : ""}`;
+  const s = overlay?.status;
+  const client = s ? ` · client ${s.vision_fps.toFixed(0)} fps, ${s.track_ms.toFixed(0)} ms · ${s.music}` : "";
+  const snd = stats.audio !== "connected" ? `<span class="bad">○ sound (${stats.audio})</span>`
+    : stats.role === "monitor" ? `<span class="ok">● sound plays in ${stats.clock || "another player"}</span>`
+    : '<span class="ok">● sound</span>';
+  const settings = stream.getVideoTracks()[0].getSettings();
+  $("status").innerHTML = `${cam} ${stats.fps.toFixed(0)} fps (${settings.width}×${settings.height}), ` +
+    `delay ${stats.delay.toFixed(0)} ms · ${where}${client}<br>` +
+    `${snd} ${Math.max(stats.buffered, 0)} blocks buffered · underruns ${stats.underruns}`;
+}, 1000);
+</script>
+</body>
+</html>

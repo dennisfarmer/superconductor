@@ -1,0 +1,12 @@
+{
+  "name": "superconductor-vision",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "onnxruntime-node": "1.30.0"
+  }
+}

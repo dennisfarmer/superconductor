@@ -38,3 +38,7 @@ superconductor.egg-info
 
 # object library (views, embeddings, object.json, backups, .trash, combos/settings)
 library/
+
+# the browser detector: generated parity fixtures, node packages (var/web is under var)
+vision_js/test/fixtures/
+node_modules/

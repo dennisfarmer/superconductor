@@ -3,6 +3,11 @@
 BoT-SORT keeps a stable `track_id` per physical object across frames (and,
 with ReID + a long track buffer, across short occlusions), which is what lets
 each object keep controlling the same music parameter.
+
+Two steps: `_detect` (YOLO + BoT-SORT, this process) and `track_detections`
+(TrackedObjects, hands, DINO crops, identities). The camera page usually does the
+first step itself (vision_js + tracker_js, see CAMERA_PROTOCOL.md) and sends its
+detections; then only `track_detections` runs here and YOLO is never loaded.
 """
 import time
 from dataclasses import dataclass
@@ -61,7 +66,14 @@ class ObjectTracker:
         `identity`: extra IdentityRegistry settings (thresholds, see identity.py)
         """
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
-        self.model = YOLO(model)
+        if "cpu" in (self.device, embed_device):
+            # NNPACK can't start on CPUs without AVX2 (e.g. the amd64 container emulated on
+            # a Mac) and logs "Could not initialize NNPACK!" on every conv; torch's other
+            # CPU convolutions give the same results
+            torch.backends.nnpack.set_flags(False)
+        self.model_name = model
+        self.classes = list(classes) if classes else None
+        self._model = None  # loaded on first use (load_detector)
         self.conf = conf
         self.imgsz = imgsz
         self.tracker = str(tracker)
@@ -73,49 +85,69 @@ class ObjectTracker:
         self.hand_class = hand_class
         self.hands = []
 
-        if classes:
-            if "yoloe" in Path(model).name.lower():
-                self.model.set_classes(list(classes))
-            else:
-                name_to_id = {n: i for i, n in self.model.names.items()}
-                unknown = [c for c in classes if c not in name_to_id]
-                if unknown:
-                    raise ValueError(f"{unknown} not in {model} classes: {sorted(name_to_id)}")
-                self.class_ids = [name_to_id[c] for c in classes]
+    @property
+    def model(self):
+        return self.load_detector()
+
+    def load_detector(self):
+        """the YOLO model, loaded the first time it is needed (frames without detections)"""
+        if self._model is None:
+            model = YOLO(self.model_name)
+            if self.classes:
+                if "yoloe" in Path(self.model_name).name.lower():
+                    model.set_classes(self.classes)
+                else:
+                    name_to_id = {n: i for i, n in model.names.items()}
+                    unknown = [c for c in self.classes if c not in name_to_id]
+                    if unknown:
+                        raise ValueError(f"{unknown} not in {self.model_name} classes: {sorted(name_to_id)}")
+                    self.class_ids = [name_to_id[c] for c in self.classes]
+            self._model = model
+        return self._model
 
     def __call__(self, frame, now=None):
-        h, w = frame.shape[:2]
+        """detect and track in this process, then everything after (track_detections)"""
+        return self.track_detections(frame, self._detect(frame), now)
+
+    def _detect(self, frame):
+        """YOLO + BoT-SORT: [(track_id, class_name, confidence, (x1, y1, x2, y2), polygon or None)]"""
         result = self.model.track(
             frame, persist=True, tracker=self.tracker, classes=self.class_ids,
             conf=self.conf, imgsz=self.imgsz, device=self.device, verbose=False,
         )[0]
+        boxes = result.boxes
+        if boxes is None or boxes.id is None:
+            return []
+        # segmentation models (YOLOE -seg) give object outlines for cleaner color histograms
+        # and the mean color (background removed)
+        polygons = result.masks.xy if result.masks is not None else [None] * len(boxes)
+        return [(track_id, result.names[cls], conf, tuple(xyxy), polygon) for xyxy, track_id, cls, conf, polygon in zip(
+            boxes.xyxy.tolist(), boxes.id.int().tolist(), boxes.cls.int().tolist(), boxes.conf.tolist(), polygons)]
 
+    def track_detections(self, frame, detections, now=None):
+        """Detections of one frame -> TrackedObjects with identities. `detections`:
+        (track_id, class_name, confidence, (x1, y1, x2, y2) in pixels, polygon or None),
+        from `_detect` or from the camera page."""
+        h, w = frame.shape[:2]
         objects = []
         hands = []
-        boxes = result.boxes
-        if boxes is not None and boxes.id is not None:
-            # segmentation models (YOLOE -seg) give object outlines for cleaner color histograms
-            # and the mean color (background removed)
-            polygons = result.masks.xy if result.masks is not None else [None] * len(boxes)
-            for xyxy, track_id, cls, conf, polygon in zip(
-                    boxes.xyxy.tolist(), boxes.id.int().tolist(),
-                    boxes.cls.int().tolist(), boxes.conf.tolist(), polygons):
-                x1, y1, x2, y2 = xyxy
-                if result.names[cls] == self.hand_class:
-                    hands.append(TrackedObject(track_id=track_id, class_name=self.hand_class,
-                                               confidence=conf, box=(x1, y1, x2, y2),
-                                               center=((x1 + x2) / 2 / w, (y1 + y2) / 2 / h)))
-                    continue
-                objects.append(TrackedObject(
-                    track_id=track_id,
-                    class_name=result.names[cls],
-                    confidence=conf,
-                    box=(x1, y1, x2, y2),
-                    center=((x1 + x2) / 2 / w, (y1 + y2) / 2 / h),
-                    box_normalized=(x1 / w, y1 / h, x2 / w, y2 / h),
-                    hist=color_histogram(frame, xyxy, polygon),
-                    color=mean_color(frame, xyxy, polygon),
-                ))
+        for track_id, class_name, conf, xyxy, polygon in detections:
+            x1, y1, x2, y2 = xyxy
+            if class_name == self.hand_class:
+                hands.append(TrackedObject(track_id=track_id, class_name=self.hand_class,
+                                           confidence=conf, box=(x1, y1, x2, y2),
+                                           center=((x1 + x2) / 2 / w, (y1 + y2) / 2 / h)))
+                continue
+            objects.append(TrackedObject(
+                track_id=track_id,
+                class_name=class_name,
+                confidence=conf,
+                box=(x1, y1, x2, y2),
+                center=((x1 + x2) / 2 / w, (y1 + y2) / 2 / h),
+                box_normalized=(x1 / w, y1 / h, x2 / w, y2 / h),
+                hist=color_histogram(frame, xyxy, polygon),
+                color=mean_color(frame, xyxy, polygon),
+            ))
         self.hands = hands
         for obj in objects:
             area = (obj.box[2] - obj.box[0]) * (obj.box[3] - obj.box[1])

@@ -1,9 +1,17 @@
 """Collaborative mode: people bring objects, each tracked object drives music
 parameters (by its distance to a reference point, being held, or being in view).
 
-Webcam + YOLO/BoT-SORT run in this process; Magenta RealTime 2 runs in a separate
-server process, locally (`make server`) or on the cluster (--remote); see
-magenta_remote.py and superconductor_server/mrt2_server.py.
+The camera, the view and the sound are in the browser (the camera page,
+http://localhost:8467/, app.html), whether this process runs natively, in Docker or
+in Singularity. The page detects and tracks objects itself (YOLOE + BoT-SORT on
+WebGPU: vision_js, tracker_js) and sends its detections with each frame; without
+WebGPU it sends plain frames and YOLOE + BoT-SORT run here (compatibility mode).
+Recognition (DINOv2), identities and the music mapping always run here. What to
+draw over the video goes back to the page as JSON (`overlay`, see
+CAMERA_PROTOCOL.md). Magenta RealTime 2 runs in a separate server process, locally
+(`make server`) or on the cluster (--remote); see magenta_remote.py and
+superconductor_server/mrt2_server.py. Its audio plays in the page, or in sc-audio
+(audio_receiver.py).
 
 Two modes ([tracking] mode, or --mode):
 - unsupervised (default): every object gets a permanent id when it first appears
@@ -18,8 +26,8 @@ Two modes ([tracking] mode, or --mode):
 Objects close together can combine (combos, set up on the objects page): their
 instruments are replaced by the combo's until they separate.
 
-Keys: [ ] combo distance, c calibrate, q quit. Click to move the reference point
-(during calibration: click an object to label it).
+Keys on the camera page: [ ] combo distance, c calibrate. Click to move the reference
+point (during calibration: click an object to label it). Ctrl-C here quits.
 """
 import json
 import logging
@@ -30,7 +38,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-import webbrowser
 import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
@@ -45,6 +52,7 @@ from superconductor.object_tracking import (Calibration, Combo, ObjectLibrary, O
                                             ParameterMapper)
 from superconductor.object_tracking.identity import box_gap
 from superconductor.object_tracking.library import bgr_to_hex, hex_to_bgr
+from superconductor.web_model import ensure_web_model
 from superconductor.web_panel import WebPanel
 
 DEFAULT_CONFIG = Path(__file__).parent / "collab.toml"
@@ -54,24 +62,6 @@ TEST_BEAT = "solo drum kit groove, isolated drums, instrumental percussion only"
 COMBO_COLORS = [(60, 220, 220), (220, 220, 80), (200, 90, 220), (255, 160, 60)]
 # local end of `ssh -N -L 9000:lh2300:9100 ...` (see superconductor_server/README.md)
 REMOTE_URL = "ws://localhost:9000/stream"
-
-
-def find_camera(name):
-    """cv2 index of the first camera whose name contains `name` (case-insensitive).
-
-    OpenCV's AVFoundation backend orders cameras by unique ID, so sort the
-    system_profiler list the same way. Falls back to 0 if not found.
-    """
-    out = subprocess.run(["system_profiler", "SPCameraDataType"],
-                         capture_output=True, text=True).stdout
-    cameras = re.findall(r"^\s{4}(\S.*):\n(?:.*\n)*?\s+Unique ID: (\S+)", out, re.MULTILINE)
-    cameras.sort(key=lambda c: c[1])
-    for index, (camera_name, _) in enumerate(cameras):
-        if name.lower() in camera_name.lower():
-            print(f"using camera [{index}] {camera_name}")
-            return index
-    print(f"camera matching {name!r} not found in {[c[0] for c in cameras]}, using 0")
-    return 0
 
 
 def load_config(path):
@@ -96,7 +86,7 @@ def load_config(path):
 
 
 class CollabFrontend:
-    def __init__(self, cfg, mapper, camera=0, no_music=False, benchmark=None,
+    def __init__(self, cfg, mapper, no_music=False, benchmark=None,
                  skip_calibration=False, describe_server=None):
         self.cfg = cfg
         self.mapper = mapper
@@ -154,7 +144,23 @@ class CollabFrontend:
                 if not ident.description:
                     self._describe(ident)
         self._describe_error_shown = False
-        self.panel = WebPanel(cfg.get("web", {}).get("port", 8467)) if self.library is not None else None
+        web_cfg = cfg.get("web", {})
+        # the page's detector: the exported model (make web-model; exported here if its
+        # classes don't match [tracking] classes) and onnxruntime-web (make web-deps)
+        web_dir = Path(web_cfg.get("web_dir", "var/web"))
+        detection = web_cfg.get("detection", "auto")
+        model_ok = detection != "container" and ensure_web_model(t["model"], t.get("classes") or [], web_dir)
+        # camera page: its player connects to client_midi's /audio, at [web] audio_url if
+        # set (e.g. "/audio" through the gateway), else on the midi port
+        page_config = {"audio_url": web_cfg.get("audio_url"), "audio_port": music.get("midi_port", 8470),
+                       "links": web_cfg.get("public_urls", {}),
+                       "detector": {"mode": detection if model_ok else "container",
+                                    "model_url": "/web/models/yoloe.onnx" if model_ok else None,
+                                    "ort_url": "/web/ort/" if (web_dir / "ort").is_dir() else None,
+                                    "classes": t.get("classes") or [], "conf": t.get("conf", 0.3),
+                                    "iou": 0.7, "input": [480, 288]}}
+        self.panel = WebPanel(web_cfg.get("port", 8467), web_cfg.get("host", "localhost"),
+                              page_config=page_config, web_dir=web_dir)
         self._panel_views = {}  # id -> its view_rev when its views were last encoded
         self._view_scores, self._view_scores_key = {}, None  # id -> IdentityRegistry.view_scores
         self._last_publish = 0.0
@@ -171,28 +177,26 @@ class CollabFrontend:
             self.calibration.start()
         self._objects = []
         self.messages = []  # (text, expires)
-        if self.panel is not None:
-            print(f"objects page: {self.panel.url}")
-            webbrowser.open(self.panel.url)
+        print(f"objects page: {self.panel.url}")
 
-        self.camera = camera
-        self.webcam = None
         self._frame_shape = None
+        self._detector = None  # "browser" | "container": who detected the last frame
+        self._track_session = None  # the detector whose track ids are in _track_ids
+        self._track_ids = {}  # its track_id -> the track_id used here (_track_id)
+        self._track_counter = 0
         self._last_send = 0.0
         self._fps = 0.0
         self._track_ms = 0.0
         self._fps_log = []
         self._rtf_log = []
 
-    def _on_mouse(self, event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN and self._frame_shape:
-            h, w = self._frame_shape
-            # window is mirrored; use unflipped coords
-            point = (1 - x / w, y / h)
-            if self.calibration.active:
-                self.calibration.click(point, self._objects)
-                return
-            self.mapper.reference = point
+    def _click(self, x, y):
+        """a click on the camera page at (x, y), 0..1 as displayed (mirrored)"""
+        point = (1 - x, y)  # display is mirrored; use unflipped coords
+        if self.calibration.active:
+            self.calibration.click(point, self._objects)
+            return
+        self.mapper.reference = point
 
     # ---------- objects: instruments, descriptions, the objects page ----------
 
@@ -284,10 +288,16 @@ class CollabFrontend:
 
     def apply_panel_actions(self):
         registry = self.tracker.registry
-        while self.panel is not None and not self.panel.actions.empty():
+        while not self.panel.actions.empty():
             kind, id, body = self.panel.actions.get()
             if kind.startswith("combo"):
                 self._combo_action(kind, id, body)
+                continue
+            if kind == "click":  # camera page
+                self._click(body["x"], body["y"])
+                continue
+            if kind == "key":  # camera page
+                self.handle_key(body["key"])
                 continue
             if kind == "learning":  # view-learning settings (this session only; collab.toml stays)
                 errors = []
@@ -407,10 +417,15 @@ class CollabFrontend:
             return "local" if host == here else f"remote ({host})" if host else "local"
 
         t = self.cfg["tracking"]
-        rows = [{"task": "Detection + tracking",
-                 "model": f"YOLOE-11S-seg ({t['model']}, prompts: {', '.join(t.get('classes') or [])}) "
-                          f"+ BoT-SORT, on {self.tracker.device}",
-                 "where": "local"}]
+        prompts = ", ".join(t.get("classes") or [])
+        if self._detector == "browser":
+            detection = {"model": f"YOLOE-11s (prompts: {prompts}) + BoT-SORT, in the browser (WebGPU)",
+                         "where": "browser"}
+        else:
+            detection = {"model": f"YOLOE-11S-seg ({t['model']}, prompts: {prompts}) + BoT-SORT, "
+                                  f"on {self.tracker.device}" + ("" if self._detector else " (no frames yet)"),
+                         "where": "local"}
+        rows = [{"task": "Detection + tracking", **detection}]
         embedder = self.tracker.embedder
         if embedder is not None:
             model, size = embedder.name.split("@")
@@ -475,14 +490,19 @@ class CollabFrontend:
             tunnel = urlparse(base).hostname in ("localhost", "127.0.0.1")
             return f"on {host}" + (", through the SSH tunnel" if tunnel else "")
 
+        # [web] public_urls: where the browser reaches each service, when that isn't its
+        # own URL (in the container: through the gateway, e.g. http://midi.localhost:8080)
+        public = self.cfg.get("web", {}).get("public_urls", {})
+
         def row(key, name, started, endpoints, note=""):
             base = urls.get(key)
             if not base:
                 return None
             base = base.rstrip("/")
             up = True if key == "objects" else (alive[key] is not None) if key in alive else None
-            return {"name": name, "started": started, "base": base, "up": up, "note": note,
-                    "endpoints": [{"method": m, "url": u if "://" in u else base + u} for m, u in endpoints]}
+            shown = public.get(key, base).rstrip("/")
+            return {"name": name, "started": started, "base": shown, "up": up, "note": note,
+                    "endpoints": [{"method": m, "url": u if "://" in u else shown + u} for m, u in endpoints]}
 
         engine = alive.get("atlas_engine") or {}
         if engine.get("sink") == "superconductor":
@@ -514,7 +534,7 @@ class CollabFrontend:
         return [r for r in rows if r]
 
     def publish_panel(self, now):
-        if self.panel is None or now - self._last_publish < 0.5:
+        if now - self._last_publish < 0.5:
             return
         self._last_publish = now
         in_view = {o.identity for o in self._objects if not o.coasted}
@@ -560,24 +580,19 @@ class CollabFrontend:
                             "learning": {k: getattr(registry, k) for k in registry.LEARNING}}, views)
 
     def handle_key(self, key):
-        """returns False to quit"""
-        if key == 255:
-            return True
-        if key == ord("q"):
-            return False
-        if key in (ord("["), ord("]")) and self.mapper.combos:
+        """a key pressed on the camera page"""
+        if key in ("[", "]") and self.mapper.combos:
             for combo in self.combos:
-                combo["distance"] = max(0.0, round(combo["distance"] + (0.01 if key == ord("]") else -0.01), 3))
+                combo["distance"] = max(0.0, round(combo["distance"] + (0.01 if key == "]" else -0.01), 3))
             self._apply_combos(save=True)
             self.say(f"combo distance {self.combos[0]['distance']:.2f}", 2.0)
-        elif key == ord("c"):
+        elif key == "c":
             if not self.calibration.labels:
                 self.say("calibration mode only (--mode calibration); name objects on the objects page")
             else:
                 for param in self.mapper.parameters:
                     param.identity = None
                 self.calibration.start()
-        return True
 
     def recipe(self):
         """style weights sent to MRT2: base prompt, test beat, objects and combos"""
@@ -634,25 +649,23 @@ class CollabFrontend:
                      for p, src, v, sh, c in rows],
             "controls": {k: round(v, 3) for k, v in controls.items()}})
 
-    def draw(self, frame, objects):
-        """Draw on the unflipped frame; text goes on a separate overlay drawn after flipping."""
-        h, w = frame.shape[:2]
-        ref = (int(self.mapper.reference[0] * w), int(self.mapper.reference[1] * h))
-        cv2.circle(frame, ref, int(self.mapper.max_distance * w), (90, 90, 90), 1)
-        cv2.drawMarker(frame, ref, (255, 255, 255), cv2.MARKER_CROSS, 24, 2)
-        labels = []  # (text, org in mirrored coords, color, scale)
-
-        for hand in self.tracker.hands:
-            x1, y1, x2, y2 = map(int, hand.box)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (200, 200, 200), 1)
+    def overlay(self, objects):
+        """What the camera page draws over the video for this frame: the objects, hands,
+        tracks still being classified, combos and the reference point (see
+        CAMERA_PROTOCOL.md). Boxes and centers are in the frame's pixels, unmirrored;
+        label text and colors are worked out here so the page only draws."""
+        h, w = self._frame_shape
+        px = lambda box: [round(float(v), 1) for v in box]
+        out = {"reference": {"x": self.mapper.reference[0], "y": self.mapper.reference[1],
+                             "radius": self.mapper.max_distance},
+               "hands": [px(hand.box) for hand in self.tracker.hands],
+               "pending": [], "combos": [], "objects": []}
 
         # tracks that are still being classified
         for obj in self.tracker.registry.pending:
-            x1, y1, x2, y2 = map(int, obj.box)
-            _dashed_rect(frame, (x1, y1), (x2, y2), (150, 150, 150), 1)
             hits, score, like = self.tracker.registry.pending_info(obj.track_id)
-            text = "? new" if score is None else f"? {like} {score:.2f}"
-            labels.append((text, (w - x2, max(y1 - 8, 15)), (150, 150, 150), 0.5))
+            out["pending"].append({"box": px(obj.box),
+                                   "label": "? new" if score is None else f"? {like} {score:.2f}"})
 
         # combos: a frame around objects that combined, and their distance while apart
         by_label = {o.class_name: o for o in objects}
@@ -662,40 +675,24 @@ class CollabFrontend:
             members = [by_label.get(label) for label in combo.objects]
             if any(m is None for m in members):
                 continue
-            centers = [(int(m.center[0] * w), int(m.center[1] * h)) for m in members]
+            centers = [[round(m.center[0] * w, 1), round(m.center[1] * h, 1)] for m in members]
             if combo.active:
-                x1, y1, x2, y2 = (int(combo.box[0] * w) - 14, int(combo.box[1] * h) - 14,
-                                  int(combo.box[2] * w) + 14, int(combo.box[3] * h) + 14)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), param.color, 4)
-                for a, b in zip(centers, centers[1:]):
-                    cv2.line(frame, a, b, param.color, 3)
-                labels.append((f"{self._combo_name(combo)} = {param.prompt}",
-                               (w - x2, min(y2 + 26, h - 10)), param.color, 0.7))
+                out["combos"].append({
+                    "active": True, "centers": centers, "color": bgr_to_hex(param.color),
+                    "box": [combo.box[0] * w - 14, combo.box[1] * h - 14, combo.box[2] * w + 14, combo.box[3] * h + 14],
+                    "label": f"{self._combo_name(combo)} = {param.prompt}"})
             elif len(members) == 2:
                 gap = box_gap(members[0].box_normalized, members[1].box_normalized)
                 close = gap < 3 * combo.distance
-                cv2.line(frame, centers[0], centers[1], param.color if close else (90, 90, 90), 1)
-                mid = ((centers[0][0] + centers[1][0]) // 2, (centers[0][1] + centers[1][1]) // 2)
-                labels.append((f"{gap:.2f} / {combo.distance:.2f}", (w - mid[0] - 40, mid[1] - 6),
-                               param.color if close else (140, 140, 140), 0.45))
+                out["combos"].append({"active": False, "centers": centers,
+                                      "color": bgr_to_hex(param.color if close else (140, 140, 140)),
+                                      "label": f"{gap:.2f} / {combo.distance:.2f}"})
 
         for obj in objects:
             combo = self.mapper.combo_for(obj.identity)
             param = self.mapper.get(combo.parameter) if combo else self.mapper.parameter_for(obj.identity)
             ident = self.tracker.registry.get(obj.identity)
             color = param.color if param else (ident and ident.display_color) or (150, 150, 150)
-            x1, y1, x2, y2 = map(int, obj.box)
-            cx, cy = int(obj.center[0] * w), int(obj.center[1] * h)
-            if obj.coasted:  # not detected right now: last known position
-                _dashed_rect(frame, (x1, y1), (x2, y2), color, 2)
-            else:
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            if self.calibration.active and obj.identity == self.calibration.candidate:
-                # dwell progress bar while an object is being touched
-                cv2.rectangle(frame, (x1, y2 + 4), (x1 + int((x2 - x1) * self.calibration.progress), y2 + 10),
-                              (255, 255, 255), -1)
-            if combo is None:
-                cv2.line(frame, ref, (cx, cy), color, 1)
             text = f"#{obj.identity} {obj.class_name}"
             if combo is not None:
                 text += " (combined)"
@@ -705,72 +702,70 @@ class CollabFrontend:
                     text += " -> " + ", ".join(f"{_param_name(p)} {p.value:.2f}" for p in params)
             if obj.coasted:
                 text += " (last seen)"
-            labels.append((text, (w - x2, max(y1 - 8, 15)), color, 0.55))  # mirrored x
-        return labels
+            touching = self.calibration.active and obj.identity == self.calibration.candidate
+            out["objects"].append({
+                "identity": obj.identity, "track_id": obj.track_id, "class_name": obj.class_name,
+                "box": px(obj.box), "center": [round(obj.center[0] * w, 1), round(obj.center[1] * h, 1)],
+                "color": bgr_to_hex(color), "coasted": bool(obj.coasted), "combined": combo is not None,
+                "progress": round(self.calibration.progress, 3) if touching else None, "label": text})
+        return out
 
-    def draw_hud(self, overlay, labels):
-        for text, org, color, scale in labels:
-            cv2.putText(overlay, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 2)
-
-        message = self.calibration.message()
-        if message:
-            (tw, th), _ = cv2.getTextSize(message, cv2.FONT_HERSHEY_DUPLEX, 1.4, 2)
-            org = ((overlay.shape[1] - tw) // 2, 80)
-            cv2.putText(overlay, message, org, cv2.FONT_HERSHEY_DUPLEX, 1.4, (255, 255, 255), 2)
-
-        # MRT2 input (see mrt2_input)
+    def hud(self):
+        """The rest of what the page shows: the calibration message, the MRT2 input panel,
+        combo banners, recent messages and the status line."""
         rows, controls = self.mrt2_input()
-        y = 30
-        cv2.putText(overlay, "MRT2 input", (15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
-        for prompt, source, value, share, color in rows:
-            y += 24
-            cv2.putText(overlay, prompt[:30], (15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
-            cv2.putText(overlay, source[:16], (290, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-            cv2.rectangle(overlay, (420, y - 12), (420 + int(150 * min(value, 1.0)), y - 2), color, -1)
-            cv2.rectangle(overlay, (420, y - 12), (570, y - 2), color, 1)
-            cv2.putText(overlay, f"{value:.2f}  {100 * share:.0f}%", (580, y), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, color, 1)
-        if controls:
-            y += 24
-            cv2.putText(overlay, "  ".join(f"{k} {v:.2f}" for k, v in controls.items()), (15, y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-        # one banner per active combo
-        banner_y = max(80 if not message else 130, y + 54)
-        for combo in self.mapper.combos:
-            if combo.active:
-                param = self.mapper.get(combo.parameter)
-                text = f"{self._combo_name(combo)} combined: {param.prompt}"
-                (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, 1.0, 2)
-                cv2.putText(overlay, text, ((overlay.shape[1] - tw) // 2, banner_y),
-                            cv2.FONT_HERSHEY_DUPLEX, 1.0, param.color, 2)
-                banner_y += 40
-
-        # command line and recent command output
         now = time.time()
         self.messages = [(t, until) for t, until in self.messages if until > now]
-        y = overlay.shape[0] - 45 - 22 * len(self.messages)
-        for text, _ in self.messages:
-            cv2.putText(overlay, text, (15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            y += 22
-
         stats = self.magenta.poll_stats() if self.magenta else {}
         music = "music off" if self.magenta is None else (
             "loading MRT2..." if not self.magenta.connected else
             f"{self.magenta.info.get('model')} ({self.magenta.info.get('backend')}) "
             f"x{stats.get('rtf', 0):.2f} realtime  underruns {stats.get('underruns', 0)}"
             + ("  PAUSED" if self.magenta.paused else ""))
-        cv2.putText(overlay, f"vision {self._fps:.0f} fps ({self._track_ms:.0f} ms)  |  {music}  |  "
-                             f"[ ] combo distance  q quit",
-                    (15, overlay.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         if stats.get("rtf"):
             self._rtf_log.append(stats["rtf"])
+        banners = []
+        for combo in self.mapper.combos:
+            if combo.active:
+                param = self.mapper.get(combo.parameter)
+                banners.append({"text": f"{self._combo_name(combo)} combined: {param.prompt}",
+                                "color": bgr_to_hex(param.color)})
+        return {"message": self.calibration.message() or None,
+                "mrt2": {"rows": [{"prompt": p, "source": src, "value": round(v, 3), "share": round(sh, 3),
+                                   "color": bgr_to_hex(c)} for p, src, v, sh, c in rows],
+                         "controls": {k: round(v, 3) for k, v in controls.items()}},
+                "banners": banners, "log": [t for t, _ in self.messages],
+                "status": {"vision_fps": round(self._fps, 1), "track_ms": round(self._track_ms, 1),
+                           "detector": self._detector, "music": music}}
 
-    def step(self, frame, now=None):
-        """Track one frame, update parameters, return the annotated (mirrored) image."""
+    def _track_id(self, session, track_id):
+        """A detector's track id -> the one used here. Each detector (a page load, or this
+        process's own YOLO) numbers its tracks from 1, and the registry binds identities
+        to track ids, so they are made unique; a new detector's tracks start fresh."""
+        if session != self._track_session:
+            self._track_session = session
+            self._track_ids = {}
+        key = int(track_id)
+        if key not in self._track_ids:
+            self._track_counter += 1
+            self._track_ids[key] = self._track_counter
+        return self._track_ids[key]
+
+    def step(self, frame, header=None, now=None):
+        """Track one frame, update parameters; returns the overlay for the page.
+        `header`: the page's frame header. With `objects` in it the page has detected;
+        without (or no header) YOLO + BoT-SORT run here (compatibility mode)."""
         self._frame_shape = frame.shape[:2]
         t0 = time.time()
-        objects = self.tracker(frame, now=now)
+        if header is not None and header.get("objects") is not None:
+            self._detector = "browser"
+            session = str(header.get("session", "browser"))
+            detections = [(self._track_id(session, o["track_id"]), str(o["class_name"]), float(o["confidence"]),
+                           tuple(float(v) for v in o["box"]), None) for o in header["objects"]]
+        else:
+            self._detector = "container"
+            detections = [(self._track_id("container", tid), *rest) for tid, *rest in self.tracker._detect(frame)]
+        objects = self.tracker.track_detections(frame, detections, now=now)
         self._track_ms = 0.9 * self._track_ms + 0.1 * (time.time() - t0) * 1000
         self._objects = objects
         self._sync_colors()
@@ -781,50 +776,51 @@ class CollabFrontend:
         self.apply_panel_actions()
         self.apply_describe_results()
         self.publish_panel(time.time() if now is None else now)
-
-        labels = self.draw(frame, objects)
-        frame = cv2.flip(frame, 1)
-        overlay = np.zeros_like(frame)
-        self.draw_hud(overlay, labels)
-        return cv2.add(frame, overlay)
+        h, w = self._frame_shape
+        return {"type": "overlay", "seq": header.get("seq") if header else None, "width": w, "height": h,
+                **self.overlay(objects), **self.hud()}
 
     def run(self):
-        self.webcam = cv2.VideoCapture(self.camera)
-        if not self.webcam.isOpened():
-            raise RuntimeError("Cannot open webcam")
-        width, height = self.cfg.get("camera", {}).get("resolution", (1280, 720))
-        self.webcam.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.webcam.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        cv2.namedWindow("SuperConductor")
-        cv2.setMouseCallback("SuperConductor", self._on_mouse)
-
+        """Frames come from the camera page; what to draw goes back to it. Only the newest
+        frame is tracked; frames that arrive meanwhile are skipped."""
+        print(f"camera page: http://localhost:{self.panel.port}/ (open it in a browser and press Start)")
         start = time.time()
         prev = start
-        while True:
-            ok, frame = self.webcam.read()
-            if not ok:
-                time.sleep(0.01)
-                continue
-            cv2.imshow("SuperConductor", self.step(frame))
+        seq = 0
+        try:
+            while True:
+                latest = self.panel.latest_frame(seq)
+                if latest is None:
+                    if not self.panel.browser_connected:
+                        # nothing to track; keep page edits, descriptions and the
+                        # music status flowing
+                        if self.magenta is not None:
+                            self.magenta.poll_stats()
+                        self.apply_panel_actions()
+                        self.apply_describe_results()
+                        self.publish_panel(time.time())
+                    time.sleep(0.005)
+                    continue
+                seq, jpeg, header = latest
+                frame = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+                if frame is None:
+                    continue
+                self.panel.send_overlay(self.step(frame, header))
 
-            now = time.time()
-            self._fps = 0.9 * self._fps + 0.1 / max(now - prev, 1e-6)
-            prev = now
-            if self.magenta is None or self.magenta.connected:
-                self._fps_log.append(self._fps)
-
-            if not self.handle_key(cv2.waitKey(1) & 0xFF):
-                break
-            if self.benchmark and now - start > self.benchmark:
-                break
+                now = time.time()
+                self._fps = 0.9 * self._fps + 0.1 / max(now - prev, 1e-6)
+                prev = now
+                if self.magenta is None or self.magenta.connected:
+                    self._fps_log.append(self._fps)
+                if self.benchmark and now - start > self.benchmark:
+                    break
+        except KeyboardInterrupt:
+            pass
         self.stop()
 
     def stop(self):
         self.tracker.registry.save()
         self.tracker.registry.flush()
-        if self.webcam is not None:
-            self.webcam.release()
-        cv2.destroyAllWindows()
         if self.magenta:
             self.magenta.stop()
         if self._fps_log:
@@ -846,16 +842,6 @@ def _ago(seconds):
     if seconds < 90:
         return f"{seconds:.0f}s"
     return f"{seconds / 60:.0f} min" if seconds < 5400 else f"{seconds / 3600:.0f} h"
-
-
-def _dashed_rect(img, p1, p2, color, thickness=1, dash=10):
-    (x1, y1), (x2, y2) = p1, p2
-    for x in range(x1, x2, 2 * dash):
-        cv2.line(img, (x, y1), (min(x + dash, x2), y1), color, thickness)
-        cv2.line(img, (x, y2), (min(x + dash, x2), y2), color, thickness)
-    for y in range(y1, y2, 2 * dash):
-        cv2.line(img, (x1, y), (x1, min(y + dash, y2)), color, thickness)
-        cv2.line(img, (x2, y), (x2, min(y + dash, y2)), color, thickness)
 
 
 def _probe(url):
@@ -918,17 +904,16 @@ def _find_atlas(svc, search=True):
 
 @click.command()
 @click.option("--config", "config_path", default=str(DEFAULT_CONFIG), type=click.Path(exists=True))
-@click.option("--camera", default=None, type=int,
-              help="cv2 camera index (default: first camera matching [camera].name)")
-@click.option("--iphone", is_flag=True, help="Use the iPhone (Continuity Camera) instead.")
 @click.option("--server", default=None,
               help="Override [music].server_url (websocket of a running mrt2_server.py).")
 @click.option("--describe-server", default=None,
               help="Override [describe].server_url (describe server for one-time object descriptions).")
 @click.option("--remote", is_flag=True,
               help=f"Use the SSH tunnel to the cluster server ({REMOTE_URL}).")
-@click.option("--device", default=None, type=click.Choice(["cpu", "mps"]),
-              help="Override [tracking].device (where YOLO runs).")
+@click.option("--device", default=None, type=click.Choice(["cpu", "mps", "cuda"]),
+              help="Override [tracking].device (where YOLO runs in compatibility mode).")
+@click.option("--detection", default=None, type=click.Choice(["auto", "browser", "container"]),
+              help="Override [web].detection (where YOLOE + BoT-SORT run; auto: the browser if it has WebGPU).")
 @click.option("--mode", default=None, type=click.Choice(["unsupervised", "calibration"]),
               help="Override [tracking].mode.")
 @click.option("--skip-calibration", is_flag=True,
@@ -937,7 +922,7 @@ def _find_atlas(svc, search=True):
 @click.option("--benchmark", default=None, type=float,
               help="Run for N seconds, then print vision fps / MRT2 realtime stats.")
 @click.option("--loglevel", default="warning")
-def main(config_path, camera, iphone, server, describe_server, remote, device, mode, skip_calibration,
+def main(config_path, server, describe_server, remote, device, detection, mode, skip_calibration,
          no_music, benchmark, loglevel):
     logging.basicConfig(level=loglevel.upper())
     cfg, mapper = load_config(config_path)
@@ -947,13 +932,11 @@ def main(config_path, camera, iphone, server, describe_server, remote, device, m
         cfg["music"]["server_url"] = server
     if device:
         cfg["tracking"]["device"] = device
+    if detection:
+        cfg.setdefault("web", {})["detection"] = detection
     if mode:
         cfg["tracking"]["mode"] = mode
-    if iphone:
-        camera = find_camera("iPhone Camera")
-    if camera is None:
-        camera = find_camera(cfg.get("camera", {}).get("name", "C920"))
-    CollabFrontend(cfg, mapper, camera=camera, no_music=no_music, benchmark=benchmark,
+    CollabFrontend(cfg, mapper, no_music=no_music, benchmark=benchmark,
                    skip_calibration=skip_calibration, describe_server=describe_server).run()
 
 

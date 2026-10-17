@@ -68,7 +68,10 @@ learn_threshold = 0.65        # ...and at least this similar to the closest one 
 server_url = "http://localhost:9200"
 
 [web]
-port = 8467                   # the app's pages: http://localhost:8467/objects (later /conduct, ...)
+port = 8467                   # the camera page http://localhost:8467/ and the objects page /objects
+detection = "auto"            # where YOLOE + BoT-SORT run: "auto" (the browser if it has WebGPU, else
+                              # this process), "browser" or "container" (this process)
+web_dir = "var/web"           # the browser detector's files: ort/ (make web-deps), models/ (make web-model)
 
 [services]
 # other SuperConductor programs, listed (with whether they're up) on the objects page's Services tab

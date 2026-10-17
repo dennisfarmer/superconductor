@@ -1,6 +1,9 @@
 """The app's web pages, all on one port under different paths (later pages,
 e.g. /conduct, go here too):
 
+    http://localhost:8467/          the camera page (app.html): the browser's camera,
+                                    its detector (vision_js + tracker_js), the view
+                                    with the overlay drawn on it, and the audio
     http://localhost:8467/objects   the objects page
 
 The objects page shows every
@@ -11,24 +14,67 @@ it is edited there; changes apply immediately and are saved to the library.
 Runs in a daemon thread. The camera loop owns all object state: it publishes a
 snapshot with `publish()`, and edits from the page are queued in `actions` and
 applied by the camera loop (`CollabFrontend.apply_panel_actions`).
+
+The camera page sends its frames over WS /ws/camera, with the objects it detected
+(see CAMERA_PROTOCOL.md). Only the latest frame is kept (`latest_frame()`), so frames
+never queue up behind a slow tracker or a slow tunnel. The camera loop sends back
+what to draw over the video with `send_overlay()` (JSON, never pictures). Clicks and
+keys from the page are queued in `actions` as ("click", -1, {"x", "y"}) and
+("key", -1, {"key"}).
+
+Static files for the page: /web/vision_js/*, /web/tracker_js/* (from the repository),
+/web/overlay.js, and /web/ort/* (onnxruntime-web) and /web/models/* (the exported
+detector) from `web_dir` (make web-deps / make web-model).
 """
 import asyncio
+import json
 import queue
+import struct
 import threading
 from pathlib import Path
 
 from aiohttp import web
 
 PAGE = Path(__file__).parent / "web_panel.html"
+APP_PAGE = Path(__file__).parent / "app.html"
+OVERLAY_JS = Path(__file__).parent / "overlay.js"
+REPO = Path(__file__).parents[1]
+
+
+def parse_frame_message(data):
+    """A binary /ws/camera message -> (jpeg bytes, header dict or None).
+    [uint32 LE header length][header JSON][JPEG] (the page detected), or a plain JPEG
+    (compatibility mode: this process detects). See CAMERA_PROTOCOL.md."""
+    if data[:2] == b"\xff\xd8":  # JPEG start-of-image marker: no header
+        return data, None
+    if len(data) < 4:
+        raise ValueError("frame message too short")
+    (n,) = struct.unpack_from("<I", data)
+    if 4 + n > len(data):
+        raise ValueError("frame header longer than the message")
+    header = json.loads(data[4:4 + n].decode("utf-8"))
+    if not isinstance(header, dict) or header.get("type") != "frame":
+        raise ValueError("frame header is not a frame")
+    return data[4 + n:], header
 
 
 class WebPanel:
-    def __init__(self, port=8467):
+    def __init__(self, port=8467, host="localhost", page_config=None, web_dir=None):
+        """`page_config`: what the camera page reads from GET /api/web (where its audio
+        player connects, the detector's classes and thresholds, its links).
+        `web_dir`: holds ort/ and models/ for the page's detector."""
         self.port = port
+        self.host = host
+        self.page_config = page_config or {}
+        self.web_dir = Path(web_dir) if web_dir else None
         self.actions = queue.Queue()  # (kind, id, body) for the camera loop
         self._state = {"objects": [], "combos": []}  # replaced by publish()
         self._views = {}  # id -> [jpeg bytes per view], newest last
         self._lock = threading.Lock()
+        self._frame = None  # (seq, jpeg bytes, header or None): the newest frame from the browser
+        self._frame_seq = 0
+        self._cameras = set()  # open /ws/camera sockets
+        self._loop = None
         threading.Thread(target=self._run, daemon=True).start()
 
     @property
@@ -42,9 +88,47 @@ class WebPanel:
             self._state = state
             self._views.update(views)
 
+    def latest_frame(self, after=0):
+        """(seq, jpeg, header) of the newest browser frame if it is newer than `after`,
+        else None. `header`: the page's frame header (its detections), None for a plain JPEG."""
+        with self._lock:
+            if self._frame is not None and self._frame[0] > after:
+                return self._frame
+        return None
+
+    @property
+    def browser_connected(self):
+        return bool(self._cameras)
+
+    def send_overlay(self, overlay):
+        """send what to draw over the video (a JSON-able dict, see CAMERA_PROTOCOL.md)
+        to every open camera page"""
+        if self._loop is None or not self._cameras:
+            return
+        text = json.dumps(overlay, separators=(",", ":"))
+        for ws in list(self._cameras):
+            asyncio.run_coroutine_threadsafe(self._send_text(ws, text), self._loop)
+
+    @staticmethod
+    async def _send_text(ws, text):
+        if ws.closed:
+            return
+        try:
+            await ws.send_str(text)
+        except ConnectionError:
+            pass
+
     def _run(self):
-        app = web.Application()
+        app = web.Application(client_max_size=16 * 1024 ** 2)
         app.router.add_get("/", self._home)
+        app.router.add_get("/ws/camera", self._camera)
+        app.router.add_get("/api/web", self._web_config)
+        app.router.add_get("/web/overlay.js", self._overlay_js)
+        app.router.add_static("/web/vision_js", REPO / "vision_js")
+        app.router.add_static("/web/tracker_js", REPO / "tracker_js")
+        for sub in ("ort", "models"):
+            if self.web_dir is not None and (self.web_dir / sub).is_dir():
+                app.router.add_static(f"/web/{sub}", self.web_dir / sub)
         app.router.add_get("/objects", self._page)
         app.router.add_get("/api/objects", self._list)
         app.router.add_get("/api/objects/{id}/view.jpg", self._view)
@@ -63,17 +147,54 @@ class WebPanel:
         app.router.add_delete("/api/combos/{id}", self._combo_delete)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        self._loop = loop
         runner = web.AppRunner(app, access_log=None)
         loop.run_until_complete(runner.setup())
         try:
-            loop.run_until_complete(web.TCPSite(runner, "localhost", self.port).start())
+            loop.run_until_complete(web.TCPSite(runner, self.host, self.port).start())
         except OSError as e:
             print(f"objects page: port {self.port} unavailable ({e})")
             return
         loop.run_forever()
 
     async def _home(self, request):
-        raise web.HTTPFound("/objects")
+        return web.FileResponse(APP_PAGE)
+
+    async def _overlay_js(self, request):
+        return web.FileResponse(OVERLAY_JS)
+
+    async def _web_config(self, request):
+        return web.json_response(self.page_config)
+
+    async def _camera(self, request):
+        """binary messages: frames (parse_frame_message); text: {"type": "click", "x", "y"}
+        (0..1, as displayed) or {"type": "key", "key"}. Sends back overlays (send_overlay)."""
+        ws = web.WebSocketResponse(max_msg_size=8 * 1024 ** 2, heartbeat=20)
+        await ws.prepare(request)
+        self._cameras.add(ws)
+        try:
+            async for msg in ws:
+                if msg.type == web.WSMsgType.BINARY:
+                    try:
+                        jpeg, header = parse_frame_message(msg.data)
+                    except (ValueError, UnicodeDecodeError) as e:
+                        await ws.send_str(json.dumps({"type": "error", "error": f"frame: {e}"}))
+                        continue
+                    with self._lock:
+                        self._frame_seq += 1
+                        self._frame = (self._frame_seq, jpeg, header)
+                elif msg.type == web.WSMsgType.TEXT:
+                    try:
+                        event = json.loads(msg.data)
+                    except ValueError:
+                        continue
+                    if event.get("type") == "click":
+                        self.actions.put(("click", -1, {"x": float(event["x"]), "y": float(event["y"])}))
+                    elif event.get("type") == "key" and isinstance(event.get("key"), str) and len(event["key"]) == 1:
+                        self.actions.put(("key", -1, {"key": event["key"]}))
+        finally:
+            self._cameras.discard(ws)
+        return ws
 
     async def _page(self, request):
         return web.FileResponse(PAGE)

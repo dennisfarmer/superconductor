@@ -1,0 +1,10 @@
+{
+  "name": "superconductor-tracker",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "bench": "node test/bench.js"
+  }
+}
