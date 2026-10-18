@@ -45,12 +45,14 @@ from urllib.parse import urlparse
 import click
 import cv2
 import numpy as np
+import yaml
 
 from superconductor.describe_client import DescribeClient
 from superconductor.magenta_remote import MagentaClient
 from superconductor.object_tracking import (Calibration, Combo, ObjectLibrary, ObjectTracker, Parameter,
                                             ParameterMapper)
 from superconductor.object_tracking.identity import box_gap
+from superconductor.object_tracking.tracker import TRACKER_CONFIG
 from superconductor.object_tracking.library import bgr_to_hex, hex_to_bgr
 from superconductor.web_model import ensure_web_model
 from superconductor.web_panel import WebPanel
@@ -158,7 +160,9 @@ class CollabFrontend:
                                     "model_url": "/web/models/yoloe.onnx" if model_ok else None,
                                     "ort_url": "/web/ort/" if (web_dir / "ort").is_dir() else None,
                                     "classes": t.get("classes") or [], "conf": t.get("conf", 0.3),
-                                    "iou": 0.7, "input": [480, 288]}}
+                                    "iou": 0.7, "input": [480, 288],
+                                    # the page's BoT-SORT (tracker_js) uses the same settings as this one
+                                    "tracker": yaml.safe_load(TRACKER_CONFIG.read_text())}}
         self.panel = WebPanel(web_cfg.get("port", 8467), web_cfg.get("host", "localhost"),
                               page_config=page_config, web_dir=web_dir)
         self._panel_views = {}  # id -> its view_rev when its views were last encoded

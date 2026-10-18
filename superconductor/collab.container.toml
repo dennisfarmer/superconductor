@@ -30,7 +30,7 @@ mode = "unsupervised"
 # Add "hand" to classes to let hands claim parameters too.
 model = "yoloe-11s-seg.pt"
 classes = ["stuffed toy", "toy", "hand"]   # "hand" detections: calibration and "held" triggers
-conf = 0.25
+conf = 0.1                    # YOLOE's detection threshold; BoT-SORT starts tracks at new_track_thresh (botsort_superconductor.yaml)
 imgsz = 480
 device = "cuda"               # MRT2 runs elsewhere, so the GPU is free for vision
 # identities (and a crop image of each) persist here across sessions; set "label"

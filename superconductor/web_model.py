@@ -1,11 +1,10 @@
-"""The camera page's detector model: YOLOE without its segmentation head, with the
-[tracking] classes built in, exported to ONNX for onnxruntime-web (vision_js).
+"""The camera page's detector model: the [tracking] YOLOE model (yoloe-11s-seg.pt), with
+the [tracking] classes built in, exported to ONNX for onnxruntime-web (vision_js).
 
-The detection-only YOLOE (yoloe-11s.yaml) takes its weights from the seg checkpoint
-(yoloe-11s-seg.pt): the box and class parts are the same, so the boxes are identical,
-without computing masks. The input size is fixed at 480x288 (what Ultralytics uses
-for a 16:9 frame at imgsz 480). The classes are written next to the model
-(yoloe.json); when [tracking] classes change, the model is exported again.
+The seg model is exported as is, the same model the native client runs; the page uses
+its boxes and class scores and ignores the mask outputs. The input size is fixed at
+480x288 (what Ultralytics uses for a 16:9 frame at imgsz 480). The classes are written
+next to the model (yoloe.json); when [tracking] classes change, the model is exported again.
 
     python -m superconductor.web_model [--config collab.toml]     (make web-model)
 """
@@ -20,7 +19,7 @@ INPUT = (288, 480)  # height, width
 
 
 def _info(model_name, classes):
-    return {"model": Path(model_name).name, "classes": list(classes), "input": list(INPUT)}
+    return {"model": Path(model_name).name, "classes": list(classes), "input": list(INPUT), "head": "seg"}
 
 
 def ensure_web_model(model_name, classes, web_dir):
@@ -52,9 +51,7 @@ def ensure_web_model(model_name, classes, web_dir):
 def export(model_name, classes, out):
     from ultralytics import YOLOE
 
-    name = Path(model_name).name
-    yaml = name.replace("-seg", "").replace(".pt", ".yaml")  # yoloe-11s-seg.pt -> yoloe-11s.yaml
-    model = YOLOE(yaml).load(model_name)
+    model = YOLOE(model_name)
     model.set_classes(list(classes))
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)

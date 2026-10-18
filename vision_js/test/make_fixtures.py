@@ -1,6 +1,6 @@
 """Reference detections for vision_js's parity test, from Ultralytics.
 
-Exports a detection-only YOLOE (superconductor.web_model.export) with prompts that
+Exports the browser's YOLOE-11s-seg (superconductor.web_model.export) with prompts that
 the sample images contain ("person", "hand", "tie"; the pipeline doesn't depend on
 which), runs Ultralytics' own predictor on Ultralytics' sample images, and writes
 fixtures/: the model, each image's raw RGBA pixels and the expected detections. The
@@ -27,7 +27,7 @@ def main():
     OUT.mkdir(exist_ok=True)
     model = OUT / "yoloe-test.onnx"
     export("yoloe-11s-seg.pt", CLASSES, model)
-    onnx = YOLO(str(model), task="detect")
+    onnx = YOLO(str(model), task="segment")
     assets = Path(ultralytics.__file__).parent / "assets"
     expected = {"classes": CLASSES, "conf": CONF, "iou": IOU, "input": [INPUT[1], INPUT[0]], "images": {}}
     for name in ("zidane", "bus"):  # 16:9, and a portrait one (padded the other way)

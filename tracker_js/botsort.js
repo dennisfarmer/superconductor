@@ -8,11 +8,12 @@
 import { initiate, predict, update as kalmanUpdate } from "./kalman.js";
 import { linearAssignment } from "./assignment.js";
 
-/** botsort_superconductor.yaml (the keys and values used without GMC / ReID) */
+/** defaults: botsort_superconductor.yaml (the keys used without GMC / ReID); the camera page
+ * passes the client's own copy of that file, so the two can't drift apart */
 export const SUPERCONDUCTOR_CONFIG = Object.freeze({
-  track_high_thresh: 0.25,
+  track_high_thresh: 0.15,
   track_low_thresh: 0.1,
-  new_track_thresh: 0.3,
+  new_track_thresh: 0.15,
   track_buffer: 300,
   match_thresh: 0.8,
   fuse_score: true,

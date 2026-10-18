@@ -2,9 +2,9 @@
 # by hands / people walking in front). Based on ultralytics/cfg/trackers/botsort.yaml.
 
 tracker_type: botsort
-track_high_thresh: 0.25
+track_high_thresh: 0.15 # detections at or above this start / continue tracks (first association)
 track_low_thresh: 0.1
-new_track_thresh: 0.3 # plushies often score 0.3-0.4; spurious tracks are filtered by identity.py (min_hits)
+new_track_thresh: 0.15 # plushies often score 0.15-0.4; spurious tracks are filtered by identity.py (min_hits)
 track_buffer: 300 # ~10s at 30fps: keep lost tracks alive through occlusions (identity.py re-attaches after that)
 match_thresh: 0.8
 fuse_score: True

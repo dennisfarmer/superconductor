@@ -26,7 +26,7 @@ test("vision_js detections match Ultralytics", { skip: !have ? "no fixtures (mak
     const lb = preprocess(rgba, w, h, inW, inH, input);
     const out = await session.run({ [session.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, inH, inW]) });
     const o = out[session.outputNames[0]];
-    const det = postprocess(o.data, o.dims[1] - 4, o.dims[2], lb, w, h, exp.conf, exp.iou);
+    const det = postprocess(o.data, exp.classes.length, o.dims[2], lb, w, h, exp.conf, exp.iou);
     assert.equal(det.n, boxes.length, `${name}: number of detections`);
     const used = new Set();
     boxes.forEach((b, i) => {  // each reference detection: the closest unused one of the same class

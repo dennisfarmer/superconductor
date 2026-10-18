@@ -3,9 +3,9 @@
 // LetterBox), the exported ONNX model, NMS (ultralytics/utils/nms.py non_max_suppression, best
 // class per box, class-aware) and scaling boxes back to the frame (ops.scale_boxes).
 //
-// The model is YOLOE-11s without its segmentation head, exported with the class prompts built in
-// and a fixed input size (see export_yoloe.py). Its output is (1, 4 + nc, anchors): box center,
-// size, then one score per class.
+// The model is YOLOE-11s-seg, exported with the class prompts built in and a fixed input size
+// (see superconductor/web_model.py). Its first output is (1, 4 + nc + 32, anchors): box center,
+// size, one score per class, then mask coefficients (ignored here).
 
 const PAD = 114 / 255;
 const MAX_WH = 7680;  // class offset so NMS never suppresses across classes

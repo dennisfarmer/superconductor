@@ -47,7 +47,7 @@ async function init(config) {
   input = new Float32Array(3 * inW * inH);
   // one run to compile the shaders before the first real frame
   await session.run({ [session.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, inH, inW]) });
-  tracker = new BOTSORT();
+  tracker = new BOTSORT(config.tracker);  // the client's botsort_superconductor.yaml
 }
 
 async function detect(bitmap) {
@@ -62,8 +62,10 @@ async function detect(bitmap) {
   const [inW, inH] = cfg.input;
   const lb = preprocess(rgba, w, h, inW, inH, input);
   const out = await session.run({ [session.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, inH, inW]) });
+  // output0: (1, 4 + nc [+ 32 mask coefficients for the seg model], anchors); the seg
+  // model's mask prototypes (output1) aren't used
   const o = out[session.outputNames[0]];
-  const det = postprocess(o.data, o.dims[1] - 4, o.dims[2], lb, w, h, cfg.conf, cfg.iou);
+  const det = postprocess(o.data, cfg.classes.length, o.dims[2], lb, w, h, cfg.conf, cfg.iou);
   const tracks = tracker.update(det.boxes, det.scores, det.classes, det.n);
   const objects = tracks.map((t) => {
     const [x1, y1, x2, y2] = t.box;
