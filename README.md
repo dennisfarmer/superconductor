@@ -1,3 +1,5 @@
+> **New client image:** on GitHub, go to **Actions** → **client-web image** → **Run workflow** (branch: any). It builds `client-web` into `ghcr.io/dennisfarmer/superconductor:client-web` in about 10–20 min and replaces the previous image. Pushing does not rebuild it. Then run `git pull && make sif` on lh2300.
+
 Running client-web
 ==================
 
@@ -91,8 +93,7 @@ In every setup the browser (Chrome) is the camera, the view and the speakers.
 ## 4. Client and music server on lh2300 (Singularity)
 
 **The image** (it can't be built on Lighthouse, which has no Docker and no fakeroot). GitHub builds it and keeps the one current copy at `ghcr.io/dennisfarmer/superconductor:client-web`:
-- Every push to `client-web` rebuilds it.
-- To rebuild without pushing (e.g. after the `describe`, `midi_experiment_dennis` or `atlas` branches change): on GitHub, **Actions** → **client-web image** → **Run workflow**. Anyone with write access to the repo can press it. The build takes about 10–20 minutes.
+- To rebuild it (after changes to `client-web`, `describe`, `midi_experiment_dennis` or `atlas` are on GitHub): on GitHub, **Actions** → **client-web image** → **Run workflow**. Anyone with write access to the repo can press it. The build takes about 10–20 minutes. Pushing alone does not rebuild it.
 
 **One time, on lh2300** (in your session there):
 1. `cd /scratch/aimusic_project_root/aimusic_project/shared_data`
