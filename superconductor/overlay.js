@@ -81,7 +81,8 @@ export function drawOverlay(g, w, h, ov, { stale = false } = {}) {
   drawHud(g, w, h, ov, fs);
   if (stale) {
     g.globalAlpha = 1;
-    label(g, "no data from the client", w / 2 - 110 * fs, h / 2, "#ffffff", 22 * fs);
+    g.font = `500 ${22 * fs}px sans-serif`;
+    label(g, "client offline", (w - g.measureText("client offline").width) / 2, h / 2, "#ffffff", 22 * fs);
   }
   g.restore();
 }

@@ -5,7 +5,9 @@ tracker_type: botsort
 track_high_thresh: 0.15 # detections at or above this start / continue tracks (first association)
 track_low_thresh: 0.1
 new_track_thresh: 0.15 # plushies often score 0.15-0.4; spurious tracks are filtered by identity.py (min_hits)
-track_buffer: 300 # ~10s at 30fps: keep lost tracks alive through occlusions (identity.py re-attaches after that)
+track_buffer: 60 # frames (~2s at 30fps, longer at the page's detection rate): keep lost tracks alive through
+                 # brief occlusions; after that identity.py re-attaches by appearance, so an object put
+                 # where another one was isn't given that one's track
 match_thresh: 0.8
 fuse_score: True
 

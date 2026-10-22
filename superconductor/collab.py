@@ -795,14 +795,14 @@ class CollabFrontend:
             while True:
                 latest = self.panel.latest_frame(seq)
                 if latest is None:
-                    if not self.panel.browser_connected:
-                        # nothing to track; keep page edits, descriptions and the
-                        # music status flowing
-                        if self.magenta is not None:
-                            self.magenta.poll_stats()
-                        self.apply_panel_actions()
-                        self.apply_describe_results()
-                        self.publish_panel(time.time())
+                    # no new frame (no camera page, or one that stopped sending: a hidden
+                    # tab, a slow detector); keep page edits, descriptions and the music
+                    # status flowing
+                    if self.magenta is not None:
+                        self.magenta.poll_stats()
+                    self.apply_panel_actions()
+                    self.apply_describe_results()
+                    self.publish_panel(time.time())
                     time.sleep(0.005)
                     continue
                 seq, jpeg, header = latest
