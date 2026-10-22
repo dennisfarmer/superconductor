@@ -18,8 +18,11 @@ past it, so dropping it would be an audible jump.
 
 client_midi: the child process also serves a small HTTP API (default port 8470)
 through which another program (e.g. SuperConductor Atlas) gives MRT2 its NOTES and
-DRUMS input, while this client keeps providing the prompts:
+DRUMS input and its sampling controls, while this client keeps providing the prompts.
+Each POST is relayed unchanged as the server message of the same name:
     POST /pattern   Pattern body (see mrt2_server.py), forwarded to the server
+    POST /controls  UpdateControls body {temperature?, top_k?, cfg_scales?: {musiccoca?,
+                    notes?, drums?}} (see mrt2_server.py), forwarded to the server
     GET  /status    {connected, model, last_pattern_id}
     GET  /input     the prompts and controls this client sends to MRT2, as its camera
                     overlay shows them (collab.CollabFrontend.mrt2_input):
@@ -74,19 +77,28 @@ async def _start_client_midi(port, link):
         view = link.get("input") or {"rows": [], "controls": {}}
         return reply({"connected": link.get("ws") is not None, **view})
 
-    async def pattern(request):
+    async def relay(request, msg_type):
+        """Forward the request's JSON body unchanged as server message `msg_type`."""
         try:
             body = await request.json()
         except ValueError:
-            return reply({"ok": False, "error": "body must be JSON"}, 400)
+            return None, reply({"ok": False, "error": "body must be JSON"}, 400)
         if body is not None and not isinstance(body, dict):
-            return reply({"ok": False, "error": "body must be an object or null"}, 400)
+            return None, reply({"ok": False, "error": "body must be an object or null"}, 400)
         ws = link.get("ws")
         if ws is None:
-            return reply({"ok": False, "error": "not connected to the MRT2 server"}, 503)
-        await ws.send(json.dumps({"type": "Pattern", "body": body}))
-        link["last_pattern_id"] = (body or {}).get("id")
-        return reply({"ok": True})
+            return None, reply({"ok": False, "error": "not connected to the MRT2 server"}, 503)
+        await ws.send(json.dumps({"type": msg_type, "body": body}))
+        return body, reply({"ok": True})
+
+    async def pattern(request):
+        body, resp = await relay(request, "Pattern")
+        if resp.status == 200:
+            link["last_pattern_id"] = (body or {}).get("id")
+        return resp
+
+    async def controls(request):
+        return (await relay(request, "UpdateControls"))[1]
 
     async def options(_request):
         return web.Response(status=204, headers=cors)
@@ -95,11 +107,12 @@ async def _start_client_midi(port, link):
     app.router.add_get("/status", status)
     app.router.add_get("/input", input_view)
     app.router.add_post("/pattern", pattern)
+    app.router.add_post("/controls", controls)
     app.router.add_route("OPTIONS", "/{tail:.*}", options)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, "127.0.0.1", port).start()
-    print(f"client_midi on http://localhost:{port} (POST /pattern)")
+    print(f"client_midi on http://localhost:{port} (POST /pattern, POST /controls)")
     return runner
 
 
@@ -269,8 +282,15 @@ class MagentaClient:
             self._control_q.put({"type": "recipe", "recipe": dict(recipe)})
 
     def update_controls(self, controls):
-        """controls: any of {"temperature", "top_k", "cfg_musiccoca"}"""
-        self._control_q.put({"type": "controls", "controls": dict(controls)})
+        """controls: any of {"temperature", "top_k", "cfg_scales.musiccoca", "cfg_scales.notes",
+        "cfg_scales.drums"}; sent as UpdateControls, with the cfg_scales.* keys nested"""
+        body = {}
+        for key, value in controls.items():
+            if key.startswith("cfg_scales."):
+                body.setdefault("cfg_scales", {})[key.removeprefix("cfg_scales.")] = value
+            else:
+                body[key] = value
+        self._control_q.put({"type": "controls", "controls": body})
 
     def update_input_view(self, view):
         """What client_midi's GET /input serves: {"rows": [...], "controls": {...}}

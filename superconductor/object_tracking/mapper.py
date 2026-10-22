@@ -40,7 +40,7 @@ PALETTE = [(80, 200, 80), (40, 140, 255), (255, 160, 60), (200, 90, 220),
 @dataclass
 class Parameter:
     name: str
-    kind: str  # "prompt" (style weight) | "temperature" | "top_k" | "cfg_musiccoca"
+    kind: str  # "prompt" (style weight) | "temperature" | "top_k" | "cfg_scales.musiccoca" | "cfg_scales.notes" | "cfg_scales.drums"
     prompt: str = None  # for kind="prompt"
     min: float = 0.0
     max: float = 1.0
@@ -314,6 +314,6 @@ class ParameterMapper:
         return recipe
 
     def controls(self):
-        """Sampling overrides (temperature / top_k / cfg_musiccoca) from active parameters."""
+        """Sampling overrides (temperature / top_k / cfg_scales.*) from active parameters."""
         return {param.kind: param.output for param in self.parameters
                 if param.kind != "prompt" and param.identity is not None}

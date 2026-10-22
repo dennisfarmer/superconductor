@@ -6,10 +6,11 @@ client keeps providing the prompts, so it decides *what it sounds like*. Your pr
 decides *which pitches and when*, and *when drum hits happen*.
 
 ```
-your program ──HTTP POST /pattern──▶ superconductor_client (client_midi, port 8470)
-                                         │  websocket "Pattern" (same body)
-                                         ▼
-                                     mrt2_server.py ──▶ audio back to superconductor_client
+your program ──HTTP POST /pattern───▶ superconductor_client (client_midi, port 8470)
+             ──HTTP POST /controls──▶     │  websocket "Pattern" / "UpdateControls"
+                                          │  (same body)
+                                          ▼
+                                      mrt2_server.py ──▶ audio back to superconductor_client
 ```
 
 Start `make server` and `make client` (or `client-remote`) in `superconductor_client`.
@@ -21,11 +22,12 @@ client_midi listens on `http://localhost:8470` once the client is running. The p
 | Request | Body | Reply |
 |---|---|---|
 | `POST /pattern` | a Pattern (below), or `null` | `{"ok": true}` once forwarded; `400` if the body isn't a JSON object or `null`; `503` if the client isn't connected to the server yet |
+| `POST /controls` | sampling controls (below) | the same as `/pattern` |
 | `GET /status` | | `{"connected": bool, "model": "mrt2_small", "last_pattern_id": ...}` |
-| `GET /input` | | the prompts and sampling controls the client sends to MRT2, as its camera overlay shows them: `{"connected": bool, "rows": [{"prompt", "source", "value", "share", "color"}], "controls": {"temperature"?, "top_k"?, "cfg_musiccoca"?}}`. `share` is the prompt's fraction of the style blend (weight / sum of weights). Updated every `update_interval` (0.25 s) |
+| `GET /input` | | the prompts and sampling controls the client sends to MRT2, as its camera overlay shows them: `{"connected": bool, "rows": [{"prompt", "source", "value", "share", "color"}], "controls": {"temperature"?, "top_k"?, "cfg_scales.musiccoca"?, ...}}`. `share` is the prompt's fraction of the style blend (weight / sum of weights). Updated every `update_interval` (0.25 s) |
 
 CORS is open, so a browser page can send patterns too. The server validates the pattern
-in full. If it is invalid, the HTTP reply is still `{"ok": true}`, because the message was
+(and the controls) in full. If it is invalid, the HTTP reply is still `{"ok": true}`, because the message was
 forwarded, and the client console prints `MRT2 server: Pattern: <reason>`. Music keeps
 playing with the previous pattern.
 
@@ -71,9 +73,7 @@ without a note source.
   "drums": {"loop": false, "steps": [
     {"frames": 9, "first": 1, "rest": 0},
     {"frames": 9, "first": 1, "rest": 0}
-  ]},
-  "cfg_notes": 3.0,
-  "cfg_drums": 1.0
+  ]}
 }
 ```
 
@@ -83,11 +83,30 @@ Every field is optional.
 |---|---|
 | `notes` | the NOTES lane: `{"loop": bool, "steps": [...]}`. Left out: the lane is unchanged. `null`: cleared (all `-1`). |
 | `drums` | the DRUMS lane, the same way |
-| `cfg_notes` | how strongly the model follows the notes (classifier-free guidance, `-1` to `7`, in steps of 0.2). It stays set until changed. |
-| `cfg_drums` | the same for drums (`-1` to `7`, steps of 1) |
 | `id` | any string; printed by the server and shown in `GET /status` |
 
-A body of `null` clears both lanes.
+A body of `null` clears both lanes. How strongly the model follows the lanes is a
+control, `cfg_scales.notes` / `cfg_scales.drums` (below), not part of the Pattern.
+
+## Controls
+
+`POST /controls` sets MRT2's sampling arguments, named as MRT2's `generate()` names them:
+
+```json
+{"temperature": 1.2, "top_k": 40, "cfg_scales": {"musiccoca": 3.0, "notes": 3.0, "drums": 1.0}}
+```
+
+| field | range | model default | meaning |
+|---|---|---|---|
+| `temperature` | > 0 | 1.3 | sampling temperature: higher is more varied |
+| `top_k` | ≥ 1 | 40 | sample only from the k likeliest tokens |
+| `cfg_scales.musiccoca` | `-1` to `7`, steps of 0.2 | 3.0 | how strongly the model follows the style (the prompts) |
+| `cfg_scales.notes` | `-1` to `7`, steps of 0.2 | 1.0 | how strongly it follows the NOTES lane |
+| `cfg_scales.drums` | `-1` to `7`, steps of 1 | 1.0 | how strongly it follows the DRUMS lane |
+
+Every field is optional, and a message changes only the fields it carries; `null` puts a
+field back to the model default. Values stay set until changed, and apply from the next
+generated block (heard after the client's buffer, as with patterns).
 
 ### Steps
 
