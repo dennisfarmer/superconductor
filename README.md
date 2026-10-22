@@ -1,5 +1,34 @@
 # SuperConductor Frontend
 
+## Browser conducting (with the SuperConductor stack)
+
+`conducting_web/` runs the live conductor in the browser, next to client-web's camera page.
+The browser owns the camera. MediaPipe's HandLandmarker runs in a Web Worker and sends each
+frame's hand landmarks to `conducting_web/server.py`. The server passes them through the
+unchanged `StopGestureDetector`, `CycleTempoEstimator` and `ServerTempoPlayer`, which sends
+`POST /tempo/target` / `/tempo/free` to the MRT2 server. The page draws what the OpenCV
+preview drew (hands, fingertip trail, status lines). Its status line shows each latency:
+
+- tracking fps and the page round trip;
+- MediaPipe's time;
+- the conductor's time per frame;
+- the HTTP POST round trip, and frame→server;
+- the server's target and heard BPM.
+
+```bash
+# in superconductor_client_web
+make server            # MRT2 server, :9100
+make client            # camera page http://localhost:8467 (the music plays there)
+make conduct           # conducting page http://localhost:8480 (make conduct-remote: via the :9000 tunnel)
+```
+
+Both pages can use the same webcam, or two different ones. Frames come straight from the
+camera track (`MediaStreamTrackProcessor`), so both pages keep running in background tabs.
+`make web-deps` downloads `@mediapipe/tasks-vision` and `hand_landmarker.task` into `var/web`,
+and `make conduct` runs it for you. `make test` runs `test_conducting_web.py`.
+
+The Python-only live conductor below is unchanged.
+
 Run live camera conducting against the tempo server (Linux/macOS):
 
 ```bash
