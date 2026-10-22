@@ -1,3 +1,5 @@
+> **New client image:** on GitHub, go to **Actions** → **client-web image** → **Run workflow** (branch: any). It builds `client-web` into `ghcr.io/dennisfarmer/superconductor:client-web` in about 10–20 min and replaces the previous image. Pushing does not rebuild it. Then run `git pull && make sif` on lh2300.
+
 Setup
 -----
 
