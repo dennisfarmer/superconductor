@@ -15,6 +15,9 @@ from urllib.request import Request, urlopen
 
 ENGINE_URL: str = os.environ.get("ATLAS_ENGINE_URL", "http://127.0.0.1:8765")
 ENGINE_PRESET: str = os.environ.get("ATLAS_ENGINE_PRESET", "warm_piano")
+# where the page reaches the engine (it sends timelines and reads /status itself); behind
+# a gateway that only forwards one port, e.g. "/engine"
+ENGINE_PUBLIC_URL: str = os.environ.get("ATLAS_ENGINE_PUBLIC_URL", ENGINE_URL)
 
 
 @dataclass(eq=False)

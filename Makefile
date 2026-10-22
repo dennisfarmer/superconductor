@@ -51,7 +51,8 @@ STOP_ENGINE = if curl -s -m 1 -o /dev/null http://127.0.0.1:$(ENGINE_PORT)/statu
 	for i in $$(seq 1 75); do curl -s -m 1 -o /dev/null http://127.0.0.1:$(ENGINE_PORT)/status || break; sleep 0.2; done; \
 	fi; rm -f $(RUN)/engine.pid
 
-# Foreground: $(1) is the engine's arguments, $(2) what to call it. Ctrl-C stops the
+# Foreground: $(1) is the engine's arguments, $(2) what to call it, $(3) the app's
+# extra arguments (--local in local mode). Ctrl-C stops the
 # app (uvicorn's own graceful exit); the engine is then asked to exit over its control
 # API, which also reaches an engine relaunched from the page.
 define RUN_FG
@@ -60,7 +61,7 @@ define RUN_FG
 	trap 'stop_engine; exit 130' INT TERM; trap stop_engine EXIT; \
 	$(PY) $(1) > $(LOGS)/engine.log 2>&1 & E=$$!; \
 	echo "$(2) starting (log: $(LOGS)/engine.log); app on http://localhost:$(PORT)"; \
-	$(PY) -m server.app --port $(PORT)
+	$(PY) -m server.app --port $(PORT) $(3)
 endef
 
 # Background: start the engine with $(1) unless one is already up, wait until it answers.
@@ -108,11 +109,11 @@ check-client:
 # ==================================================================================
 
 run-local: client-build
-	$(call RUN_FG,$(LOCAL_ENGINE),engine (local Magenta))
+	$(call RUN_FG,$(LOCAL_ENGINE),engine (local Magenta),--local)
 
 start-local:
 	$(call START_ENGINE,$(LOCAL_ENGINE),audio engine (local Magenta, preset $(PRESET)))
-	@$(MAKE) --no-print-directory app
+	@$(MAKE) --no-print-directory app APP_ARGS=--local
 	$(call STARTED,local Magenta engine)
 
 
@@ -126,7 +127,7 @@ app: client-build
 		echo "app already running"; \
 	else \
 		echo "starting the app..."; \
-		nohup $(PY) -m server.app --port $(PORT) < /dev/null > $(LOGS)/app.log 2>&1 & echo $$! > $(RUN)/app.pid; \
+		nohup $(PY) -m server.app --port $(PORT) $(APP_ARGS) < /dev/null > $(LOGS)/app.log 2>&1 & echo $$! > $(RUN)/app.pid; \
 		for i in $$(seq 1 120); do curl -s -o /dev/null http://localhost:$(PORT)/healthz && break; sleep 1; done; \
 		curl -s -o /dev/null http://localhost:$(PORT)/healthz || { echo "app failed to start; see $(LOGS)/app.log"; exit 1; }; \
 	fi

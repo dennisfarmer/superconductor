@@ -4,15 +4,14 @@
   "model": "mrt2_small",
   "prompt": "warm grand piano, intimate, slow",
   "style_tokens": [635, 654, 757, 449, 524, 160, 633, 479, 203, 628, 10, 184],
-  "top_k": 40,
   "settings": {
     "bpm": 84.0,
     "beats_per_chord": 4,
     "articulation": "auto",
     "drums": "off",
-    "cfg_notes": 3.0,
-    "cfg_style": 3.0,
     "temperature": 1.2,
+    "top_k": 40,
+    "cfg_scales": {"musiccoca": 3.0, "notes": 3.0, "drums": 1.0},
     "gain": 0.9
   },
   "idle_chord": {"label": "I", "symbol": "C", "notes": [48, 55, 64, 72]}

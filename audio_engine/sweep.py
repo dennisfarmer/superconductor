@@ -51,7 +51,7 @@ def main():
     frames = int(round(25 * args.seconds_per_chord)) * len(PROGRESSION) * 2  # progression twice
     for temp, k in GRID:
         eng.settings.temperature = temp
-        eng.mrt.top_k = k
+        eng.settings.top_k = k
         eng.state = None
         eng.conductor = type(eng.conductor)(eng.settings)
         eng.conductor.set_timeline(Timeline("preview", PROGRESSION, "sweep"))

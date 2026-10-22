@@ -882,6 +882,8 @@ export interface components {
             engine_url: string;
             /** Engine Online */
             engine_online: boolean;
+            /** Local */
+            local: boolean;
             /** Major Tonics */
             major_tonics: string[];
             /** Minor Tonics */

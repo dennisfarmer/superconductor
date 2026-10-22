@@ -42,7 +42,7 @@ from server.theory.syntax import syntax
 from server.graph.harmony import space_for, chord_in, graph_stats
 from server.graph.beam import BeamSearch, Hyp, LayerStat
 from server.engine_client import (
-    ENGINE_URL,
+    ENGINE_PUBLIC_URL,
     engine_online,
     send_style_layers,
     send_settings,
@@ -176,6 +176,17 @@ def know_typed(kid: str, steps: list[Step]):
                 if cid != c.cid and not has_spec(kid, cid):
                     alias_chord(kid, cid, c)
                 _TYPED.append(kid + cid + "|" + sym)
+
+
+# Local mode (`python -m server.app --local`, make run-local): the engine runs Magenta
+# itself. Otherwise SuperConductor mode: the engine is a sink, SuperConductor makes the
+# sound, and the engine restart and the LLM descriptions are not offered.
+LOCAL: bool = False
+
+
+def require_local(what: str) -> None:
+    if not LOCAL:
+        raise RuntimeError(f"{what}: only in local mode (make run-local)")
 
 
 # walker.toml: [key, min, max] for each setting; values are clamped to their range.
@@ -336,8 +347,9 @@ def session_view(s: Session, notice: str = "") -> SessionView:
         can_undo=len(s.history) > 0 or len(s.steps) > 1,
         saved=[saved_view(i, kept) for (i, kept) in enumerate(s.saved)],
         notice=notice,
-        engine_url=ENGINE_URL,
+        engine_url=ENGINE_PUBLIC_URL,
         engine_online=engine_online(),
+        local=LOCAL,
         major_tonics=MAJOR_TONICS,
         minor_tonics=MINOR_TONICS
     )
@@ -536,7 +548,7 @@ def set_texture(texture: str) -> SessionView:
 
 
 def set_drums(grid: str) -> SessionView:
-    """The Drums page's grid (JSON: mode, bars, per_beat, cells, after_hit, cfg; see
+    """The Drums page's grid (JSON: mode, bars, per_beat, cells, after_hit; see
     audio_engine/engine.py), sent to the engine as its drum_pianoroll input. Kept only
     if the engine accepts it (or is offline: it gets it with the state on reconnect)."""
     s = session()
@@ -548,7 +560,8 @@ def set_drums(grid: str) -> SessionView:
 
 def set_llm(enabled: bool) -> SessionView:
     """Allow or forbid LLM calls. Ollama shares the GPU with Magenta, so turning this
-    off guarantees the LLM never competes with real-time generation."""
+    off guarantees the LLM never competes with real-time generation. Local mode only."""
+    require_local("LLM path descriptions")
     s = session()
     s.llm_enabled = enabled
     return session_view(s)
@@ -792,7 +805,9 @@ def clear_progression() -> SessionView:
 
 
 def describe(search_id: int, node_id: int) -> PathStory:
-    """Ask the LLM (server.narrate) to characterise the path to a node of the current search."""
+    """Ask the LLM (server.narrate) to characterise the path to a node of the current search.
+    Local mode only."""
+    require_local("LLM path descriptions")
     s = session()
     if not s.llm_enabled:
         return PathStory(title="", mood="", explanation="LLM calls are switched off (so Magenta keeps the GPU).")
@@ -910,7 +925,9 @@ def add_chords(text: str, where: str) -> SessionView:
 
 def restart_engine() -> bool:
     """Restart the audio engine process (for when the audio glitches). The client calls
-    get_state once the engine is back, which re-sends the sound, settings and chord."""
+    get_state once the engine is back, which re-sends the sound, settings and chord.
+    Local mode only: it starts the local Magenta engine."""
+    require_local("Restarting the engine")
     return relaunch_engine()
 
 

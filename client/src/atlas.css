@@ -125,8 +125,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .lib-item.on b { color: var(--accent); }
 
 /* ---------- top bar ---------- */
+.top-rows { grid-area: top; min-width: 0; }
 .topbar {
-  grid-area: top; display: flex; align-items: center; gap: var(--s-4); padding: 0 var(--s-4); height: 52px; min-width: 0;
+  display: flex; align-items: center; gap: var(--s-4); padding: 0 var(--s-4); height: 52px; min-width: 0;
   border-bottom: 1px solid var(--line); background: var(--panel);
   overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
 }
@@ -459,6 +460,32 @@ a.unit.bpm-link.on { color: var(--ink); cursor: default; }
 .unit { font-size: 10px; font-weight: 600; letter-spacing: 1px; color: var(--muted); }
 .beats-in { width: 38px !important; text-align: center; }
 
+/* ---------- controls row: MRT2's generate() arguments ---------- */
+.controls-row {
+  display: flex; align-items: center; gap: var(--s-4); padding: 0 var(--s-4); height: 40px; min-width: 0;
+  border-bottom: 1px solid var(--line); background: var(--bg-2);
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
+}
+.controls-row > * { flex: none; }
+.controls-label { font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); }
+.ctl { display: flex; align-items: center; gap: 5px; }
+.ctl.off { opacity: 0.45; }
+.ctl-name { font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.ctl-in {
+  width: 44px; height: 24px; background: transparent; border: 1px solid transparent; border-radius: var(--r-1);
+  padding: 0 4px; font-family: var(--mono); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;
+  color: var(--ink); -moz-appearance: textfield;
+}
+.ctl-in::-webkit-inner-spin-button, .ctl-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.ctl-in:hover { border-color: var(--line-2); }
+.ctl-in:focus { outline: none; border-color: var(--accent); background: var(--bg); }
+.ctl-reset {
+  width: 20px; height: 20px; padding: 0; border: none; background: transparent; color: var(--faint);
+  font-size: 13px; cursor: pointer; border-radius: var(--r-1);
+}
+.ctl-reset:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.ctl-reset:disabled { visibility: hidden; }
+
 .beat-lights { display: flex; align-items: center; gap: 5px; height: var(--ctl-h); padding: 0 4px; }
 .beat-dot {
   width: 9px; height: 9px; border-radius: 50%; background: var(--accent); opacity: 0.18;
@@ -519,7 +546,6 @@ a.btn { text-decoration: none; }
 .drums-controls, .drums-fills { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) 20px; }
 .drums-fills { gap: 4px; }
 .drums-field { display: inline-flex; align-items: center; gap: var(--s-2); }
-.drums-label.drums-code { font-family: var(--mono); text-transform: none; letter-spacing: 0; }
 .drums-label { color: var(--muted); font-size: var(--fs-s); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 4px; }
 .drums-num { font-family: var(--mono); font-size: var(--fs-s); color: var(--ink-2); }
 .drums-field input[type="range"] { width: 120px; accent-color: var(--accent); }

@@ -13,6 +13,7 @@ import { beat_sync } from "./components/BeatLights";
 import { DrumsPage } from "./components/DrumGrid";
 import { Graph3D } from "./components/Graph3D";
 import { Header } from "./components/Header";
+import { ControlsBar } from "./components/ControlsBar";
 import { Inspector } from "./components/Inspector";
 import { Progression } from "./components/Progression";
 import { Rules } from "./components/Rules";
@@ -688,6 +689,13 @@ export function App() {
     await engine_post("/mix", body);
   }
 
+  /** MRT2's sampling controls (the controls row), straight to the engine's /settings. */
+  async function set_controls(body: Record<string, unknown>) {
+    if (!_engine_url) return;
+    const resp = await engine_post("/settings", body);
+    if (resp.ok) setEngineStatus(await resp.json());
+  }
+
   async function toggle_mute() {
     if (!_engine_url) return;
     _vol_at = Date.now();
@@ -881,6 +889,7 @@ export function App() {
         story={story}
         storyLoading={story_loading}
         llmEnabled={session.llm_enabled}
+        local={session.local}
         onCommitFirst={() => do_commit(false)}
         onCommitPath={() => do_commit(true)}
         onDescribe={do_describe}
@@ -888,29 +897,37 @@ export function App() {
     );
   }
 
+  // the top bar, and under it the controls row (MRT2's sampling controls)
   const header = (
-    <Header
-      page={page}
-      session={session}
-      engineOk={engine_ok}
-      engineInfo={engine_info}
-      paused={paused}
-      onPause={toggle_pause}
-      restarting={restarting}
-      onRestart={do_restart_engine}
-      volume={volume}
-      muted={muted}
-      onVolume={set_volume}
-      onMute={toggle_mute}
-      quitting={quitting}
-      onQuit={do_quit}
-      walking={walking}
-      onKey={change_key}
-      onTempo={change_tempo}
-      onTexture={change_texture}
-      onLlm={toggle_llm}
-      onSend={send_walkers}
-    />
+    <div className="top-rows">
+      <Header
+        page={page}
+        session={session}
+        engineOk={engine_ok}
+        engineInfo={engine_info}
+        paused={paused}
+        onPause={toggle_pause}
+        restarting={restarting}
+        onRestart={do_restart_engine}
+        volume={volume}
+        muted={muted}
+        onVolume={set_volume}
+        onMute={toggle_mute}
+        quitting={quitting}
+        onQuit={do_quit}
+        walking={walking}
+        onKey={change_key}
+        onTempo={change_tempo}
+        onTexture={change_texture}
+        onLlm={toggle_llm}
+        onSend={send_walkers}
+      />
+      <ControlsBar
+        settings={engine_ok && engine_status ? engine_status.settings : null}
+        sink={Boolean(engine_status && engine_status.sink)}
+        onSend={set_controls}
+      />
+    </div>
   );
 
   // the Drums page keeps the top bar; the timeline above still plays underneath

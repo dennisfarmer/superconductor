@@ -8,7 +8,8 @@
 // more room for hits). Free and rest cells hold their value for the whole cell.
 //
 // The grid is saved in the session (server.atlas.set_drums) and sent to the engine,
-// the local one or the SuperConductor sink, as settings.drum_grid.
+// the local one or the SuperConductor sink, as settings.drum_grid. How strongly MRT2
+// follows the grid is cfg_scales.drums, a knob in the controls row under the top bar.
 
 import { useEffect, useState } from "react";
 import { getState, setDrums } from "../api";
@@ -21,8 +22,6 @@ const PER_BEAT: [number, string][] = [
   [3, "triplets"],
 ];
 const BARS = [1, 2, 4];
-const CFG_DRUMS_HINT =
-  "cfg_drums: how strongly MRT2 follows this grid (default 1).\n\nWhat it changes in MRT2's input: the grid's -1 / 0 / 1 frames are sent unchanged. This value goes in as one extra conditioning token on every 40 ms frame, token = value + 1 (0 to 8). MRT2 learned in training what each token means, so it is a hint to the model, not a formula applied to the output. Unlike the style and notes scales, MRT2 runs no extra masked pass for drums.\n\nRange: -1 to 7 in steps of 1 is MRT2's own limit (magenta_rt/config.py, CFG_CONDITIONING_DRUMS: 9 tokens, step 1.0). Values outside it are clamped.\n\nHigher: hits land on the grid and rest cells stay quiet. 0 or below: the grid has little effect and the style prompt decides.";
 // the engine's status, read by the poll timer (outside React state)
 let _status_url = "";
 
@@ -32,11 +31,10 @@ interface Grid {
   per_beat: number;
   cells: number[];
   after_hit: number;
-  cfg: number;
 }
 
 function default_grid(): Grid {
-  return { mode: "silent", bars: 1, per_beat: 2, cells: [-1, -1, -1, -1, -1, -1, -1, -1], after_hit: 0, cfg: 1.0 };
+  return { mode: "silent", bars: 1, per_beat: 2, cells: [-1, -1, -1, -1, -1, -1, -1, -1], after_hit: 0 };
 }
 
 /** The session's grid with every field present (older sessions have none). */
@@ -45,7 +43,7 @@ function grid_of(raw: string): Grid {
   if (raw) {
     try {
       const saved = JSON.parse(raw);
-      for (const k of ["mode", "bars", "per_beat", "cells", "cfg"]) {
+      for (const k of ["mode", "bars", "per_beat", "cells"]) {
         if (saved[k] || saved[k] === 0) g[k] = saved[k];
       }
     } catch {
@@ -60,7 +58,7 @@ function grid_of(raw: string): Grid {
 }
 
 function with_field<K extends keyof Grid>(g: Grid, key: K, value: Grid[K]): Grid {
-  const out: Grid = { mode: g.mode, bars: g.bars, per_beat: g.per_beat, cells: g.cells, after_hit: g.after_hit, cfg: g.cfg };
+  const out: Grid = { mode: g.mode, bars: g.bars, per_beat: g.per_beat, cells: g.cells, after_hit: g.after_hit };
   out[key] = value;
   return out;
 }
@@ -243,18 +241,6 @@ export function DrumsPage() {
             ))}
           </div>
         </div>
-        <label className="drums-field" title={CFG_DRUMS_HINT}>
-          <span className="drums-label drums-code">cfg_drums</span>
-          <input
-            type="range"
-            min="-1"
-            max="7"
-            step="1"
-            value={String(grid.cfg)}
-            onChange={(e) => save(with_field(grid, "cfg", parseFloat(e.target.value)))}
-          />
-          <span className="drums-num">{String(grid.cfg)}</span>
-        </label>
       </section>
 
       <section className={"drums-grid" + (on_grid ? "" : " off")}>

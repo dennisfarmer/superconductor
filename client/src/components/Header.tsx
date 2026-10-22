@@ -1,7 +1,8 @@
 // Top bar, left to right: key; transport (pause, tempo knob, the beat, beats per
 // chord, texture, and the Harmony - Drums page switch; the BPM label opens the BPM
 // page); output (mute, volume); engine status and restart; Send walkers; quit. The
-// LLM switch sits in the menu beside the status pill.
+// LLM switch sits in the menu beside the status pill. Restart and the menu are only
+// shown in local mode (session.local).
 
 import { useState } from "react";
 import type { CSSProperties, MouseEvent } from "react";
@@ -256,25 +257,30 @@ export function Header(props: HeaderProps) {
           <span className={"dot " + (engineOk ? "on" : "off")}></span>
           {engineInfo}
         </span>
-        <button
-          className={"icon-btn" + (restarting ? " spin" : "")}
-          disabled={restarting || quitting}
-          title="Restart the audio engine (fixes glitching audio). It is asked to stop, then started again; the model takes a few seconds to load."
-          onClick={() => onRestart()}
-        >
-          {restart_icon()}
-        </button>
-        <button
-          className={"icon-btn" + (menu_open ? " on" : "")}
-          title="Engine options"
-          onClick={(e) => {
-            place_menu(e);
-            setMenuOpen(!menu_open);
-          }}
-        >
-          ⋯
-        </button>
-        {menu_open && (
+        {/* local mode only (make run-local): with SuperConductor there is no model to restart and no LLM */}
+        {session.local && (
+          <button
+            className={"icon-btn" + (restarting ? " spin" : "")}
+            disabled={restarting || quitting}
+            title="Restart the audio engine (fixes glitching audio). It is asked to stop, then started again; the model takes a few seconds to load."
+            onClick={() => onRestart()}
+          >
+            {restart_icon()}
+          </button>
+        )}
+        {session.local && (
+          <button
+            className={"icon-btn" + (menu_open ? " on" : "")}
+            title="Engine options"
+            onClick={(e) => {
+              place_menu(e);
+              setMenuOpen(!menu_open);
+            }}
+          >
+            ⋯
+          </button>
+        )}
+        {session.local && menu_open && (
           <div className="menu fixed" style={menu_at} onMouseLeave={() => setMenuOpen(false)}>
             <label title="LLM calls (Ollama) share the GPU with Magenta; switch off for glitch-free real time">
               <input type="checkbox" checked={session.llm_enabled} onChange={() => onLlm(!session.llm_enabled)} />

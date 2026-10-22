@@ -145,6 +145,7 @@ class SessionView(BaseModel):
     notice: str
     engine_url: str
     engine_online: bool
+    local: bool
     major_tonics: list[str]
     minor_tonics: list[str]
 

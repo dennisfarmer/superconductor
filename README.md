@@ -20,7 +20,9 @@ The client is built into `client/dist` (needs Node and npm) whenever its sources
 changed; `make run` and `make start` do this first.
 
 For `make run`, start `make server` and `make client` in `../superconductor_client`
-first (Atlas starts anyway and connects once they are up). `make start` / `make
+first (Atlas starts anyway and connects once they are up). Restarting the engine and the
+LLM path descriptions are only offered in local mode (`make run-local`, the app's
+`--local`): with SuperConductor there is no model here to restart. `make start` / `make
 start-local` run in the background; `make stop`, `make status` and `make logs` work
 for both.
 
@@ -32,10 +34,10 @@ browser (Harmony / Drums pages)
    │  progression, walkers, session
    ▼
 audio_engine/engine.py --sink superconductor        (port 8765)
-   │  HTTP POST /pattern                            (MIDI message protocol)
+   │  HTTP POST /pattern, POST /controls            (MIDI message protocol)
    ▼
 superconductor_client  client_midi                  (port 8470)
-   │  websocket "Pattern"
+   │  websocket "Pattern", "UpdateControls" (same bodies)
    ▼
 mrt2_server.py  ──▶  audio, with SuperConductor's prompts
 ```
@@ -44,22 +46,26 @@ In SuperConductor mode the engine runs no model. It keeps a 40 ms frame clock, a
 each time playback changes (a new chord hovered, kept or played, or new settings)
 it renders what should sound into one Pattern and POSTs it to client_midi. Hovering
 and the loop are sent as looping lanes; "Play all" is sent once (`loop: false`), and
-SuperConductor then falls back to the loop. The format is the established protocol in
+SuperConductor then falls back to the loop. The sampling controls (the controls row) go
+separately, to `/controls`, so turning a knob doesn't resend the Pattern. The format is the established protocol in
 [`MIDI_MSG_PROTOCOL.md`](https://github.com/dennisfarmer/superconductor/blob/main/MIDI_MSG_PROTOCOL.md)
 (`../superconductor_client/MIDI_MSG_PROTOCOL.md` locally).
 
 ## What Atlas changes in the MRT2 input
 
-MRT2 takes, every 40 ms frame, a style embedding plus two control inputs. Atlas sets
-only the two control inputs and their guidance strengths. **The style (text prompts)
-stays with SuperConductor.**
+MRT2 takes, every 40 ms frame, a style embedding plus two control inputs, and is
+sampled with `generate()`'s `cfg_scales`, `temperature` and `top_k`. Atlas sets the two
+control inputs and the sampling controls. **The style (text prompts) stays with
+SuperConductor.**
 
 | MRT2 input | Set by Atlas | Values |
 |---|---|---|
 | **NOTES** (128 pitch slots) | the voiced chord progression, by texture | see below |
 | **DRUMS** (one slot) | the Drums page | `-1` model chooses, `0` no hit, `1` hit |
-| `cfg_notes` | engine setting (default 3.0) | how strictly the model follows the notes |
-| `cfg_drums` | "Follow" slider on the Drums page | how strictly it follows the drum lane |
+| `cfg_scales.musiccoca` | the controls row under the top bar | how strictly the model follows the style (MRT2 default 3.0) |
+| `cfg_scales.notes` | the controls row | how strictly it follows NOTES (Atlas starts at 3.0; MRT2 default 1.0) |
+| `cfg_scales.drums` | the controls row | how strictly it follows DRUMS (-1 to 7 in whole steps; default 1.0) |
+| `temperature`, `top_k` | the controls row | sampling (MRT2 defaults 1.3 and 40; the `warm_piano` preset uses 1.2) |
 | style / prompts | no (only in `make run-local`) | |
 
 **NOTES, by texture** (the top bar's texture menu):
@@ -89,6 +95,10 @@ The model picks the drum sounds; the lane only says when hits happen.
   It is read on each request, so an edit applies the next time the walkers are sent.
 - `Makefile` variables: `PORT`, `ENGINE_PORT`, `CLIENT_MIDI`, `SC_SERVER` (the MRT2 server's
   HTTP address, for tempo sync), `PRESET` (local mode).
+- Environment: `ATLAS_ENGINE_URL` (where the app reaches the engine, default
+  `http://127.0.0.1:8765`), `ATLAS_ENGINE_PUBLIC_URL` (where the page reaches it, since it
+  sends timelines and reads `/status` itself; default the same, `/engine` behind the
+  SuperConductor container's gateway), `ATLAS_DATA`, `OLLAMA_URL`, `LLM_MODEL`.
 - More detail: `docs/ENGINE.md` (engine), `docs/CRITERIA.md` (how chords are scored),
   `docs/VOICE.md` (local-mode sound presets).
 

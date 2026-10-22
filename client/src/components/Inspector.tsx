@@ -23,13 +23,14 @@ export interface InspectorProps {
   story: PathStory | null;
   storyLoading: boolean;
   llmEnabled: boolean;
+  local: boolean;
   onCommitFirst: () => void;
   onCommitPath: () => void;
   onDescribe: () => void;
 }
 
 export function Inspector(props: InspectorProps) {
-  const { focusNode, chain, startRn, backward, isPinned, story, storyLoading, llmEnabled, onCommitFirst, onCommitPath, onDescribe } = props;
+  const { focusNode, chain, startRn, backward, isPinned, story, storyLoading, llmEnabled, local, onCommitFirst, onCommitPath, onDescribe } = props;
   if (focusNode == null) {
     return (
       <div className="card">
@@ -124,14 +125,16 @@ export function Inspector(props: InspectorProps) {
                 {"Keep whole path (" + String(chain.length) + ")"}
               </button>
             )}
-            <button
-              className="btn ghost"
-              disabled={storyLoading || !llmEnabled}
-              title={llmEnabled ? "Ask the local LLM (Ollama) for a short description of this path" : "The LLM is switched off (engine menu ⋯ in the top bar)"}
-              onClick={() => onDescribe()}
-            >
-              {storyLoading ? "Describing…" : "✦ Describe this path (LLM)"}
-            </button>
+            {local && (
+              <button
+                className="btn ghost"
+                disabled={storyLoading || !llmEnabled}
+                title={llmEnabled ? "Ask the local LLM (Ollama) for a short description of this path" : "The LLM is switched off (engine menu ⋯ in the top bar)"}
+                onClick={() => onDescribe()}
+              >
+                {storyLoading ? "Describing…" : "✦ Describe this path (LLM)"}
+              </button>
+            )}
           </div>
         )}
         {story != null && (story.title || story.explanation) && (

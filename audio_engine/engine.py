@@ -35,8 +35,10 @@ Sink mode (--sink superconductor): no model and no sound card. The conductor run
 on a 40 ms clock and every timeline it enters is rendered into a Pattern (notes +
 drums lanes, see superconductor_server/mrt2_server.py) and POSTed to the
 SuperConductor client's client_midi (default http://localhost:8470), which plays it
-through the MRT2 server with SuperConductor's prompts. /style, temperature and
-cfg_style don't apply there: SuperConductor owns the sound.
+through the MRT2 server with SuperConductor's prompts. /style doesn't apply there:
+SuperConductor owns the prompts. The sampling controls (temperature, top_k,
+cfg_scales) are POSTed to client_midi's /controls, which relays them to the server
+as UpdateControls; in local mode they go straight into generate().
 Tempo sync (POST /sync, the BPM page): the sink follows the SuperConductor server's
 heard tempo and lines its beat one up with the server's (SinkEngine._syncer).
 
@@ -45,7 +47,10 @@ HTTP API (JSON, CORS open, default port 8765):
   POST /timeline {"role": "idle"|"preview"|"play", "chords": [{"label", "symbol", "notes"}], "id"}
   POST /release                      -> drop preview/play, back to idle
   POST /style    {"prompt": "..."}  or  {"layers": [{"text": "...", "weight": 0.7}, ...]}  (embedding blend)
-  POST /settings {"bpm", "beats_per_chord", "articulation", "texture", "drum_grid", "cfg_notes", "cfg_style", "temperature", "gain"}
+  POST /settings {"bpm", "beats_per_chord", "articulation", "texture", "drum_grid", "gain",
+                  "temperature", "top_k", "cfg_scales": {"musiccoca", "notes", "drums"}}
+                 the last three are MRT2's generate() arguments, under MRT2's names;
+                 cfg_scales may carry only some of its keys
   POST /mix {"volume": 0..1.5, "muted": bool}   output level, applied at the speaker (no buffer delay)
   POST /shutdown {}   finish the current chunk, close the audio stream and the HTTP server, exit
   POST /sync {"on": bool}   sink only: follow the SuperConductor server's tempo and beat one
@@ -111,8 +116,24 @@ def drum_grid(body: dict | None = None) -> dict:
     after_hit = int(body.get("after_hit", 0))
     if after_hit not in (-1, 0):
         raise ValueError("after_hit must be 0 or -1")
-    cfg = min(7.0, max(-1.0, float(body.get("cfg", 1.0))))
-    return {"mode": mode, "bars": bars, "per_beat": per_beat, "cells": cells, "after_hit": after_hit, "cfg": cfg}
+    return {"mode": mode, "bars": bars, "per_beat": per_beat, "cells": cells, "after_hit": after_hit}
+
+
+# MRT2's cfg_scales keys and their range and step (magenta_rt/config.py, CFG_CONDITIONING_*)
+CFG_SCALE_STEPS = {"musiccoca": 0.2, "notes": 0.2, "drums": 1.0}
+CFG_MIN, CFG_MAX = -1.0, 7.0
+
+
+def cfg_scales(body: dict, base: dict | None = None) -> dict:
+    """`base` (default: the defaults) with the scales in `body` applied, each clamped
+    to -1..7 and rounded to MRT2's step for it."""
+    out = dict(base or Settings().cfg_scales)
+    for key, value in body.items():
+        if key not in CFG_SCALE_STEPS:
+            raise ValueError(f"unknown cfg_scales key {key}; MRT2's are {list(CFG_SCALE_STEPS)}")
+        step = CFG_SCALE_STEPS[key]
+        out[key] = round(round(min(CFG_MAX, max(CFG_MIN, float(value))) / step) * step, 1)
+    return out
 
 
 # the drum grid's bar, and the bar the tempo sync lines up with the server's
@@ -128,10 +149,12 @@ class Settings:
     articulation: str = "auto"  # auto | hold
     texture: str = "block"  # block | arpeggio | improvise
     drum_grid: dict = field(default_factory=drum_grid)  # silent: no drums, as before
-    cfg_notes: float = 3.0
-    cfg_style: float = 3.0
-    temperature: float = 1.2
     gain: float = 0.9
+    # MRT2's sampling arguments, under MRT2's names (magenta_rt generate()). notes is 3.0
+    # rather than MRT2's 1.0, so the chords are followed
+    temperature: float = 1.3
+    top_k: int = 40
+    cfg_scales: dict = field(default_factory=lambda: {"musiccoca": 3.0, "notes": 3.0, "drums": 1.0})
 
     @classmethod
     def from_dict(cls, d: dict) -> "Settings":
@@ -140,7 +163,13 @@ class Settings:
             d["drum_grid"] = {"mode": "free" if d.pop("drums") == "auto" else "silent"}
         if "drum_grid" in d:
             d["drum_grid"] = drum_grid(d["drum_grid"])
+        if "cfg_scales" in d:
+            d["cfg_scales"] = cfg_scales(d["cfg_scales"])
         return cls(**d)
+
+    def controls(self) -> dict:
+        """The sampling controls, as an UpdateControls body (superconductor_server/mrt2_server.py)."""
+        return {"temperature": self.temperature, "top_k": self.top_k, "cfg_scales": dict(self.cfg_scales)}
 
     def frames_per_beat(self) -> float:
         return FRAME_RATE * 60.0 / self.bpm
@@ -368,7 +397,7 @@ class Engine:
         self.playing_pos = 0
         self.model_name = model
         t0 = time.time()
-        self.mrt = MagentaRT2StdMlxfn(size=model, temperature=self.settings.temperature, top_k=int(preset.get("top_k", 40)))
+        self.mrt = MagentaRT2StdMlxfn(size=model, temperature=self.settings.temperature, top_k=self.settings.top_k)
         log.info("model %s loaded in %.1fs", model, time.time() - t0)
         self.style_prompt = ""
         self.style_tokens: list = []
@@ -453,8 +482,9 @@ class Engine:
         t0 = time.perf_counter()
         wav, self.state = self.mrt.generate(
             conditioning=cond,
-            cfg_scales={"musiccoca": s.cfg_style, "notes": s.cfg_notes, "drums": s.drum_grid["cfg"]},
+            cfg_scales=dict(s.cfg_scales),
             temperature=s.temperature,
+            top_k=s.top_k,
             frames=1,
             state=self.state,
         )
@@ -540,6 +570,9 @@ class Engine:
     def settings_changed(self):
         pass  # the local engine reads settings frame by frame
 
+    def controls_changed(self):
+        pass  # the same for temperature, top_k and cfg_scales
+
     def save_recording(self):
         if self.record_path and self.recorded:
             from magenta_rt.audio import Waveform
@@ -578,8 +611,6 @@ def to_pattern(frames: list, loop: bool, settings: Settings, pattern_id: str) ->
         "id": pattern_id,
         "notes": {"loop": loop, "steps": notes_steps},
         "drums": {"loop": loop, "steps": drum_steps},
-        "cfg_notes": settings.cfg_notes,
-        "cfg_drums": settings.drum_grid["cfg"],
     }
 
 
@@ -617,6 +648,7 @@ class SinkEngine:
         self._pin_at = 0.0
         self.dirty = False
         self.outbox: queue.Queue = queue.Queue(maxsize=1)  # the latest pattern wins
+        self.controls_box: queue.Queue = queue.Queue(maxsize=1)  # the latest controls win
         self.connected = False
         self.remote_model = None
         self.last_error = ""
@@ -625,6 +657,7 @@ class SinkEngine:
         self.paused, self.volume, self.muted = False, 1.0, False
         self.style_prompt = ""
         threading.Thread(target=self._sender, daemon=True).start()
+        threading.Thread(target=self._controls_sender, daemon=True).start()
         threading.Thread(target=self._syncer, daemon=True).start()
 
     # --- the parts of the Engine API that don't apply here ---
@@ -636,6 +669,13 @@ class SinkEngine:
 
     def settings_changed(self):
         self.dirty = True
+
+    def controls_changed(self):
+        try:
+            self.controls_box.get_nowait()  # drop unsent older controls
+        except queue.Empty:
+            pass
+        self.controls_box.put(self.settings.controls())
 
     # --- client_midi ---
     def _http(self, method: str, path: str, body=None) -> dict:
@@ -666,11 +706,25 @@ class SinkEngine:
                 if self.connected and not was:
                     log.info("SuperConductor client connected (%s)", self.remote_model)
                     self.dirty = True
+                    self.controls_changed()
             except Exception as e:  # client not running, or not connected to its server (503)
                 if self.connected or not self.last_error:
                     log.info("client_midi at %s: %s", self.client_midi, e)
                 self.connected = False
                 self.last_error = str(e)
+
+    def _controls_sender(self):
+        """POSTs the sampling controls to client_midi's /controls (latest wins); the
+        client relays them to the server as UpdateControls."""
+        while self.running:
+            try:
+                body = self.controls_box.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            try:
+                self._http("POST", "/controls", body)
+            except Exception as e:  # not connected: sent again when the client comes back
+                log.info("client_midi /controls: %s", e)
 
     def _render(self, tokens: list, meta: FrameMeta) -> dict:
         """The timeline the conductor is in, from the frame it just made: one full
@@ -962,9 +1016,22 @@ def make_handler(engine: Engine):
                         engine.set_style(str(body["prompt"]))
                 elif self.path == "/settings":
                     s = engine.settings
-                    for k in ("bpm", "cfg_notes", "cfg_style", "temperature", "gain"):
+                    if "temperature" in body and not float(body["temperature"]) > 0:
+                        raise ValueError("temperature must be > 0")
+                    if "top_k" in body and int(body["top_k"]) < 1:
+                        raise ValueError("top_k must be >= 1")
+                    scales = cfg_scales(body.get("cfg_scales") or {}, s.cfg_scales)
+                    for k in ("bpm", "temperature", "gain"):
                         if k in body:
                             setattr(s, k, float(body[k]))
+                    if "top_k" in body:
+                        s.top_k = int(body["top_k"])
+                    s.cfg_scales = scales
+                    if {"temperature", "top_k", "cfg_scales"} & body.keys():
+                        engine.controls_changed()
+                    if not body.keys() - {"temperature", "top_k", "cfg_scales"}:
+                        self._send(200, engine.status())
+                        return
                     if "beats_per_chord" in body:
                         s.beats_per_chord = int(body["beats_per_chord"])
                     if "texture" in body:

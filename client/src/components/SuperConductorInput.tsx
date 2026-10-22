@@ -67,7 +67,7 @@ export function SuperConductorInput({ view, url }: { view: ScInputView | null; u
         </div>
       ))}
       {keys.length > 0 && (
-        <div className="sc-controls" title="Sampling controls set by objects (temperature, top_k, cfg_musiccoca)">
+        <div className="sc-controls" title="Sampling controls set by objects (temperature, top_k, cfg_scales.musiccoca)">
           {keys.map((k) => (
             <span key={k}>{k + " " + controls[k].toFixed(2)}</span>
           ))}
