@@ -97,6 +97,7 @@ from absl import app as absl_app
 from absl import flags
 from aiohttp import web
 
+import memlog
 from tempo import TempoController
 
 SAMPLE_RATE = 48000
@@ -114,6 +115,9 @@ _MODEL = flags.DEFINE_enum("model", "mrt2_small", MODELS, "MRT2 model size.")
 _PORT = flags.DEFINE_integer("port", 9100, "Port to listen on.")
 _FRAMES_PER_BLOCK = flags.DEFINE_integer(
     "frames_per_block", 5, "MRT2 frames (40ms each) generated and sent per block."
+)
+_MEM_LOG = flags.DEFINE_float(
+    "mem_log", 30, "Seconds between memory (RAM / GPU) log lines; 0 = off. See memlog.py."
 )
 
 logger = logging.getLogger(__name__)
@@ -600,6 +604,7 @@ def main(_):
     generator.loaded.wait()
     if generator.load_error is not None:
         raise generator.load_error
+    memlog.start(_BACKEND.value, _MEM_LOG.value)
     ready_info = {
         "model": _MODEL.value,
         "backend": _BACKEND.value,

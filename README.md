@@ -15,14 +15,16 @@
     pip install "magenta-rt[jax]==2.0.3" "jax[cuda12]" aiohttp
     ```
     - use `jax[cuda12]`, not cuda13: CUDA 13 dropped Volta (V100) support
-    - download the weights: `make models`
+    - download the weights: `make models` (base model)
+    - or `make models MODEL=mrt2_small` (small model)
     - V100: watch `gen_ms_per_frame` in the `Stats` messages, check if <40ms/frame
 
 ### Startup Sequence
 
 - locally: `make server` (from here or from `superconductor_client`), leave it running, then (with Ollama running) `make describe` and `make client` in `superconductor_client`
 - on Lighthouse:
-    - activate the venv, then `make server`
+    - activate the venv, then `make server` (base model)
+    - or `make server MODEL=mrt2_small` (small model)
     - on the laptop, start the ssh tunnel: `ssh -N -L 9000:lh2300:9100 UNIQNAME@lighthouse.arc-ts.umich.edu`
     - the describe server still runs on the laptop: with Ollama running, `make describe` in `superconductor_client` (see `superconductor_describe/README.md`)
     - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9000/stream`)
