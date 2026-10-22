@@ -49,11 +49,25 @@ The client opens a websocket at `GET /stream` (one client at a time; a second on
 |------------------|-----------------------------------------------------|--------|
 | `StartSession`   | `{"recipe"?: {...}, "controls"?: {...}, "credits": int}` | Reset the state and start generating, with `credits` blocks in flight (default recipe `{"jazz": 1.0}`). |
 | `UpdateRecipe`   | `{"recipe": {"jazz": 0.6, "flute": 0.3}}`           | Weighted blend of the prompts' MusicCoCa embeddings (cached), used from the next block on. |
-| `UpdateControls` | `{"temperature"?: float, "top_k"?: int, "cfg_musiccoca"?: float}` | Sampling controls, used from the next block on. |
+| `UpdateControls` | `{"temperature"?: float, "top_k"?: int, "cfg_scales"?: {"musiccoca"?, "notes"?, "drums"?}}` | MRT2's `generate()` arguments under their own names (see Controls below), used from the next block on. |
 | `ReceivedChunk`  | `null`                                              | One more block of credit (sent when the client finishes playing a block). |
 | `Pause` / `Resume` | `null`                                            | Stop generating (session and state kept) / continue. |
-| `Pattern`        | `{"notes"?: lane, "drums"?: lane, "cfg_notes"?, "cfg_drums"?, "id"?}` | MRT2's per-frame NOTES / DRUMS input (see below). |
+| `Pattern`        | `{"notes"?: lane, "drums"?: lane, "id"?}`          | MRT2's per-frame NOTES / DRUMS input (see below). |
 | `EndSession`     | `null`                                              | Stop generating and close the session. |
+
+### Controls (`UpdateControls`)
+
+Everything that steers sampling goes through `UpdateControls` (and `StartSession`'s `controls`), named as MRT2's `generate(conditioning, cfg_scales, temperature, top_k, ...)` names them. A message changes only the keys it carries; `null` puts a key back to the model default. A bad message gets an `Error` reply and changes nothing.
+
+| Key | Range | Model default | What it does |
+|---|---|---|---|
+| `temperature` | > 0 | 1.3 | sampling temperature: higher is more varied, lower more repetitive |
+| `top_k` | ≥ 1 | 40 | sample only from the k likeliest tokens |
+| `cfg_scales.musiccoca` | -1 to 7, steps of 0.2 | 3.0 | classifier-free guidance toward the style (the recipe's MusicCoCa embedding) |
+| `cfg_scales.notes` | -1 to 7, steps of 0.2 | 1.0 | guidance toward the Pattern's NOTES lane |
+| `cfg_scales.drums` | -1 to 7, steps of 1 | 1.0 | guidance toward the Pattern's DRUMS lane |
+
+The ranges and steps are MRT2's (`magenta_rt/config.py`, `CFG_CONDITIONING_*`): each scale is sent to the model as a conditioning token, so values are rounded to its step. HTTP senders (Atlas, the MIDI player) reach this message through the client's client_midi: `POST /controls` relays its body unchanged.
 
 ### Tempo (adaptive playback speed)
 
@@ -86,7 +100,7 @@ The client opens a websocket at `GET /stream` (one client at a time; a second on
 
 | `stretching` | true while the heard audio is sped up or slowed down (speed ≠ 1); at speed exactly 1 the audio passes through unchanged |
 | `conductor_holding` | following the conductor, but no beat for 3 s: the last speed is held |
-| `inputs` | what shapes the generation now: `session` (`none` / `generating` / `paused`), `recipe` (style prompts and weights), `controls`, `notes` / `drums` (`{loop, frames}` of the Pattern lane, or null when the model chooses), `pattern_cfg`, `pattern_id` |
+| `inputs` | what shapes the generation now: `session` (`none` / `generating` / `paused`), `recipe` (style prompts and weights), `controls`, `notes` / `drums` (`{loop, frames}` of the Pattern lane, or null when the model chooses), `pattern_id` |
 
 To light a beat in time: `anchor = now + latency - beat_frac * 60 / heard_bpm` is when `beat` started being heard (see `pages/tempo.html`).
 

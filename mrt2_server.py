@@ -25,11 +25,11 @@ Websocket protocol (`GET /stream`, one client at a time):
   client -> server, JSON text frames {"type": ..., "body": ...}:
     StartSession    {recipe?, controls?, credits}
     UpdateRecipe    {recipe}                        e.g. {"jazz": 0.6, "flute": 0.3}
-    UpdateControls  {temperature?, top_k?, cfg_musiccoca?}
+    UpdateControls  {temperature?, top_k?, cfg_scales?: {musiccoca?, notes?, drums?}}   below
     ReceivedChunk   null                            one more block of credit
     Pause           null                            stop generating (session and state kept)
     Resume          null                            continue from where it paused
-    Pattern         {notes?, drums?, cfg_notes?, cfg_drums?, id?}   NOTES / DRUMS input, below
+    Pattern         {notes?, drums?, id?}               NOTES / DRUMS input, below
     EndSession      null
   server -> client:
     JSON text  {"type": "Ready", "body": {model, backend, sample_rate, frames_per_block, host}}
@@ -37,14 +37,25 @@ Websocket protocol (`GET /stream`, one client at a time):
     JSON text  {"type": "Error", "body": {error}}   a message was rejected (e.g. a bad Pattern)
     binary     [uint32 LE seq][float32 LE samples, row-major (num_samples, 2)]
 
+Controls (UpdateControls, also StartSession's `controls`): MRT2's own generate()
+arguments, under MRT2's own names, used from the next block on:
+  temperature   sampling temperature (model default 1.3)
+  top_k         top-k sampling threshold (model default 40)
+  cfg_scales    classifier-free guidance per conditioning input, -1 to 7
+                (magenta_rt/config.py; model defaults in brackets):
+                  musiccoca  how strongly to follow the style (the recipe) [3.0], steps of 0.2
+                  notes      how strongly to follow the NOTES lane [1.0], steps of 0.2
+                  drums      how strongly to follow the DRUMS lane [1.0], steps of 1
+A message changes only the keys it carries; a key set to null goes back to the
+model default. A bad message gets an `Error` reply and changes nothing.
+
 NOTES / DRUMS (Pattern): besides the style, MRT2 takes two inputs per 40ms frame.
   notes: 128 slots (MIDI pitch), each -1 model chooses, 0 off, 1 held,
          2 onset (attack now), 3 on (model picks onset or held)
   drums: 1 slot, -1 model chooses, 0 no hit, 1 hit now
 A Pattern sets either lane or both; each lane loops on its own:
   {"notes": {"loop": true, "steps": [{"frames": 36, "pitches": {"36": 2, "60": -1}, "default": 0}]},
-   "drums": {"loop": true, "steps": [{"frames": 9, "first": 1, "rest": 0}]},
-   "cfg_notes": 3.0, "cfg_drums": 1.0}
+   "drums": {"loop": true, "steps": [{"frames": 9, "first": 1, "rest": 0}]}}
   notes step: `frames` x 40ms; `pitches` sets some slots, `default` (-1) the rest;
       after the first frame an onset (2) becomes held (1)
   drums step: `first` on its first frame, `rest` on the others (0 after a hit, else `first`)
@@ -62,7 +73,7 @@ before it is sent, so blocks are 200ms / speed long. Plain HTTP, any client:
   GET  /tempo/status    mode, speed, stretching, conductor_holding, model_bpm,
                         heard_bpm, conductor_bpm, ...; inputs: what shapes the
                         generation (session, recipe, controls, notes, drums,
-                        pattern_cfg, pattern_id);
+                        pattern_id);
                         and the beat being heard: playing, beat (0 = beat one),
                         beat_frac, beats_per_bar, meter_confidence, meter_source,
                         downbeat_source
@@ -143,6 +154,61 @@ def _state(value, allowed, where):
     if value not in allowed:
         raise ValueError(f"{where}: {value} is not one of {allowed}")
     return value
+
+
+CFG_SCALE_KEYS = ("musiccoca", "notes", "drums")  # MRT2's cfg_scales keys (magenta_rt/config.py)
+
+
+def parse_controls(body):
+    """Validate an UpdateControls body: {temperature?, top_k?, cfg_scales?: {...}}.
+    Returns the same shape; None marks a key to reset. Raises ValueError."""
+    if not isinstance(body, dict):
+        raise ValueError("body must be an object")
+    unknown = sorted(set(body) - {"temperature", "top_k", "cfg_scales"})
+    if unknown:
+        raise ValueError(f"unknown keys {unknown}; the controls are temperature, top_k, cfg_scales")
+    out = {}
+    if "temperature" in body:
+        t = body["temperature"]
+        if t is not None and not float(t) > 0:
+            raise ValueError("temperature must be > 0")
+        out["temperature"] = None if t is None else float(t)
+    if "top_k" in body:
+        k = body["top_k"]
+        if k is not None and int(k) < 1:
+            raise ValueError("top_k must be >= 1")
+        out["top_k"] = None if k is None else int(k)
+    if "cfg_scales" in body:
+        scales = body["cfg_scales"]
+        if scales is None:
+            scales = dict.fromkeys(CFG_SCALE_KEYS)
+        if not isinstance(scales, dict):
+            raise ValueError("cfg_scales must be an object or null")
+        unknown = sorted(set(scales) - set(CFG_SCALE_KEYS))
+        if unknown:
+            raise ValueError(f"unknown cfg_scales keys {unknown}; MRT2's are {list(CFG_SCALE_KEYS)}")
+        out["cfg_scales"] = {k: None if v is None else min(7.0, max(-1.0, float(v))) for k, v in scales.items()}
+    return out
+
+
+def merge_controls(controls, update):
+    """`controls` with a parsed update applied: keys it carries change, None removes."""
+    merged = {k: v for k, v in controls.items() if k != "cfg_scales"}
+    scales = dict(controls.get("cfg_scales") or {})
+    for key, value in update.items():
+        if key == "cfg_scales":
+            for name, scale in value.items():
+                if scale is None:
+                    scales.pop(name, None)
+                else:
+                    scales[name] = scale
+        elif value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    if scales:
+        merged["cfg_scales"] = scales
+    return merged
 
 
 def expand_lane(kind, lane):
@@ -244,7 +310,7 @@ class Generator:
             self.loaded.set()
         emit = None  # callback of the active session; None = no session
         style, controls, state = None, {}, None
-        notes, drums, pattern_cfg = Lane(), Lane(), {}  # NOTES / DRUMS input (Pattern)
+        notes, drums = Lane(), Lane()  # NOTES / DRUMS input (Pattern)
         recipe, pattern_id = None, None
         paused = False
         credits, seq = 0, 0
@@ -260,29 +326,28 @@ class Generator:
                     kind = msg["type"]
                     if kind == "start":
                         emit, state, seq, paused = msg["emit"], None, 0, False
-                        notes, drums, pattern_cfg = Lane(), Lane(), {}
+                        notes, drums = Lane(), Lane()
                         self.tempo.reset()
                         credits = msg["credits"]
-                        controls = msg["controls"]
+                        controls = merge_controls({}, msg["controls"])
                         style = _blend_styles(self._embed, self._cache, msg["recipe"])
                         recipe, pattern_id = msg["recipe"], None
                     elif kind == "end":
                         emit, state, credits, paused = None, None, 0, False
-                        notes, drums, pattern_cfg = Lane(), Lane(), {}
+                        notes, drums = Lane(), Lane()
                         recipe, pattern_id = None, None
                     elif kind == "pattern":
                         # lanes were validated and expanded by the websocket handler
                         for name, lane in (("notes", notes), ("drums", drums)):
                             if name in msg["lanes"]:
                                 lane.set(*msg["lanes"][name])
-                        pattern_cfg.update(msg["cfg"])
                         pattern_id = msg.get("id") or pattern_id
                     elif kind == "recipe":
                         new_style = _blend_styles(self._embed, self._cache, msg["recipe"])
                         if new_style is not None:
                             style, recipe = new_style, msg["recipe"]
                     elif kind == "controls":
-                        controls = msg["controls"]
+                        controls = merge_controls(controls, msg["controls"])
                     elif kind == "credit":
                         credits += 1
                         self.tempo.played(msg["t"])
@@ -296,19 +361,15 @@ class Generator:
             self.inputs = {
                 "session": "none" if emit is None else ("paused" if paused else "generating"),
                 "recipe": recipe,  # style prompts and weights (from the client)
-                "controls": controls if emit is not None else {},
+                "controls": controls if emit is not None else {},  # temperature, top_k, cfg_scales
                 "notes": _lane_info(notes),  # NOTES lane of the Pattern, None = model chooses
                 "drums": _lane_info(drums),
-                "pattern_cfg": dict(pattern_cfg),
                 "pattern_id": pattern_id,
             }
             if emit is None or credits <= 0 or style is None or paused:
                 continue
 
             t0 = time.time()
-            cfg_scales = dict(pattern_cfg)
-            if "cfg_musiccoca" in controls:
-                cfg_scales["musiccoca"] = controls["cfg_musiccoca"]
             # generate() uses one conditioning for all the frames it makes, so the
             # block is split wherever the notes / drums input changes. Without a
             # Pattern this is a single call, as before.
@@ -327,9 +388,9 @@ class Generator:
                     conditioning[self._drums_key] = [drum_token]
                 wav, state = self._mrt.generate(
                     conditioning=conditioning,
-                    cfg_scales=cfg_scales or None,
+                    cfg_scales=controls.get("cfg_scales"),  # missing keys: the model's defaults
                     temperature=controls.get("temperature"),
-                    top_k=int(controls["top_k"]) if "top_k" in controls else None,
+                    top_k=controls.get("top_k"),
                     frames=j - i,
                     state=state,
                 )
@@ -423,17 +484,16 @@ class MRT2Server:
             body = {"notes": None, "drums": None}
         if not isinstance(body, dict):
             raise ValueError("body must be an object or null")
+        moved = sorted({"cfg_notes", "cfg_drums"} & set(body))
+        if moved:
+            raise ValueError(f"{moved} moved to UpdateControls: {{\"cfg_scales\": {{\"notes\": ..., \"drums\": ...}}}}")
         lanes = {}
         for kind in ("notes", "drums"):
             if kind in body:
                 lanes[kind] = (None, True) if body[kind] is None else expand_lane(kind, body[kind])
-        cfg = {}
-        for key, name in (("cfg_notes", "notes"), ("cfg_drums", "drums")):
-            if body.get(key) is not None:
-                cfg[name] = min(7.0, max(-1.0, float(body[key])))
         if body.get("id"):
-            print(f"Pattern {body['id']}: {', '.join(lanes) or 'cfg only'}")
-        return {"type": "pattern", "lanes": lanes, "cfg": cfg, "id": body.get("id")}
+            print(f"Pattern {body['id']}: {', '.join(lanes) or 'nothing'}")
+        return {"type": "pattern", "lanes": lanes, "id": body.get("id")}
 
     async def _handle_ws(self, request):
         ws = web.WebSocketResponse(compress=False)  # float audio doesn't compress
@@ -486,15 +546,24 @@ class MRT2Server:
                 body = data.get("body") or {}
 
                 if msg_type == "StartSession":
+                    try:
+                        controls = parse_controls(body.get("controls") or {})
+                    except (ValueError, TypeError) as e:
+                        controls = {}
+                        await ws.send_str(json.dumps({"type": "Error", "body": {"error": f"StartSession controls: {e}"}}))
                     self._post({"type": "start", "emit": emit,
                                 "recipe": body.get("recipe") or DEFAULT_RECIPE,
-                                "controls": dict(body.get("controls") or {}),
+                                "controls": controls,
                                 "credits": int(body.get("credits", 3))})
                 elif msg_type == "UpdateRecipe":
                     if body.get("recipe"):
                         self._post({"type": "recipe", "recipe": dict(body["recipe"])})
                 elif msg_type == "UpdateControls":
-                    self._post({"type": "controls", "controls": dict(body)})
+                    try:
+                        self._post({"type": "controls", "controls": parse_controls(body)})
+                    except (ValueError, TypeError) as e:
+                        print(f"WS bad UpdateControls: {e}")
+                        await ws.send_str(json.dumps({"type": "Error", "body": {"error": f"UpdateControls: {e}"}}))
                 elif msg_type == "ReceivedChunk":
                     self._post({"type": "credit", "t": time.time()})  # when the block was played
                 elif msg_type in ("Pause", "Resume"):
