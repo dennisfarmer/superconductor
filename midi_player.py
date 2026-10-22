@@ -205,9 +205,9 @@ class Player:
             return 0.0
         return pos
 
-    async def _post(self, body):
+    async def _post(self, body, path="/pattern"):
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            async with session.post(f"{self.client_url}/pattern", json=body) as r:
+            async with session.post(f"{self.client_url}{path}", json=body) as r:
                 reply = await r.text()
                 if r.status != 200:
                     raise RuntimeError(f"client_midi {r.status}: {reply.strip()}")
@@ -216,10 +216,10 @@ class Player:
         song = self.song
         start_s = min(max(0.0, start_s), max(0.0, song.length_s - 1 / FPS))
         body = song.pattern(start_s, self.speed(), MODES[self.settings["mode"]], self.settings["loop"])
-        body["cfg_notes"] = self.settings["cfg_notes"]
         # a lane this player set before but the song doesn't use (drums) is handed back
         for lane in self._lanes - body.keys():
             body[lane] = None
+        await self._post({"cfg_scales": {"notes": self.settings["cfg_notes"]}}, "/controls")
         await self._post(body)
         self._lanes = {k for k in ("notes", "drums") if body.get(k) is not None}
         self.playing, self._start_s, self._since = True, start_s, time.time()
