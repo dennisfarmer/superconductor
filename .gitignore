@@ -9,3 +9,9 @@
 native/*
 !native/CMakeLists.txt
 !native/bungee_bridge.cpp
+!Makefile
+!conducting_web/
+!conducting_web/*
+!scripts/
+!scripts/*
+conducting_web/__pycache__/
