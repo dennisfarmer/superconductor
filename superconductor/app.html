@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SuperConductor</title>
+<title>SuperConductor — Tracking</title>
 <style>
   :root {
     --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #deded8;
@@ -41,7 +41,7 @@
 </head>
 <body>
 <header>
-  <h1>SuperConductor</h1>
+  <h1>SuperConductor — Tracking</h1>
   <nav id="links"><a href="/objects" target="_blank" rel="noopener">Objects</a></nav>
 </header>
 <main>
@@ -90,6 +90,11 @@ let detector = null, detectorState = "off";  // "starting" | "ready" | "unavaila
 let inFlight = false, lastSend = 0, seq = 0, overlay = null, overlayAt = 0;
 const sentAt = new Map();  // seq -> when it was captured
 const session = crypto.randomUUID();  // this page's detector; the client keeps its track ids apart
+window.scStats = stats;  // for checking from outside the tab (e.g. that it runs while hidden)
+// Frames straight from the camera track keep coming while this tab is hidden, when
+// requestAnimationFrame and the <video> stop; without it, frames are taken from the video.
+const fromTrack = typeof MediaStreamTrackProcessor !== "undefined";
+let frameReader = null, latestFrame = null;  // the newest VideoFrame not sent yet
 
 config = await fetch("/api/web").then(r => r.json()).catch(() => ({}));
 {
@@ -135,6 +140,21 @@ async function openCamera() {
   $("camera").innerHTML = cams.map((d, i) =>
     `<option value="${d.deviceId}" ${d.deviceId === current ? "selected" : ""}>${d.label || "camera " + (i + 1)}</option>`).join("");
   $("camera").hidden = cams.length < 2;
+  if (fromTrack) readFrames(stream.getVideoTracks()[0]);
+}
+
+// keeps only the newest camera frame, and sends it when the client is ready for one
+async function readFrames(track) {
+  if (frameReader) frameReader.cancel().catch(() => {});
+  const reader = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 }).readable.getReader();
+  frameReader = reader;
+  while (frameReader === reader) {
+    const { value, done } = await reader.read().catch(() => ({ done: true }));
+    if (done) break;
+    latestFrame?.close();
+    latestFrame = value;
+    pump();
+  }
 }
 
 function connectCamera() {
@@ -160,11 +180,14 @@ function connectCamera() {
   camWs.onclose = () => setTimeout(connectCamera, 1000);
 }
 
-// one frame at a time: capture, detect (if this page detects), send header + JPEG
-async function sendFrame() {
+// one frame at a time: capture, detect (if this page detects), send header + JPEG.
+// `frame`: a VideoFrame from the track (closed here), or none: the video as shown
+async function sendFrame(frame) {
   const video = $("video"), canvas = $("frame");
-  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0);
+  canvas.width = frame ? frame.displayWidth : video.videoWidth;
+  canvas.height = frame ? frame.displayHeight : video.videoHeight;
+  canvas.getContext("2d").drawImage(frame || video, 0, 0);
+  frame?.close();
   const id = ++seq;
   sentAt.set(id, performance.now());
   const detect = useDetector();
@@ -185,15 +208,21 @@ async function sendFrame() {
   stats.sent++;
 }
 
-function frameLoop() {
+// the next frame once the last was answered; give up on a lost one after a second
+function pump() {
   const now = performance.now();
-  // the next frame once the last was answered; give up on a lost one after a second
-  if (camWs && camWs.readyState === 1 && $("video").videoWidth && detectorState !== "starting" &&
-      (!inFlight || now - lastSend > 1000)) {
+  if (camWs && camWs.readyState === 1 && detectorState !== "starting" && (!inFlight || now - lastSend > 1000) &&
+      (fromTrack ? latestFrame : $("video").videoWidth)) {
     inFlight = true;
     lastSend = now;
-    sendFrame().catch(e => { console.warn(e); inFlight = false; });
+    const frame = latestFrame;
+    latestFrame = null;
+    sendFrame(frame).catch(e => { console.warn(e); inFlight = false; });
   }
+}
+
+function frameLoop() {
+  if (!fromTrack) pump();
   draw();
   requestAnimationFrame(frameLoop);
 }

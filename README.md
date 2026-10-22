@@ -149,7 +149,7 @@ Run `make server`, then `make client` (music only plays while a client is connec
 | Link | What it shows |
 |---|---|
 | http://localhost:8467/objects | Objects page (names, descriptions, instruments) |
-| http://localhost:9100/tempo | Tempo test page: make the music match a bpm, see the current bpm |
+| http://localhost:9100/tempo | Tempo View page: make the music match a bpm, see the current bpm |
 | http://localhost:9100/conduct | Conductor window: space bar = one beat (also opens from the tempo page) |
 
 With the server on lh2300 (tunnel), use port `9000` instead of `9100`.
