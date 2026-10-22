@@ -3,12 +3,26 @@
 # client-web. GitHub's runners are x86_64, so linux/amd64 builds natively.
 #
 # The describe server and the MIDI player come from their own branches as they are.
-# After those branches change, push to client-web to rebuild (an empty commit does it).
+# To rebuild without pushing (e.g. after those branches change), anyone with write
+# access can press "Run workflow" on the repo's Actions tab. GitHub only shows that
+# button for workflows on the default branch (client), so this file lives on both
+# client and client-web, and it always builds client-web whichever branch runs it.
+#
+# ghcr.io keeps only the current image: each push moves the tag, and the old image,
+# now untagged, is deleted. Provenance and SBOM are off so the tag is one plain
+# manifest; with them on, the tag points at untagged child manifests that the
+# cleanup would delete, breaking the image.
 name: client-web image
 
 on:
   push:
     branches: [client-web]
+  workflow_dispatch:
+
+# one build at a time; a second press waits instead of racing the first
+concurrency:
+  group: client-web-image
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -20,6 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: client-web
           path: client
       - uses: actions/checkout@v4
         with:
@@ -56,5 +71,14 @@ jobs:
             atlas=atlas
           push: true
           tags: ghcr.io/dennisfarmer/superconductor:client-web
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: superconductor
+          package-type: container
+          min-versions-to-keep: 0
+          delete-only-untagged-versions: 'true'

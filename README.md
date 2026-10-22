@@ -90,9 +90,9 @@ In every setup the browser (Chrome) is the camera, the view and the speakers.
 
 ## 4. Client and music server on lh2300 (Singularity)
 
-**One time, the image** (it can't be built on Lighthouse, which has no Docker and no fakeroot). Either:
-- push `client-web` to GitHub, and GitHub Actions builds and pushes `ghcr.io/dennisfarmer/superconductor:client-web` (the `describe`, `midi_experiment_dennis` and `atlas` branches must be on GitHub too), or
-- on the Mac: `git clone https://github.com/dennisfarmer/superconductor.git superconductor_client`, `cd superconductor_client && make worktrees`, `cd ../superconductor_client_web`, `docker login ghcr.io -u dennisfarmer` (a GitHub token with `write:packages`), then `make image-push`.
+**The image** (it can't be built on Lighthouse, which has no Docker and no fakeroot). GitHub builds it and keeps the one current copy at `ghcr.io/dennisfarmer/superconductor:client-web`:
+- Every push to `client-web` rebuilds it.
+- To rebuild without pushing (e.g. after the `describe`, `midi_experiment_dennis` or `atlas` branches change): on GitHub, **Actions** → **client-web image** → **Run workflow**. Anyone with write access to the repo can press it. The build takes about 10–20 minutes.
 
 **One time, on lh2300** (in your session there):
 1. `cd /scratch/aimusic_project_root/aimusic_project/shared_data`

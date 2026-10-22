@@ -110,7 +110,9 @@ On the Mac this runs under emulation (QEMU), so it is slow, especially installin
 
 ### GitHub Actions
 
-`.github/workflows/client-web-image.yml` builds the image on GitHub's x86_64 runners and pushes it to ghcr.io on every push to `client-web`, so nobody builds by hand. It takes the describe server, the MIDI player and Atlas from the `describe`, `midi_experiment_dennis` and `atlas` branches as they are. After those change, push to `client-web` to rebuild (an empty commit is enough). Then, on lh2300, `make sif` again.
+`.github/workflows/client-web-image.yml` builds the image on GitHub's x86_64 runners and pushes it to ghcr.io on every push to `client-web`, so nobody builds by hand. It takes the describe server, the MIDI player and Atlas from the `describe`, `midi_experiment_dennis` and `atlas` branches as they are. To rebuild without pushing (e.g. after those change), open the repo's **Actions** tab on GitHub, pick **client-web image**, and press **Run workflow**. Anyone with write access to the repo can do this; nobody needs Docker or a token. Then, on lh2300, `make sif` again.
+
+ghcr.io holds only the current image. Each build moves the `client-web` tag to the new image, and the workflow then deletes the old one, which is now untagged. That's why the builds turn off provenance and SBOM attestations: with them on, the tag would point at untagged child manifests, and the cleanup would delete those too and break the image. After a `make image-push`, the old image stays until the next workflow run.
 
 If the ghcr.io package is private, log in first with `singularity remote login --username <github user> docker://ghcr.io`, using a GitHub token with `read:packages`.
 

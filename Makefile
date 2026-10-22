@@ -105,7 +105,7 @@ test: check-env
 
 client-web: client
 
-IMAGE_BUILD := docker buildx build --platform linux/amd64 \
+IMAGE_BUILD := docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
 	--build-context describe=$(DESCRIBE_DIR) --build-context midi=$(MIDI_DIR) \
 	--build-context atlas=$(ATLAS_DIR) \
 	-f container/Dockerfile -t $(IMAGE) .
