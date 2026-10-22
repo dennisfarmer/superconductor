@@ -19,7 +19,12 @@
 #                     the running client's notes input, page on http://localhost:8475
 #   make worktrees    server / describe / midi_experiment_dennis / client-web branches into ../superconductor_server,
 #                     ../superconductor_describe, ../superconductor_midi (local branch superconductor_midi),
-#                     ../superconductor_client_web
+#                     ../superconductor_client_web; Wenjue's tempo-live-conductor into
+#                     ../superconductor_conducting, conducting_sendtoserver into
+#                     ../superconductor_conducting_sendtoserver
+#   make conduct      conducting page (../superconductor_conducting_sendtoserver/Makefile): browser
+#                     hand tracking sets the MRT2 server's tempo, page on http://localhost:8480;
+#                     make conduct-remote: to the server through the Lighthouse tunnel (:9000)
 #   make vision       tracking only, no music
 #   make test         unit tests: tracking / library / combos, the web client, tracker_js
 #
@@ -44,6 +49,8 @@ DESCRIBE_DIR := ../superconductor_describe
 MIDI_DIR := ../superconductor_midi
 CLIENT_WEB_DIR := ../superconductor_client_web
 ATLAS_DIR := ../superconductor_atlas
+CONDUCTING_DIR := ../superconductor_conducting
+CONDUCT_DIR := ../superconductor_conducting_sendtoserver
 IMAGE ?= ghcr.io/dennisfarmer/superconductor:client-web
 SIF ?= superconductor_client-web.sif
 # where the MRT2 server is, seen from inside the container: the laptop's SSH tunnel
@@ -54,7 +61,7 @@ OLLAMA_URL ?=
 GPUS ?= $(if $(filter Darwin,$(shell uname -s)),,--gpus all)
 SC_DATA ?= /scratch/aimusic_project_root/aimusic_project/shared_data/sc_data_$(USER)
 
-.PHONY: worktrees server describe midi client client-remote vision test check-env audio web-deps web-model \
+.PHONY: worktrees server describe midi conduct conduct-remote client client-remote vision test check-env audio web-deps web-model \
 	client-web image image-push client-docker client-docker-stop sif client-singularity
 
 worktrees:
@@ -67,6 +74,10 @@ worktrees:
 		|| git worktree add --track -b superconductor_midi $(MIDI_DIR) origin/midi_experiment_dennis; }
 	@test -e $(CLIENT_WEB_DIR) || git worktree add $(CLIENT_WEB_DIR) client-web
 	@test -e $(ATLAS_DIR) || git worktree add $(ATLAS_DIR) atlas
+	@test -e $(CONDUCTING_DIR) || git worktree add $(CONDUCTING_DIR) tempo-live-conductor
+	@test -e $(CONDUCT_DIR) || { git show-ref -q --verify refs/heads/conducting_sendtoserver \
+		&& git worktree add $(CONDUCT_DIR) conducting_sendtoserver \
+		|| git worktree add --track -b conducting_sendtoserver $(CONDUCT_DIR) origin/conducting_sendtoserver; }
 	@git config push.default upstream
 	@git worktree list
 
@@ -79,6 +90,12 @@ describe:
 
 midi:
 	$(MAKE) -C $(MIDI_DIR) player ENV_NAME=$(ENV_NAME)
+
+conduct:
+	$(MAKE) -C $(CONDUCT_DIR) conduct ENV_NAME=$(ENV_NAME)
+
+conduct-remote:
+	$(MAKE) -C $(CONDUCT_DIR) conduct-remote ENV_NAME=$(ENV_NAME)
 
 client: check-env web-deps
 	$(IN_ENV) sc-collab $(ARGS)
