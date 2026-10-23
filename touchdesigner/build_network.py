@@ -3,8 +3,8 @@
 
     exec(open('/path/to/superconductor_touchdesigner/touchdesigner/build_network.py').read())
 
-It creates /project1/superconductor (replacing an earlier one), then you save the
-project as touchdesigner/superconductor.toe. Inside:
+It creates /project1/superconductor (replacing an earlier one); save it as
+touchdesigner/superconductor.tox (TOUCHDESIGNER_SETUP.md). Inside:
 
   audio     SC Playback plugin (Audio VST CHOP): the music, as two audio channels.
             Starts as a monitor (plays along with the DAW's copy); pulse
@@ -189,7 +189,7 @@ def _table_chop(parent, name, table, columns, x=0, y=0):
 
 def add_camera(parent=None, device=None):
     """adds the next Video Device In TOP (camera2, camera3, ...); pick its Device on the op"""
-    parent = parent or op('/project1/superconductor')
+    parent = parent or op('/project1/superconductor') or op('/superconductor')
     n = 1
     while parent.op(f'camera{n}') is not None:
         n += 1
@@ -201,8 +201,9 @@ def add_camera(parent=None, device=None):
     return cam
 
 
-def build(parent_path='/project1'):
-    parent = op(parent_path)
+def build(parent_path=None):
+    # /project1 in a normal project; the root when TouchDesigner was opened another way
+    parent = op(parent_path) if parent_path else (op('/project1') or op('/'))
     old = parent.op('superconductor')
     if old is not None:
         old.destroy()
@@ -211,6 +212,7 @@ def build(parent_path='/project1'):
     # audio: the plugin, as a monitor (its own default inside TouchDesigner)
     audio = sc.create(audiovstCHOP, 'audio')
     audio.par.file = PLUGIN
+    audio.par.rate = 48000  # the stream's rate: the plugin then passes it through unchanged
     audio.nodeX, audio.nodeY = 0, 0
 
     osc = sc.create(oscinCHOP, 'osc')

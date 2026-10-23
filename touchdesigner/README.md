@@ -12,15 +12,7 @@ What TouchDesigner gets, and from where. Audio and data travel separately: the a
 
 ## Setup
 
-1. Build the plugin on the `playback` branch (`make playback-build`). It's installed to `~/Library/Audio/Plug-Ins/VST3/SC Playback.vst3`.
-2. In TouchDesigner, open the Textport (**Dialogs → Textport and DATs**) and run:
-   ```python
-   exec(open('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/build_network.py').read())
-   ```
-   This builds `/project1/superconductor`, replacing an earlier one.
-3. Save the project as `touchdesigner/superconductor.toe`.
-
-Edit the addresses at the top of `build_network.py` to use other hosts or ports.
+`TOUCHDESIGNER_SETUP.md`: what to run inside TouchDesigner, step by step. In short: build the plugin, start the services, then drag `superconductor.tox` into your project (or rebuild it with `build_network.py` from the Textport).
 
 ## What's inside `/project1/superconductor`
 
@@ -36,7 +28,7 @@ Edit the addresses at the top of `build_network.py` to use other hosts or ports.
   - `hand_points`: hand, handedness, point (0–20, MediaPipe's numbering), x, y, z.
   - `conduct`: connected, seq, bpm, speed, released, status, …
   - `hand_points_chop`: one sample per point (hand, point, x, y, z).
-- **`camera1`**: the first webcam (AVFoundation on Mac, Media Foundation on Windows). Pick another under **Device**. Add more from the Textport with `add_camera()`. The camera page's own camera can be opened here too; if a camera can't be shared, an OBS virtual camera can duplicate it.
+- **`camera1`**: the first webcam (AVFoundation on Mac, Media Foundation on Windows). Pick another under **Device**. For more cameras, copy it and pick each copy's Device.
 
 **Coordinates:** all positions are 0–1 of the camera image, with x to the right and **y down** (image rows), not mirrored. Use `1 - y` for TouchDesigner's y-up space.
 
