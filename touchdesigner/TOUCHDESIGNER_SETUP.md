@@ -27,38 +27,38 @@ It holds three components, each loaded from its file in this folder when the pro
 
 | Component | File | What |
 |---|---|---|
-| `/superconductor` | `superconductor.tox` | the network: audio, OSC, tracking, hands, webcams |
+| `/inputs` | `inputs.tox` | everything SuperConductor sends: audio, OSC, tracking, hands, webcams |
 | `/demo` | `demo.tox` | a demo drawing all of it over the webcam (below) |
 | `/mcp_webserver_base` | `mcp/mcp_webserver_base.tox` | lets Claude Code work in this TouchDesigner (below) |
 
 Both are linked by paths relative to the project, so keep the files where they are, and save the project in this folder (**Cmd+S**). TouchDesigner also writes numbered copies (`superconductor.1.toe`, …) and a `Backup/` folder; git ignores them.
 
-**`superconductor.tox` is the network's source.** The project reloads it every time it opens, so changes you make inside `/superconductor` are lost unless you save the component back to its file: right-click it → **Save Component .tox**, or in the Textport:
+**`inputs.tox` is the inputs component's source.** The project reloads it every time it opens, so changes you make inside `/inputs` are lost unless you save the component back to its file: right-click it → **Save Component .tox**, or in the Textport:
 ```python
-op('/superconductor').save('superconductor.tox')
+op('/inputs').save('inputs.tox')
 ```
 
 ### Using it in another project
 
-Drag `superconductor.tox` into that project's network editor. Or, in its Textport:
+Drag `inputs.tox` into that project's Network Editor. Or, in its Textport:
 ```python
 op('/project1').loadTox('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/superconductor.tox')
 ```
 
 ### Rebuilding it from the script
 
-After changing `build_network.py` (e.g. other ports):
+After changing `build_inputs.py` (e.g. other ports):
 1. Open the Textport: menu **Dialogs → Textport and DATs** (or **⌥T**).
 2. Paste this line and press Return:
    ```python
    exec(open('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/build_network.py').read())
    ```
-   It prints `built /superconductor: ...` and replaces the earlier copy, keeping its link to `superconductor.tox`.
+   It prints `built /inputs: ...` and replaces the earlier copy, keeping its link to `inputs.tox`.
 3. Save the component to its file, as above.
 
 ## The demo
 
-`/demo` draws everything the network receives over the webcam:
+`/demo` draws everything `/inputs` receives over the webcam:
 - **MediaPipe hands:** the points, with bigger fingertips; orange is the right hand, blue the left. They grow with the music's loudness.
 - **Tracking:** the camera page's tracked objects in their colour, and hand boxes in cyan.
 - **Frequency bands:** bars, bottom left.
@@ -74,8 +74,8 @@ After changing `build_network.py` (e.g. other ports):
 
 ## The plugin's settings
 
-1. Double-click `superconductor` to go inside it, and click the **`audio`** operator.
-2. In its parameters (press **p** if they're hidden), on the **VST** page, click **Display Plugin GUI**. In the Textport, that's `op('/superconductor/audio').par.displaygui.pulse()`.
+1. Double-click `inputs` to go inside it, and click the **`audio`** operator.
+2. In its parameters (press **p** if they're hidden), on the **VST** page, click **Display Plugin GUI**. In the Textport, that's `op('/inputs/audio').par.displaygui.pulse()`.
 3. In the plugin window:
    - **Role.** It starts as **Monitor**: it plays along with the copy in your DAW, which is the **Clock** and sets the pace. With no DAW (and no camera page or SC Playback app playing), switch it to **Clock**, or nothing plays.
    - **Send OSC.** Turn it on in **one** copy only: here, or in the DAW's copy. That's what fills the `osc` operator.
@@ -93,7 +93,7 @@ The plugin's settings are saved with the project.
 
 ## Checking it works
 
-Inside `superconductor`:
+Inside `inputs`:
 
 | Look at | You should see |
 |---|---|
@@ -115,7 +115,7 @@ Inside `superconductor`:
 
 ## Claude Code in TouchDesigner (MCP)
 
-With `superconductor.toe` open, Claude Code can build, inspect and test the network itself, through the TouchDesigner MCP plugin (install: `../TOUCHDESIGNER_MCP_PLUGIN.md`; host `127.0.0.1`, port `9981`).
+With `superconductor.toe` open, Claude Code can build, inspect and test the project itself, through the TouchDesigner MCP plugin (install: `../TOUCHDESIGNER_MCP_PLUGIN.md`; host `127.0.0.1`, port `9981`).
 
 - **The component is pinned to v2.0.0** of touchdesigner-mcp, matching the plugin's MCP server. It's committed in `mcp/` as downloaded from the release (Python files and a `.tox`, the same on Mac and Windows). To change versions, replace `mcp/` with the matching release's `touchdesigner-mcp-td.zip`.
 - **It accepts commands from any machine on the network**, with no password: it listens on port 9981 on all network interfaces and runs whatever Python it's sent. Switch it off when you don't need it, and always on shared Wi-Fi or at a show: select `/mcp_webserver_base` and turn **Active** off. Then save, so it stays off.

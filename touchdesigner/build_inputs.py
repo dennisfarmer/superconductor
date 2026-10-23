@@ -1,10 +1,10 @@
-"""Builds the SuperConductor network in TouchDesigner. Run it once from the Textport
-(Dialogs > Textport and DATs):
+"""Builds the inputs component: everything SuperConductor sends, in TouchDesigner.
+Run it once from the Textport (Dialogs > Textport and DATs):
 
-    exec(open('/path/to/superconductor_touchdesigner/touchdesigner/build_network.py').read())
+    exec(open('/path/to/superconductor_touchdesigner/touchdesigner/build_inputs.py').read())
 
-It creates /project1/superconductor (replacing an earlier one); save it as
-touchdesigner/superconductor.tox (TOUCHDESIGNER_SETUP.md). Inside:
+It creates /project1/inputs (replacing an earlier one); save it as
+touchdesigner/inputs.tox (TOUCHDESIGNER_SETUP.md). Inside:
 
   audio     SC Playback plugin (Audio VST CHOP): the music, as two audio channels.
             Starts as a monitor (plays along with the DAW's copy); pulse
@@ -189,7 +189,7 @@ def _table_chop(parent, name, table, columns, x=0, y=0):
 
 def add_camera(parent=None, device=None):
     """adds the next Video Device In TOP (camera2, camera3, ...); pick its Device on the op"""
-    parent = parent or op('/project1/superconductor') or op('/superconductor')
+    parent = parent or op('/project1/inputs') or op('/inputs')
     n = 1
     while parent.op(f'camera{n}') is not None:
         n += 1
@@ -204,13 +204,13 @@ def add_camera(parent=None, device=None):
 def build(parent_path=None):
     # /project1 in a normal project; the root when TouchDesigner was opened another way
     parent = op(parent_path) if parent_path else (op('/project1') or op('/'))
-    old = parent.op('superconductor')
+    old = parent.op('inputs')
     linked = old.par.externaltox.eval() if old is not None else ''
     if old is not None:
         old.destroy()
-    sc = parent.create(baseCOMP, 'superconductor')
+    sc = parent.create(baseCOMP, 'inputs')
     if linked:
-        # keep the link to the .tox file (superconductor.toe loads the network from it)
+        # keep the link to the .tox file (superconductor.toe loads the component from it)
         sc.par.externaltox = linked
         sc.par.enableexternaltox = True
 

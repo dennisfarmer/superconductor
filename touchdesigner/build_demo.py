@@ -1,9 +1,9 @@
-"""Builds the demo: everything the network receives, drawn over the webcam. Run it from
-the Textport (Dialogs > Textport and DATs) after build_network.py:
+"""Builds the demo: everything `inputs` receives, drawn over the webcam. Run it from
+the Textport (Dialogs > Textport and DATs) after build_inputs.py:
 
     exec(open('/path/to/superconductor_touchdesigner/touchdesigner/build_demo.py').read())
 
-It creates `demo` next to `superconductor` (replacing an earlier one); save it as
+It creates `demo` next to `inputs` (replacing an earlier one); save it as
 touchdesigner/demo.tox (TOUCHDESIGNER_SETUP.md). What it draws:
 
   webcam      camera1, as the background
@@ -54,7 +54,7 @@ def num(cell, default=0.0):
 
 
 def osc(name, default=0.0):
-    c = op('../superconductor/osc')
+    c = op('../inputs/osc')
     ch = c[name] if c is not None else None
     return ch.eval() if ch is not None else default
 ''' % ASPECT
@@ -62,7 +62,7 @@ def osc(name, default=0.0):
 HANDS = COMMON + '''
 
 def onCook(scriptOp):
-    t = op('../superconductor/hand_points')
+    t = op('../inputs/hand_points')
     level = osc('sc/level')
     cols = {k: [] for k in ('tx', 'ty', 'sx', 'r', 'g', 'b')}
     for i in range(1, t.numRows):
@@ -99,11 +99,11 @@ def onCook(scriptOp):
         for k, v in zip('rgb', rgb):
             cols[k].append(v)
 
-    objects = op('../superconductor/objects')
+    objects = op('../inputs/objects')
     for i in range(1, objects.numRows):
         box(*(num(objects[i, k]) for k in ('x1', 'y1', 'x2', 'y2')),
             hex_rgb(objects[i, 'color'].val, (1.0, 1.0, 1.0)))
-    hands = op('../superconductor/hand_boxes')
+    hands = op('../inputs/hand_boxes')
     for i in range(1, hands.numRows):
         box(*(num(hands[i, k]) for k in ('x1', 'y1', 'x2', 'y2')), (0.3, 0.9, 1.0))
     channels(scriptOp, cols)
@@ -112,7 +112,7 @@ def onCook(scriptOp):
 BARS = COMMON + '''
 
 def onCook(scriptOp):
-    c = op('../superconductor/osc')
+    c = op('../inputs/osc')
     bands = [ch.eval() for ch in c.chans('sc/bands*')] if c is not None else []
     left, width, gap, tallest = 0.03, 0.30, 0.004, 0.14
     w = width / max(1, len(bands))
@@ -176,14 +176,14 @@ def cell(table, row):
 
 
 def line():
-    osc = '../superconductor/osc'
+    osc = '../inputs/osc'
     return '{:.0f} BPM   beat {}/{}   level {:.2f}   conductor: {}   {}'.format(
         value(osc, 'sc/tempo/bpm'),
         int(value(osc, 'sc/tempo/beat')) + 1,
         int(value(osc, 'sc/tempo/beats_per_bar', 4)),
         value(osc, 'sc/level'),
-        cell('../superconductor/conduct', 'status') or '-',
-        cell('../superconductor/tracking_info', 'message'))
+        cell('../inputs/conduct', 'status') or '-',
+        cell('../inputs/tracking_info', 'message'))
 '''
 
 
@@ -233,8 +233,8 @@ def _shapes(parent, name, sop_type, chop, material, x, y, scale_y=None):
 
 def build_demo(parent=None):
     parent = parent or op('/project1') or op('/')
-    if parent.op('superconductor') is None:
-        raise RuntimeError('run build_network.py first: demo reads from superconductor')
+    if parent.op('inputs') is None:
+        raise RuntimeError('run build_inputs.py first: demo reads from inputs')
     old = parent.op('demo')
     linked = old.par.externaltox.eval() if old is not None else ''
     if old is not None:
@@ -278,7 +278,7 @@ def build_demo(parent=None):
 
     # the picture: webcam, shapes, text, flash
     webcam = demo.create(selectTOP, 'webcam')
-    webcam.par.top = '../superconductor/camera1'
+    webcam.par.top = '../inputs/camera1'
     webcam.nodeX, webcam.nodeY = 1000, 0
 
     text = demo.create(textDAT, 'info_text')
@@ -320,7 +320,7 @@ def build_demo(parent=None):
     window.par.closeescape = True  # Esc leaves full screen
     window.nodeX, window.nodeY = 2000, -300
 
-    # the container shows the result in the network editor and in perform mode
+    # the container shows the result in the Network Editor and in perform mode
     demo.par.w, demo.par.h = W, H
     demo.par.top = out
     print(f'built {demo.path}: open {window.path} (pulse Open) for full screen')
