@@ -598,12 +598,19 @@ class CollabFrontend:
                     param.identity = None
                 self.calibration.start()
 
+    def atlas_prompts(self):
+        """style prompts set by SuperConductor Atlas (client_midi POST /prompts, e.g. the
+        Drums page's {"drums": 0..1})"""
+        return self.magenta.prompts if self.magenta else {}
+
     def recipe(self):
-        """style weights sent to MRT2: base prompt, test beat, objects and combos"""
+        """style weights sent to MRT2: base prompt, test beat, objects, combos and Atlas"""
         music = self.cfg["music"]
         recipe = self.mapper.recipe(music["base_prompt"], music["base_weight"])
         if self.settings["test_beat"]:  # always-on test sound (checkbox on the objects page)
             recipe[TEST_BEAT] = recipe.get(TEST_BEAT, 0.0) + 1.0
+        for prompt, weight in self.atlas_prompts().items():
+            recipe[prompt] = recipe.get(prompt, 0.0) + weight
         return recipe
 
     def mrt2_input(self):
@@ -617,6 +624,8 @@ class CollabFrontend:
             rows.append((music["base_prompt"], "base", music["base_weight"], (200, 200, 200)))
         if self.settings["test_beat"]:
             rows.append((TEST_BEAT, "test beat", 1.0, (120, 200, 255)))
+        for prompt, weight in self.atlas_prompts().items():
+            rows.append((prompt, "atlas", weight, (80, 180, 255)))
         for param in self.mapper.parameters:
             combo = self.mapper.combo_for(param.identity) if isinstance(param.identity, int) else None
             if param.identity is None and param.owner and param.owner.startswith("#"):
@@ -800,6 +809,7 @@ class CollabFrontend:
                     # status flowing
                     if self.magenta is not None:
                         self.magenta.poll_stats()
+                        self.send()  # Atlas's prompts reach MRT2 without a camera page too
                     self.apply_panel_actions()
                     self.apply_describe_results()
                     self.publish_panel(time.time())

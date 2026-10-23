@@ -17,10 +17,19 @@ credits * frames_per_block * 40ms plus the one-way network delay. Buffered
 audio is never dropped on a recipe change: the model state has already moved
 past it, so dropping it would be an audible jump.
 
+Until the server answers (it may still be loading the model, or not started yet), and
+again whenever it goes away, the child process retries every RETRY_S seconds;
+client_midi stays up meanwhile, so the order things are started in doesn't matter.
+
 client_midi: the child process also serves a small HTTP API (default port 8470)
 through which another program (e.g. SuperConductor Atlas) gives MRT2 its NOTES and
 DRUMS input, while this client keeps providing the prompts:
     POST /pattern   Pattern body (see mrt2_server.py), forwarded to the server
+    POST /controls  UpdateControls body ({temperature?, top_k?, cfg_scales?}), forwarded
+                    to the server
+    POST /prompts   {prompt: weight, ...}: extra style prompts, added to the recipe this
+                    client sends (collab.CollabFrontend.recipe, source "atlas"); weight 0
+                    removes a prompt. Each POST replaces the previous set.
     GET  /status    {connected, model, last_pattern_id}
     GET  /input     the prompts and controls this client sends to MRT2, as its camera
                     overlay shows them (collab.CollabFrontend.mrt2_input):
@@ -48,6 +57,7 @@ from collections import deque
 
 SAMPLE_RATE = 48000
 CHANNELS = 2
+RETRY_S = 2.0  # between attempts to reach the MRT2 server
 
 logger = logging.getLogger(__name__)
 
@@ -149,10 +159,10 @@ class AudioSinks:
         return ws
 
 
-async def _start_client_midi(port, link, sinks):
+async def _start_client_midi(port, link, sinks, stats_q):
     """HTTP front door for note sources; `link` holds the server websocket once
     connected ({"ws", "model", "last_pattern_id"}). Also WS /audio for the players
-    (`sinks`, an AudioSinks)."""
+    (`sinks`, an AudioSinks). POST /prompts goes to the parent over `stats_q`."""
     from aiohttp import web
 
     cors = {"Access-Control-Allow-Origin": "*",
@@ -184,6 +194,30 @@ async def _start_client_midi(port, link, sinks):
         link["last_pattern_id"] = (body or {}).get("id")
         return reply({"ok": True})
 
+    async def controls(request):
+        try:
+            body = await request.json()
+        except ValueError:
+            return reply({"ok": False, "error": "body must be JSON"}, 400)
+        if not isinstance(body, dict):
+            return reply({"ok": False, "error": "body must be an object"}, 400)
+        ws = link.get("ws")
+        if ws is None:
+            return reply({"ok": False, "error": "not connected to the MRT2 server"}, 503)
+        await ws.send(json.dumps({"type": "UpdateControls", "body": body}))
+        return reply({"ok": True})
+
+    async def prompts(request):
+        try:
+            body = await request.json()
+            weights = {str(p): float(w) for p, w in body.items()}
+        except (ValueError, TypeError, AttributeError):
+            return reply({"ok": False, "error": "body must be an object of prompt: weight"}, 400)
+        if any(w < 0 for w in weights.values()):
+            return reply({"ok": False, "error": "weights must be >= 0"}, 400)
+        stats_q.put({"prompts": {p: w for p, w in weights.items() if w > 0}})
+        return reply({"ok": True})
+
     async def options(_request):
         return web.Response(status=204, headers=cors)
 
@@ -191,12 +225,14 @@ async def _start_client_midi(port, link, sinks):
     app.router.add_get("/status", status)
     app.router.add_get("/input", input_view)
     app.router.add_post("/pattern", pattern)
+    app.router.add_post("/controls", controls)
+    app.router.add_post("/prompts", prompts)
     app.router.add_route("OPTIONS", "/{tail:.*}", options)
     app.router.add_get("/audio", sinks.handle)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, "127.0.0.1", port).start()
-    print(f"client_midi on http://localhost:{port} (POST /pattern, WS /audio)")
+    print(f"client_midi on http://localhost:{port} (POST /pattern /controls /prompts, WS /audio)")
     return runner
 
 
@@ -208,17 +244,54 @@ async def _client_main(control_q, stats_q, uri, credits, midi_port):
     if not midi_port:
         raise RuntimeError("midi_port is needed: the players connect to client_midi's /audio")
     try:
-        midi = await _start_client_midi(midi_port, link, sinks)
+        midi = await _start_client_midi(midi_port, link, sinks, stats_q)
     except OSError as e:
         raise RuntimeError(f"client_midi: port {midi_port} unavailable ({e}); the players need it") from e
     try:
-        await _stream(control_q, stats_q, uri, credits, link, websockets, sinks)
+        reported = False  # the current outage was printed
+        while True:
+            try:
+                if await _stream(control_q, stats_q, uri, credits, link, websockets, sinks):
+                    return  # stop
+                error = "it went away"
+            except (OSError, asyncio.TimeoutError, websockets.exceptions.WebSocketException) as e:
+                error = f"not reachable ({e})"
+            if link.pop("ws", None) is not None:  # was connected: a new outage
+                stats_q.put({"disconnected": True})
+                reported = False
+            if not reported:
+                print(f"MRT2 server at {uri}: {error}; retrying every {RETRY_S:.0f} s")
+                reported = True
+            if await _wait_for_retry(control_q, link):
+                return  # stop
     finally:
         link.clear()
         await midi.cleanup()
 
 
+async def _wait_for_retry(control_q, link):
+    """Sleep RETRY_S while not connected, still taking control messages: True on "stop".
+    The page's input view is kept; recipes, controls and pauses are dropped (the
+    parent sends the recipe again every update_interval)."""
+    deadline = asyncio.get_running_loop().time() + RETRY_S
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            msg = control_q.get_nowait()
+        except queue.Empty:
+            await asyncio.sleep(0.05)
+            continue
+        if msg["type"] == "stop":
+            return True
+        if msg["type"] == "input_view":
+            link["input"] = msg["view"]
+    return False
+
+
 async def _stream(control_q, stats_q, uri, credits, link, websockets, sinks):
+    """One session with the server. True when it ended on "stop", False when the
+    server went away (connection errors while connecting are raised)."""
+    sinks.pending.clear()  # blocks of an earlier session aren't acked to this one
+    sinks.acks = asyncio.Queue()
     async with websockets.connect(uri, compression=None, max_size=None) as ws:
         ready = json.loads(await ws.recv())
         stats_q.put({"ready": True, **ready["body"]})
@@ -252,7 +325,7 @@ async def _stream(control_q, stats_q, uri, credits, link, websockets, sinks):
                     continue
                 if msg["type"] == "stop":
                     await ws.send(json.dumps({"type": "EndSession", "body": None}))
-                    return
+                    return True
                 if msg["type"] == "recipe":
                     await ws.send(json.dumps({"type": "UpdateRecipe",
                                               "body": {"recipe": msg["recipe"]}}))
@@ -274,6 +347,8 @@ async def _stream(control_q, stats_q, uri, credits, link, websockets, sinks):
         finally:
             for t in tasks:
                 t.cancel()
+        control = tasks[2]
+        return control.done() and not control.cancelled() and control.exception() is None and bool(control.result())
 
 
 # =========================
@@ -303,6 +378,7 @@ class MagentaClient:
         self.info = {}  # the server's Ready message: model, backend, ...
         self.stats = {}
         self.paused = False
+        self.prompts = {}  # extra style prompts from client_midi's POST /prompts (Atlas)
 
     def start(self):
         self._process.start()
@@ -318,6 +394,8 @@ class MagentaClient:
                     print(f"MagentaRT2 ready: {msg.get('model')} ({msg.get('backend')})")
                 elif msg.get("disconnected"):
                     self.connected = False
+                elif "prompts" in msg:
+                    self.prompts = msg["prompts"]
                 else:
                     self.stats = msg
         except queue.Empty:

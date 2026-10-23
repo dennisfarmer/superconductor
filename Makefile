@@ -17,6 +17,9 @@
 #                     VLM descriptions of new objects; needs Ollama running
 #   make midi         MIDI player (../superconductor_midi/Makefile): plays .mid files through
 #                     the running client's notes input, page on http://localhost:8475
+#   make atlas        SuperConductor Atlas (../superconductor_atlas, its make start): engine as the
+#                     running client's note / drum source, page on http://localhost:8000; stop it
+#                     with make -C ../superconductor_atlas stop
 #   make worktrees    server / describe / midi_experiment_dennis / client-web branches into ../superconductor_server,
 #                     ../superconductor_describe, ../superconductor_midi (local branch superconductor_midi),
 #                     ../superconductor_client_web; Wenjue's tempo-live-conductor into
@@ -61,7 +64,7 @@ OLLAMA_URL ?=
 GPUS ?= $(if $(filter Darwin,$(shell uname -s)),,--gpus all)
 SC_DATA ?= /scratch/aimusic_project_root/aimusic_project/shared_data/sc_data_$(USER)
 
-.PHONY: worktrees server describe midi conduct conduct-remote client client-remote vision test check-env audio web-deps web-model \
+.PHONY: worktrees server describe midi atlas conduct conduct-remote client client-remote vision test check-env audio web-deps web-model \
 	client-web image image-push client-docker client-docker-stop sif client-singularity
 
 worktrees:
@@ -90,6 +93,9 @@ describe:
 
 midi:
 	$(MAKE) -C $(MIDI_DIR) player ENV_NAME=$(ENV_NAME)
+
+atlas:
+	$(MAKE) -C $(ATLAS_DIR) start
 
 conduct:
 	$(MAKE) -C $(CONDUCT_DIR) conduct ENV_NAME=$(ENV_NAME)
