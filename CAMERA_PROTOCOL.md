@@ -87,3 +87,9 @@ Boxes are where the objects were when the frame was taken, so on screen they tra
 ```
 
 The client sends this when it can't parse a frame message. The frame is skipped.
+
+## Listening in (`WS /ws/tracking`)
+
+`ws://<client>:8467/ws/tracking` (through the gateway: `ws://localhost:8080/ws/tracking`) gets every overlay the camera page gets, as the same JSON text, while the page is sending frames. It's listen-only: anything sent to it is ignored, and the page is unaffected. TouchDesigner reads it this way.
+
+Coordinates are the camera page's frame pixels, unmirrored. Divide by the overlay's `width` and `height` for 0–1.

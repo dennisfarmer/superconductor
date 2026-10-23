@@ -20,7 +20,8 @@ The camera page sends its frames over WS /ws/camera, with the objects it detecte
 never queue up behind a slow tracker or a slow tunnel. The camera loop sends back
 what to draw over the video with `send_overlay()` (JSON, never pictures). Clicks and
 keys from the page are queued in `actions` as ("click", -1, {"x", "y"}) and
-("key", -1, {"key"}).
+("key", -1, {"key"}). WS /ws/tracking gets every overlay too, listen-only (e.g.
+TouchDesigner), without changing what the page gets.
 
 Static files for the page: /web/vision_js/*, /web/tracker_js/* (from the repository),
 /web/overlay.js, and /web/ort/* (onnxruntime-web) and /web/models/* (the exported
@@ -74,6 +75,7 @@ class WebPanel:
         self._frame = None  # (seq, jpeg bytes, header or None): the newest frame from the browser
         self._frame_seq = 0
         self._cameras = set()  # open /ws/camera sockets
+        self._trackers = set()  # open /ws/tracking sockets (listen-only)
         self._loop = None
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -102,11 +104,11 @@ class WebPanel:
 
     def send_overlay(self, overlay):
         """send what to draw over the video (a JSON-able dict, see CAMERA_PROTOCOL.md)
-        to every open camera page"""
-        if self._loop is None or not self._cameras:
+        to every open camera page, and the same text to every /ws/tracking listener"""
+        if self._loop is None or not (self._cameras or self._trackers):
             return
         text = json.dumps(overlay, separators=(",", ":"))
-        for ws in list(self._cameras):
+        for ws in list(self._cameras) + list(self._trackers):
             asyncio.run_coroutine_threadsafe(self._send_text(ws, text), self._loop)
 
     @staticmethod
@@ -122,6 +124,7 @@ class WebPanel:
         app = web.Application(client_max_size=16 * 1024 ** 2)
         app.router.add_get("/", self._home)
         app.router.add_get("/ws/camera", self._camera)
+        app.router.add_get("/ws/tracking", self._tracking)
         app.router.add_get("/api/web", self._web_config)
         app.router.add_get("/web/overlay.js", self._overlay_js)
         app.router.add_static("/web/vision_js", REPO / "vision_js")
@@ -194,6 +197,19 @@ class WebPanel:
                         self.actions.put(("key", -1, {"key": event["key"]}))
         finally:
             self._cameras.discard(ws)
+        return ws
+
+    async def _tracking(self, request):
+        """listen-only: every overlay the camera page gets (send_overlay); anything sent
+        here is ignored"""
+        ws = web.WebSocketResponse(heartbeat=20)
+        await ws.prepare(request)
+        self._trackers.add(ws)
+        try:
+            async for _ in ws:
+                pass
+        finally:
+            self._trackers.discard(ws)
         return ws
 
     async def _page(self, request):
