@@ -23,11 +23,12 @@ Open **`touchdesigner/superconductor.toe`**, by double-clicking it, or with:
 ```bash
 open -n -a TouchDesigner touchdesigner/superconductor.toe     # -n: a new TouchDesigner window
 ```
-It holds two components, each loaded from its file in this folder when the project opens:
+It holds three components, each loaded from its file in this folder when the project opens:
 
 | Component | File | What |
 |---|---|---|
 | `/superconductor` | `superconductor.tox` | the network: audio, OSC, tracking, hands, webcams |
+| `/demo` | `demo.tox` | a demo drawing all of it over the webcam (below) |
 | `/mcp_webserver_base` | `mcp/mcp_webserver_base.tox` | lets Claude Code work in this TouchDesigner (below) |
 
 Both are linked by paths relative to the project, so keep the files where they are, and save the project in this folder (**Cmd+S**). TouchDesigner also writes numbered copies (`superconductor.1.toe`, …) and a `Backup/` folder; git ignores them.
@@ -54,6 +55,22 @@ After changing `build_network.py` (e.g. other ports):
    ```
    It prints `built /superconductor: ...` and replaces the earlier copy, keeping its link to `superconductor.tox`.
 3. Save the component to its file, as above.
+
+## The demo
+
+`/demo` draws everything the network receives over the webcam:
+- **MediaPipe hands:** the points, with bigger fingertips; orange is the right hand, blue the left. They grow with the music's loudness.
+- **Tracking:** the camera page's tracked objects in their colour, and hand boxes in cyan.
+- **Frequency bands:** bars, bottom left.
+- **Beat:** one dot per beat, top right. The current beat is big, and beat one is yellow.
+- **Hits:** a white flash on each one.
+- **Text line:** tempo, beat, loudness, the conductor's status and the camera page's message.
+
+`build_demo.py` explains how it's built, as a starting point for real visuals. Its result is `/demo/out`.
+
+**Full screen:** click `/demo/window` and, on its **Window** page, click **Open**, or run `op('/demo/window').par.winopen.pulse()` in the Textport. **Esc** closes it. It fills the monitor it opens on. To choose which one, set the window's **Display** parameter, for a projector, say.
+
+**Rebuilding** after changing `build_demo.py`: run `exec(open('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/build_demo.py').read())` in the Textport, then save it with `op('/demo').save('demo.tox')`.
 
 ## The plugin's settings
 

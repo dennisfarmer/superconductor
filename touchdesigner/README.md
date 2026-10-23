@@ -12,7 +12,7 @@ What TouchDesigner gets, and from where. Audio and data travel separately: the a
 
 ## Setup
 
-`TOUCHDESIGNER_SETUP.md`: what to run inside TouchDesigner, step by step. In short: build the plugin, start the services, then open `superconductor.toe`. It loads the network from `superconductor.tox`, and the MCP component (`mcp/`, for Claude Code) from its own file.
+`TOUCHDESIGNER_SETUP.md`: what to run inside TouchDesigner, step by step. In short: build the plugin, start the services, then open `superconductor.toe`. It loads the network from `superconductor.tox`, a demo that draws all of it over the webcam from `demo.tox` (built by `build_demo.py`), and the MCP component (`mcp/`, for Claude Code) from its own file.
 
 ## What's inside `/superconductor`
 
