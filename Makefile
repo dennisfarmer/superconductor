@@ -24,10 +24,18 @@
 #                     ../superconductor_describe, ../superconductor_midi (local branch superconductor_midi),
 #                     ../superconductor_client_web; Wenjue's tempo-live-conductor into
 #                     ../superconductor_conducting, conducting_sendtoserver into
-#                     ../superconductor_conducting_sendtoserver
+#                     ../superconductor_conducting_sendtoserver; playback and touchdesigner into
+#                     ../superconductor_playback and ../superconductor_touchdesigner
 #   make conduct      conducting page (../superconductor_conducting_sendtoserver/Makefile): browser
 #                     hand tracking sets the MRT2 server's tempo, page on http://localhost:8480;
 #                     make conduct-remote: to the server through the Lighthouse tunnel (:9000)
+#   make playback     SuperConductor Playback VST3 Plugin app (../superconductor_playback/Makefile;
+#                     builds it if needed): plays the music on this Mac's sound output, as the
+#                     clock. Open the Tracking page as http://localhost:8467/?audio=monitor then,
+#                     or the page plays the music too
+#   make touchdesigner   a TouchDesigner visualizer (../superconductor_touchdesigner/Makefile),
+#                     showing only its output window: VISUALIZER=<name> (default
+#                     overlay_example_1), PERFORM=0 to open it in the editor instead
 #   make vision       tracking only, no music
 #   make test         unit tests: tracking / library / combos, the web client, tracker_js
 #
@@ -54,6 +62,8 @@ CLIENT_WEB_DIR := ../superconductor_client_web
 ATLAS_DIR := ../superconductor_atlas
 CONDUCTING_DIR := ../superconductor_conducting
 CONDUCT_DIR := ../superconductor_conducting_sendtoserver
+PLAYBACK_DIR := ../superconductor_playback
+TOUCHDESIGNER_DIR := ../superconductor_touchdesigner
 IMAGE ?= ghcr.io/dennisfarmer/superconductor:client-web
 SIF ?= superconductor_client-web.sif
 # where the MRT2 server is, seen from inside the container: the laptop's SSH tunnel
@@ -64,7 +74,7 @@ OLLAMA_URL ?=
 GPUS ?= $(if $(filter Darwin,$(shell uname -s)),,--gpus all)
 SC_DATA ?= /scratch/aimusic_project_root/aimusic_project/shared_data/sc_data_$(USER)
 
-.PHONY: worktrees server describe midi atlas conduct conduct-remote client client-remote vision test check-env audio web-deps web-model \
+.PHONY: worktrees server describe midi atlas conduct conduct-remote playback touchdesigner client client-remote vision test check-env audio web-deps web-model \
 	client-web image image-push client-docker client-docker-stop sif client-singularity
 
 worktrees:
@@ -81,6 +91,8 @@ worktrees:
 	@test -e $(CONDUCT_DIR) || { git show-ref -q --verify refs/heads/conducting_sendtoserver \
 		&& git worktree add $(CONDUCT_DIR) conducting_sendtoserver \
 		|| git worktree add --track -b conducting_sendtoserver $(CONDUCT_DIR) origin/conducting_sendtoserver; }
+	@test -e $(PLAYBACK_DIR) || git worktree add $(PLAYBACK_DIR) playback
+	@test -e $(TOUCHDESIGNER_DIR) || git worktree add $(TOUCHDESIGNER_DIR) touchdesigner
 	@git config push.default upstream
 	@git worktree list
 
@@ -102,6 +114,12 @@ conduct:
 
 conduct-remote:
 	$(MAKE) -C $(CONDUCT_DIR) conduct-remote ENV_NAME=$(ENV_NAME)
+
+playback:
+	$(MAKE) -C $(PLAYBACK_DIR) playback
+
+touchdesigner:
+	$(MAKE) -C $(TOUCHDESIGNER_DIR) touchdesigner
 
 client: check-env web-deps
 	$(IN_ENV) sc-collab $(ARGS)
