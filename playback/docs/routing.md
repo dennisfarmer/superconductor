@@ -10,7 +10,7 @@ Exactly one player paces the server: the **clock**. It tells the client each tim
 
 - The newest player that asked to be the clock is the clock. The camera page asks too, so it goes quiet while the plugin is the clock and plays again when the plugin closes.
 - The plugin starts as the clock in a DAW and in the app, and as a monitor in TouchDesigner. So with a copy in each, the DAW's copy paces the server and TouchDesigner's plays along, with no switching needed. Each copy remembers its setting in its project.
-- Turn **Send OSC** on in only one of them.
+- Only one copy should send OSC. The plugin sends it by default inside TouchDesigner, where it's used, and not elsewhere; change it with **Send OSC** in the plugin's window.
 
 ## In a DAW
 

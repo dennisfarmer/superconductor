@@ -19,8 +19,11 @@ SCPlaybackProcessor::SCPlaybackProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
     // in TouchDesigner the plugin usually plays along with the DAW's copy, so it starts
-    // as a monitor there; anywhere else it starts as the clock
-    settings.clock = wrapperType == wrapperType_Standalone || hostName() != "TouchDesigner";
+    // as a monitor there; anywhere else it starts as the clock. TouchDesigner is also
+    // where the OSC is used, so that copy sends it unless told otherwise.
+    const bool inTouchDesigner = wrapperType != wrapperType_Standalone && hostName() == "TouchDesigner";
+    settings.clock = ! inTouchDesigner;
+    settings.osc.enabled = inTouchDesigner;
     setSettings (settings);
 }
 
