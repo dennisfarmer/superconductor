@@ -19,14 +19,16 @@ What it draws:
   flash       a white flash on every detected hit (onset)
   text        tempo, beat, loudness, the conductor's status, the Tracking page's message
 
-Full screen: `make visualize` starts it in perform mode (SC_PERFORM=1). Opened normally,
-it starts in the editor; F1 switches to full screen, Esc back.
+Output window: `make visualize` starts it in perform mode (SC_PERFORM=1), which hides the
+editor and shows only `window`: a normal 1280x720 window with the result, which you can
+resize, or make full screen by setting its Size to Fill. Opened normally, the project
+starts in the editor; F1 switches to the output window, Esc back.
 
 How it's built: Script CHOPs turn the tables / OSC channels into one sample per shape
 (tx, ty, sx, sy, r, g, b); Geometry COMPs draw one shape per sample (instancing); a
 Render TOP with an orthographic camera draws them in 0-1 image coordinates; Over TOPs
 put that, the text and the flash over the webcam. `out` is the result; `window`
-shows it full screen (pulse its Open parameter; Esc closes it).
+shows it in a window of its own (pulse its Open parameter).
 """
 W, H = 1280, 720
 ASPECT = H / W  # world units: x 0..1 across the image, y 0..ASPECT up it
@@ -194,8 +196,9 @@ def line():
 '''
 
 
-PERFORM = '''"""Full screen when the project starts, if launched with SC_PERFORM=1 (make visualize).
-Opened normally, the project starts in the editor; F1 switches to full screen, Esc back."""
+PERFORM = '''"""Only the output window when the project starts, if launched with SC_PERFORM=1
+(make visualize). Opened normally, the project starts in the editor; F1 switches to the
+output window, Esc back."""
 import os
 
 
@@ -330,11 +333,12 @@ def build_overlay_example_1(parent=None):
 
     window = overlay.create(windowCOMP, 'window')
     window.par.winop = out
-    window.par.size = 'fill'
-    window.par.borders = False
-    window.par.closeescape = True  # Esc leaves full screen
+    # an ordinary window, resizable; for full screen, set its Size to Fill
+    window.par.size = 'custom'
+    window.par.winw, window.par.winh = W, H
+    window.par.borders = True
 
-    # perform mode (full screen, editor hidden) shows this window: always on F1, and at
+    # perform mode (editor hidden, only this window) shows this window: always on F1, and at
     # start-up when launched with SC_PERFORM=1
     project.performWindowPath = window.path
     start = overlay.create(executeDAT, 'perform_on_start')
@@ -346,7 +350,7 @@ def build_overlay_example_1(parent=None):
     # the container shows the result in the Network Editor and in perform mode
     overlay.par.w, overlay.par.h = W, H
     overlay.par.top = out
-    print(f'built {overlay.path}: open {window.path} (pulse Open) for full screen')
+    print(f'built {overlay.path}: F1 (or pulse {window.path} Open) shows only its output')
     return overlay
 
 

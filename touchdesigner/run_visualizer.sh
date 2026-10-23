@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the SuperConductor stack and one visualizer full screen (macOS):
+# Runs the SuperConductor stack and one visualizer, in a window showing only its output (macOS):
 #
 #   make visualize                              # overlay_example_1
 #   make visualize VISUALIZER=<name>            # visualizers/<name>/<name>.toe
@@ -10,8 +10,10 @@
 #    current sound output (speakers / headphones) and sets the pace (the clock);
 # 3. opens the Tracking page (as a monitor, so it stays quiet: ?audio=monitor) and the
 #    Conducting page in the browser;
-# 4. opens the visualizer in a new TouchDesigner, straight into perform mode (full screen);
-# 5. when you quit TouchDesigner (Esc leaves full screen, then Cmd+Q), stops the services
+# 4. opens the visualizer in a new TouchDesigner, straight into perform mode: the editor is
+#    hidden and only the visualizer's output window shows (resize it, or set the window
+#    component's Size to Fill for full screen);
+# 5. when you quit TouchDesigner (Cmd+Q; Esc first shows the editor), stops the services
 #    and the app it started. Anything that was already running is left alone.
 #
 # Logs: var/logs/<server|client|conduct>.log. CLIENT_WEB_DIR and PLAYBACK_APP override
@@ -85,6 +87,6 @@ fi
 open "http://localhost:8467/?audio=monitor"    # Tracking page: object tracking (press Start); quiet
 open "http://localhost:8480"                   # Conducting page: MediaPipe hands
 
-echo "opening $name full screen. Press Start on the Tracking page for the object tracking."
-echo "Esc leaves full screen; quit TouchDesigner (Cmd+Q) to stop everything."
+echo "opening $name (output window only). Press Start on the Tracking page for the object tracking."
+echo "Esc shows the editor, F1 the output window again; quit TouchDesigner (Cmd+Q) to stop everything."
 open -n -W -a TouchDesigner --env SC_PERFORM=1 "$toe"

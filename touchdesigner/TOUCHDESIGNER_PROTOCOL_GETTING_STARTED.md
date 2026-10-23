@@ -121,8 +121,8 @@ The quickest way is to copy the example:
 1. Copy the folder `visualizers/overlay_example_1` to `visualizers/<your_name>`, and rename the `.toe` inside to `<your_name>.toe`. Delete the copied `build_overlay_example_1.py` and any numbered `.toe` copies.
 2. Open `<your_name>.toe`. Delete the `overlay_example_1` component, or keep it to look at while you work.
 3. Make your own component next to `inputs`: in the Network Editor, press **Tab**, choose **COMP → Container**, and name it, e.g. `<your_name>`. Build inside it, reading from `../inputs/...`.
-4. For full screen (F1, and `make visualize`), give it what the example has:
-   - a **Window COMP** showing your final TOP, with **Size** set to Fill and **Borders** off;
+4. For the output window (F1, and `make visualize`), give it what the example has:
+   - a **Window COMP** showing your final TOP (its **Window Operator**), sized as you like;
    - an **Execute DAT** with **Start** on, whose `onStart` sets `project.performWindowPath` to that window and switches to perform mode when `SC_PERFORM` is `1`. Copy `perform_on_start` from `overlay_example_1` and change the window's name if needed.
 5. Save (**Cmd+S**).
 6. Run it: `make visualize VISUALIZER=<your_name>`.
@@ -151,7 +151,7 @@ It uses every input, so it doubles as a reference for reading them. Its build sc
 - **Shapes:** Geometry COMPs draw one circle or rectangle per sample. This is called **instancing**.
 - **Rendering:** a Render TOP with an orthographic camera draws them in the same 0–1 coordinates as the image.
 - **Layering:** Over TOPs layer the shapes, a text line and a flash over `inputs/camera1`.
-- **Result:** `out` is the final image, and `window` shows it full screen.
+- **Result:** `out` is the final image, and `window` shows it in a window of its own.
 - **Start-up:** `perform_on_start` (an Execute DAT) points perform mode at `window`, and switches to it when launched by `make visualize`.
 
 ## Licence note

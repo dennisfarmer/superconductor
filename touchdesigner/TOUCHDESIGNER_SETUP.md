@@ -13,9 +13,9 @@ It:
 1. starts the MRT2 server, the client and the conducting server (any that aren't already running);
 2. starts the **SC Playback app** (`playback` branch), which plays the music on your Mac's current sound output (speakers or headphones) and sets the pace;
 3. opens the **Tracking** page (quiet, so the music isn't played twice) and the **Conducting** page in the browser;
-4. opens the visualizer full screen.
+4. opens the visualizer showing only its output, in a window you can resize or make full screen.
 
-Press **Start** on the Tracking page for the object tracking. **Esc** leaves full screen; quitting TouchDesigner (**Cmd+Q**) stops the services and the app it started. Logs are in `var/logs/`. This is macOS only, and needs the SC Playback app built (`make playback-build` in `superconductor_playback`).
+Press **Start** on the Tracking page for the object tracking. **Esc** shows the editor (**F1** goes back); quitting TouchDesigner (**Cmd+Q**) stops the services and the app it started. Logs are in `var/logs/`. This is macOS only, and needs the SC Playback app built (`make playback-build` in `superconductor_playback`).
 
 The rest of this document is the same thing step by step, and how to check each part.
 
@@ -44,11 +44,11 @@ Run one visualizer at a time: two would both listen on OSC port 7000, both load 
 
 When it opens, it loads the two shared components from `touchdesigner/` (`superconductor_inputs.tox` as `/inputs`, and the MCP component) and contains its own visual part (e.g. `/overlay_example_1`). Save with **Cmd+S**. TouchDesigner also writes numbered copies (`overlay_example_1.1.toe`, …) and a `Backup/` folder next to the `.toe`; git ignores them.
 
-## Full screen
+## The output window
 
-A visualizer opened normally starts in the editor. **F1** switches to *perform mode*: only the visualizer's picture, full screen, with the editor hidden. **Esc** goes back. `make visualize` starts straight in perform mode (it opens TouchDesigner with `SC_PERFORM=1`).
+A visualizer opened normally starts in the editor. **F1** switches to *perform mode*: the editor is hidden and only the visualizer's output shows, in an ordinary 1280×720 window that you can move and resize. **Esc** goes back to the editor. `make visualize` starts straight in perform mode (it opens TouchDesigner with `SC_PERFORM=1`).
 
-Perform mode shows the visualizer's `window` component (for `overlay_example_1`, `/overlay_example_1/window`). It fills the monitor it opens on; to choose which one, set the window's **Display** parameter, for a projector, say.
+Perform mode shows the visualizer's `window` component (for `overlay_example_1`, `/overlay_example_1/window`). **For full screen,** e.g. on a projector: in the editor, click that `window` component, set **Size** to **Fill** and turn **Borders** off. **Display** chooses the monitor. Save, and perform mode opens it that way from then on.
 
 ## The plugin's settings
 
