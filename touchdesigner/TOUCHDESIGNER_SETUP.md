@@ -27,22 +27,22 @@ It holds three components, each loaded from its file in this folder when the pro
 
 | Component | File | What |
 |---|---|---|
-| `/inputs` | `inputs.tox` | everything SuperConductor sends: audio, OSC, tracking, hands, webcams |
+| `/inputs` | `superconductor_inputs.tox` | everything SuperConductor sends: audio, OSC, tracking, hands, webcams |
 | `/demo` | `demo.tox` | a demo drawing all of it over the webcam (below) |
 | `/mcp_webserver_base` | `mcp/mcp_webserver_base.tox` | lets Claude Code work in this TouchDesigner (below) |
 
 Both are linked by paths relative to the project, so keep the files where they are, and save the project in this folder (**Cmd+S**). TouchDesigner also writes numbered copies (`superconductor.1.toe`, …) and a `Backup/` folder; git ignores them.
 
-**`inputs.tox` is the inputs component's source.** The project reloads it every time it opens, so changes you make inside `/inputs` are lost unless you save the component back to its file: right-click it → **Save Component .tox**, or in the Textport:
+**`superconductor_inputs.tox` is the inputs component's source.** The project reloads it every time it opens, so changes you make inside `/inputs` are lost unless you save the component back to its file: right-click it → **Save Component .tox**, or in the Textport:
 ```python
-op('/inputs').save('inputs.tox')
+op('/inputs').save('superconductor_inputs.tox')
 ```
 
 ### Using it in another project
 
-Drag `inputs.tox` into that project's Network Editor. Or, in its Textport:
+Drag `superconductor_inputs.tox` into that project's Network Editor. Or, in its Textport:
 ```python
-op('/project1').loadTox('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/superconductor.tox')
+op('/project1').loadTox('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/superconductor_inputs.tox')
 ```
 
 ### Rebuilding it from the script
@@ -53,7 +53,7 @@ After changing `build_inputs.py` (e.g. other ports):
    ```python
    exec(open('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/build_network.py').read())
    ```
-   It prints `built /inputs: ...` and replaces the earlier copy, keeping its link to `inputs.tox`.
+   It prints `built /inputs: ...` and replaces the earlier copy, keeping its link to `superconductor_inputs.tox`.
 3. Save the component to its file, as above.
 
 ## The demo
