@@ -205,9 +205,14 @@ def build(parent_path=None):
     # /project1 in a normal project; the root when TouchDesigner was opened another way
     parent = op(parent_path) if parent_path else (op('/project1') or op('/'))
     old = parent.op('superconductor')
+    linked = old.par.externaltox.eval() if old is not None else ''
     if old is not None:
         old.destroy()
     sc = parent.create(baseCOMP, 'superconductor')
+    if linked:
+        # keep the link to the .tox file (superconductor.toe loads the network from it)
+        sc.par.externaltox = linked
+        sc.par.enableexternaltox = True
 
     # audio: the plugin, as a monitor (its own default inside TouchDesigner)
     audio = sc.create(audiovstCHOP, 'audio')

@@ -1,0 +1,5 @@
+# TouchDesigner: numbered saves (superconductor.1.toe, ...), backups, Python caches
+touchdesigner/*.[0-9]*.toe
+touchdesigner/Backup/
+__pycache__/
+.DS_Store
