@@ -570,6 +570,17 @@ a.btn { text-decoration: none; }
 .drum-cell.free { color: var(--muted); }
 .drum-cell.now { box-shadow: 0 0 0 2px var(--warn); }
 
+.drums-control { display: flex; flex-direction: column; gap: 8px; }
+.drums-control-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) 28px; }
+.drums-control-knobs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) 20px; }
+.drums-master {
+  display: flex; align-items: center; gap: var(--s-3); padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-1); background: var(--panel);
+}
+.drums-master.off .ctl { opacity: 0.45; }
+.drums-link { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-s); color: var(--ink-2); cursor: pointer; }
+.drums-prompt input[type="range"] { width: 120px; accent-color: var(--accent); }
+
 .drums-frames { display: flex; flex-direction: column; gap: 6px; }
 .drums-frames-head { display: flex; justify-content: space-between; gap: var(--s-3); flex-wrap: wrap; }
 .drums-strip { display: flex; gap: 1px; height: 22px; overflow-x: auto; }

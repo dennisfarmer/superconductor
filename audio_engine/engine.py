@@ -38,7 +38,9 @@ SuperConductor client's client_midi (default http://localhost:8470), which plays
 through the MRT2 server with SuperConductor's prompts. /style doesn't apply there:
 SuperConductor owns the prompts. The sampling controls (temperature, top_k,
 cfg_scales) are POSTed to client_midi's /controls, which relays them to the server
-as UpdateControls; in local mode they go straight into generate().
+as UpdateControls; in local mode they go straight into generate(). drum_prompt (0..1,
+the Drums page) is the weight of the style prompt "drums", POSTed to client_midi's
+/prompts, which adds it to the client's recipe; sink only (local mode ignores it).
 Tempo sync (POST /sync, the BPM page): the sink follows the SuperConductor server's
 heard tempo and lines its beat one up with the server's (SinkEngine._syncer).
 
@@ -48,9 +50,9 @@ HTTP API (JSON, CORS open, default port 8765):
   POST /release                      -> drop preview/play, back to idle
   POST /style    {"prompt": "..."}  or  {"layers": [{"text": "...", "weight": 0.7}, ...]}  (embedding blend)
   POST /settings {"bpm", "beats_per_chord", "articulation", "texture", "drum_grid", "gain",
-                  "temperature", "top_k", "cfg_scales": {"musiccoca", "notes", "drums"}}
-                 the last three are MRT2's generate() arguments, under MRT2's names;
-                 cfg_scales may carry only some of its keys
+                  "temperature", "top_k", "cfg_scales": {"musiccoca", "notes", "drums"}, "drum_prompt"}
+                 temperature, top_k and cfg_scales are MRT2's generate() arguments, under
+                 MRT2's names; cfg_scales may carry only some of its keys
   POST /mix {"volume": 0..1.5, "muted": bool}   output level, applied at the speaker (no buffer delay)
   POST /shutdown {}   finish the current chunk, close the audio stream and the HTTP server, exit
   POST /sync {"on": bool}   sink only: follow the SuperConductor server's tempo and beat one
@@ -136,6 +138,9 @@ def cfg_scales(body: dict, base: dict | None = None) -> dict:
     return out
 
 
+# the Drums page's style prompt (Settings.drum_prompt is its weight)
+DRUM_PROMPT = "drums"
+
 # the drum grid's bar, and the bar the tempo sync lines up with the server's
 BAR_BEATS = 4
 # the tempo range the page allows (server/atlas.py set_tempo)
@@ -155,6 +160,8 @@ class Settings:
     temperature: float = 1.3
     top_k: int = 40
     cfg_scales: dict = field(default_factory=lambda: {"musiccoca": 3.0, "notes": 3.0, "drums": 1.0})
+    # weight 0..1 of the style prompt DRUM_PROMPT in the SuperConductor client's recipe (sink only)
+    drum_prompt: float = 0.0
 
     @classmethod
     def from_dict(cls, d: dict) -> "Settings":
@@ -170,6 +177,10 @@ class Settings:
     def controls(self) -> dict:
         """The sampling controls, as an UpdateControls body (superconductor_server/mrt2_server.py)."""
         return {"temperature": self.temperature, "top_k": self.top_k, "cfg_scales": dict(self.cfg_scales)}
+
+    def prompts(self) -> dict:
+        """The extra style prompts, as a client_midi POST /prompts body."""
+        return {DRUM_PROMPT: self.drum_prompt}
 
     def frames_per_beat(self) -> float:
         return FRAME_RATE * 60.0 / self.bpm
@@ -573,6 +584,9 @@ class Engine:
     def controls_changed(self):
         pass  # the same for temperature, top_k and cfg_scales
 
+    def prompts_changed(self):
+        pass  # drum_prompt: SuperConductor's recipe only
+
     def save_recording(self):
         if self.record_path and self.recorded:
             from magenta_rt.audio import Waveform
@@ -648,7 +662,9 @@ class SinkEngine:
         self._pin_at = 0.0
         self.dirty = False
         self.outbox: queue.Queue = queue.Queue(maxsize=1)  # the latest pattern wins
-        self.controls_box: queue.Queue = queue.Queue(maxsize=1)  # the latest controls win
+        # client_midi path -> body still to POST (/controls, /prompts); the latest per path wins
+        self.posts: dict = {}
+        self.posts_cv = threading.Condition()
         self.connected = False
         self.remote_model = None
         self.last_error = ""
@@ -670,12 +686,16 @@ class SinkEngine:
     def settings_changed(self):
         self.dirty = True
 
+    def _post_latest(self, path: str, body: dict):
+        with self.posts_cv:
+            self.posts[path] = body  # replaces an unsent older body
+            self.posts_cv.notify()
+
     def controls_changed(self):
-        try:
-            self.controls_box.get_nowait()  # drop unsent older controls
-        except queue.Empty:
-            pass
-        self.controls_box.put(self.settings.controls())
+        self._post_latest("/controls", self.settings.controls())
+
+    def prompts_changed(self):
+        self._post_latest("/prompts", self.settings.prompts())
 
     # --- client_midi ---
     def _http(self, method: str, path: str, body=None) -> dict:
@@ -707,6 +727,7 @@ class SinkEngine:
                     log.info("SuperConductor client connected (%s)", self.remote_model)
                     self.dirty = True
                     self.controls_changed()
+                    self.prompts_changed()
             except Exception as e:  # client not running, or not connected to its server (503)
                 if self.connected or not self.last_error:
                     log.info("client_midi at %s: %s", self.client_midi, e)
@@ -714,17 +735,18 @@ class SinkEngine:
                 self.last_error = str(e)
 
     def _controls_sender(self):
-        """POSTs the sampling controls to client_midi's /controls (latest wins); the
-        client relays them to the server as UpdateControls."""
+        """POSTs the sampling controls to client_midi's /controls (the client relays them
+        to the server as UpdateControls) and drum_prompt to its /prompts; latest wins."""
         while self.running:
-            try:
-                body = self.controls_box.get(timeout=1.0)
-            except queue.Empty:
-                continue
-            try:
-                self._http("POST", "/controls", body)
-            except Exception as e:  # not connected: sent again when the client comes back
-                log.info("client_midi /controls: %s", e)
+            with self.posts_cv:
+                if not self.posts:
+                    self.posts_cv.wait(timeout=1.0)
+                posts, self.posts = self.posts, {}
+            for path, body in posts.items():
+                try:
+                    self._http("POST", path, body)
+                except Exception as e:  # not connected: sent again when the client comes back
+                    log.info("client_midi %s: %s", path, e)
 
     def _render(self, tokens: list, meta: FrameMeta) -> dict:
         """The timeline the conductor is in, from the frame it just made: one full
@@ -1020,6 +1042,8 @@ def make_handler(engine: Engine):
                         raise ValueError("temperature must be > 0")
                     if "top_k" in body and int(body["top_k"]) < 1:
                         raise ValueError("top_k must be >= 1")
+                    if "drum_prompt" in body and not 0.0 <= float(body["drum_prompt"]) <= 1.0:
+                        raise ValueError("drum_prompt must be 0..1")
                     scales = cfg_scales(body.get("cfg_scales") or {}, s.cfg_scales)
                     for k in ("bpm", "temperature", "gain"):
                         if k in body:
@@ -1029,7 +1053,10 @@ def make_handler(engine: Engine):
                     s.cfg_scales = scales
                     if {"temperature", "top_k", "cfg_scales"} & body.keys():
                         engine.controls_changed()
-                    if not body.keys() - {"temperature", "top_k", "cfg_scales"}:
+                    if "drum_prompt" in body:
+                        s.drum_prompt = round(float(body["drum_prompt"]), 3)
+                        engine.prompts_changed()
+                    if not body.keys() - {"temperature", "top_k", "cfg_scales", "drum_prompt"}:
                         self._send(200, engine.status())
                         return
                     if "beats_per_chord" in body:

@@ -935,7 +935,11 @@ export function App() {
     return (
       <div className="atlas drums-view">
         {header}
-        <DrumsPage />
+        <DrumsPage
+          settings={engine_ok && engine_status ? engine_status.settings : null}
+          sink={Boolean(engine_status && engine_status.sink)}
+          onSend={set_controls}
+        />
         <Tooltip />
       </div>
     );

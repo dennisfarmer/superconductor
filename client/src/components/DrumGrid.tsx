@@ -10,9 +10,18 @@
 // The grid is saved in the session (server.atlas.set_drums) and sent to the engine,
 // the local one or the SuperConductor sink, as settings.drum_grid. How strongly MRT2
 // follows the grid is cfg_scales.drums, a knob in the controls row under the top bar.
+//
+// Drum control (a proof of concept): three levers on the drums at once. The DRUMS
+// input above, cfg_scales.drums (how strictly MRT2 follows it), and drum_prompt, the
+// weight 0..1 of the style prompt "drums" that the engine POSTs to the SuperConductor
+// client's /prompts, which adds it to the recipe its tracking sends (sink only). With
+// "link" on, the master knob sets cfg_scales.drums (-1..7) and drum_prompt (0..1)
+// together; the knobs it moves can still be turned on their own, which doesn't move it.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getState, setDrums } from "../api";
+import { ControlKnob, spec_of, value_of } from "./ControlsBar";
+import { Knob } from "./Knob";
 
 const FRAME_RATE = 25.0;
 const PER_BEAT: [number, string][] = [
@@ -24,6 +33,13 @@ const PER_BEAT: [number, string][] = [
 const BARS = [1, 2, 4];
 // the engine's status, read by the poll timer (outside React state)
 let _status_url = "";
+const CFG_KEYS = ["cfg_scales.musiccoca", "cfg_scales.notes", "cfg_scales.drums"];
+const SEND_EVERY_MS = 60; // while the master knob turns, at most one /settings per this
+
+/** The master knob (0..1) -> cfg_scales.drums (-1..7, whole steps) and drum_prompt (0..1). */
+function master_body(m: number): Record<string, unknown> {
+  return { cfg_scales: { drums: Math.round(-1.0 + 8.0 * m) }, drum_prompt: Math.round(m * 100.0) / 100.0 };
+}
 
 interface Grid {
   mode: string;
@@ -131,7 +147,109 @@ function value_class(v: number): string {
   return v === 1 ? "hit" : v === 0 ? "rest" : "free";
 }
 
-export function DrumsPage() {
+export interface DrumsPageProps {
+  settings: any; // the engine's /status settings, or null while it is offline
+  sink: boolean;
+  onSend: (body: Record<string, unknown>) => void;
+}
+
+/** The drum-control levers: cfg_scales knobs, the "drums" prompt weight, the master knob. */
+function DrumControl({ settings, sink, onSend }: DrumsPageProps) {
+  const [linked, setLinked] = useState(false);
+  const [master, setMaster] = useState(0.0);
+  const [prompt_drag, setPromptDrag] = useState<number | null>(null);
+  const last_sent = useRef(0);
+
+  function throttled(body: Record<string, unknown>) {
+    const now = Date.now();
+    if (now - last_sent.current >= SEND_EVERY_MS) {
+      last_sent.current = now;
+      onSend(body);
+    }
+  }
+
+  const off = settings == null;
+  const engine_prompt = value_of(settings, "drum_prompt");
+  const prompt_v = prompt_drag != null ? prompt_drag : engine_prompt == null ? 0.0 : engine_prompt;
+  const cfg_drums = value_of(settings, "cfg_scales.drums");
+  return (
+    <section className="drums-control">
+      <div className="drums-frames-head">
+        <span className="drums-label">Drum control</span>
+        <span className="drums-num">
+          {"cfg_scales.drums " + (cfg_drums == null ? "–" : String(cfg_drums)) + " · prompt \"drums\" " + prompt_v.toFixed(2)}
+        </span>
+      </div>
+      <div className="drums-control-row">
+        <div className={"drums-master" + (linked && !off ? "" : " off")}>
+          <label className="drums-link" title="On: the master knob sets cfg_scales.drums and the drums prompt together">
+            <input type="checkbox" checked={linked} onChange={(e) => setLinked(e.target.checked)} />
+            link
+          </label>
+          <div
+            className="ctl"
+            title={"Master: cfg_scales.drums -1 → 7 and prompt \"drums\" 0 → 1 together. Turning the others doesn't move it."}
+          >
+            <span className="ctl-name">master</span>
+            <Knob
+              value={master}
+              size={44}
+              color="#ff7a59"
+              onChange={(k) => {
+                if (!linked || off) return;
+                setMaster(k);
+                throttled(master_body(k));
+              }}
+              onCommit={() => {
+                if (linked && !off) onSend(master_body(master));
+              }}
+            />
+            <span className="drums-num">{master.toFixed(2)}</span>
+          </div>
+        </div>
+        <div className="drums-control-knobs">
+          {CFG_KEYS.map((key) => (
+            <ControlKnob key={key} spec={spec_of(key)} settings={settings} onSend={onSend} size={34} />
+          ))}
+          <div
+            className={"ctl drums-prompt" + (off || !sink ? " off" : "")}
+            title={
+              sink
+                ? "drum_prompt: weight of the style prompt \"drums\" in the SuperConductor client's recipe (client_midi /prompts), next to its other prompts. 0 removes it."
+                : "drum_prompt: SuperConductor only (make run); the local engine doesn't use it"
+            }
+          >
+            <span className="ctl-name">prompt "drums"</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              disabled={off || !sink}
+              value={prompt_v}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setPromptDrag(v);
+                throttled({ drum_prompt: v });
+              }}
+              onPointerUp={() => {
+                if (prompt_drag != null) onSend({ drum_prompt: prompt_drag });
+                setPromptDrag(null);
+              }}
+              onKeyUp={() => {
+                if (prompt_drag != null) onSend({ drum_prompt: prompt_drag });
+                setPromptDrag(null);
+              }}
+            />
+            <span className="drums-num">{prompt_v.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function DrumsPage({ settings, sink, onSend }: DrumsPageProps) {
   const [grid, setGrid] = useState<Grid>(default_grid());
   const [loaded, setLoaded] = useState(false);
   const [bpm, setBpm] = useState(84.0);
@@ -288,6 +406,8 @@ export function DrumsPage() {
           random
         </button>
       </section>
+
+      <DrumControl settings={settings} sink={sink} onSend={onSend} />
 
       <section className="drums-frames">
         <div className="drums-frames-head">

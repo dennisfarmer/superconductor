@@ -8,7 +8,7 @@
 import { useRef, useState } from "react";
 import { Knob } from "./Knob";
 
-interface Spec {
+export interface Spec {
   key: string; // "temperature" | "top_k" | "cfg_scales.<name>"
   min: number;
   max: number;
@@ -108,7 +108,7 @@ function digits(sp: Spec): number {
 }
 
 /** The value of `key` in the engine's settings ({temperature, top_k, cfg_scales: {...}}). */
-function value_of(settings: any, key: string): number | null {
+export function value_of(settings: any, key: string): number | null {
   if (settings == null) return null;
   const v = key.startsWith("cfg_scales.") ? (settings.cfg_scales || {})[key.slice(11)] : settings[key];
   return v == null ? null : Number(v);
@@ -120,38 +120,94 @@ function body_of(key: string, v: number): Record<string, unknown> {
   return { [key]: v };
 }
 
+const SEND_EVERY_MS = 60; // while a knob turns, at most one /settings per this
+
+/** The spec of a controls-row knob ("cfg_scales.drums", "temperature", ...). */
+export function spec_of(key: string): Spec {
+  return SPECS.find((sp) => sp.key === key) as Spec;
+}
+
+export interface ControlKnobProps {
+  spec: Spec;
+  settings: any; // the engine's /status settings, or null while it is offline
+  onSend: (body: Record<string, unknown>) => void;
+  size?: number;
+}
+
+/** One knob of the controls row: knob, number field and reset to MRT2's default. */
+export function ControlKnob({ spec: sp, settings, onSend, size = 26 }: ControlKnobProps) {
+  // the value while the knob is being turned (it wins over the engine's until committed)
+  const [drag, setDrag] = useState<number | null>(null);
+  const last_sent = useRef(0);
+
+  function turn(v: number) {
+    setDrag(v);
+    const now = Date.now();
+    if (now - last_sent.current >= SEND_EVERY_MS) {
+      last_sent.current = now;
+      onSend(body_of(sp.key, v));
+    }
+  }
+
+  function commit() {
+    if (drag == null) return;
+    onSend(body_of(sp.key, drag));
+    setDrag(null);
+  }
+
+  const off = settings == null;
+  const engine_v = value_of(settings, sp.key);
+  const v = drag != null ? drag : engine_v;
+  const shown = v == null ? sp.model_default : v;
+  return (
+    <div className={"ctl" + (off ? " off" : "")} title={sp.hint}>
+      <span className="ctl-name">{sp.key}</span>
+      <Knob
+        value={to_knob(sp, shown)}
+        size={size}
+        color={sp.color}
+        onChange={(k) => {
+          if (!off) turn(from_knob(sp, k));
+        }}
+        onCommit={commit}
+      />
+      <input
+        className="ctl-in"
+        type="number"
+        disabled={off}
+        min={String(sp.min)}
+        max={String(sp.max)}
+        step={String(sp.step)}
+        key={sp.key + String(shown)}
+        defaultValue={shown.toFixed(digits(sp))}
+        onBlur={(e) => {
+          if (e.target.value === "") return;
+          const nv = snap(sp, parseFloat(e.target.value));
+          if (nv !== engine_v) onSend(body_of(sp.key, nv));
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+      <button
+        className="ctl-reset"
+        disabled={off || shown === sp.model_default}
+        title={"Back to MRT2's default, " + sp.model_default.toFixed(digits(sp))}
+        onClick={() => onSend(body_of(sp.key, sp.model_default))}
+      >
+        ↺
+      </button>
+    </div>
+  );
+}
+
 export interface ControlsBarProps {
   settings: any; // the engine's /status settings, or null while it is offline
   sink: boolean;
   onSend: (body: Record<string, unknown>) => void;
 }
 
-const SEND_EVERY_MS = 60; // while a knob turns, at most one /settings per this
-
 export function ControlsBar({ settings, sink, onSend }: ControlsBarProps) {
-  // values while a knob is being turned (they win over the engine's until committed)
-  const [drag, setDrag] = useState<Record<string, number>>({});
-  const last_sent = useRef<Record<string, number>>({});
-
-  function turn(sp: Spec, v: number) {
-    setDrag({ ...drag, [sp.key]: v });
-    const now = Date.now();
-    if (now - (last_sent.current[sp.key] || 0) >= SEND_EVERY_MS) {
-      last_sent.current[sp.key] = now;
-      onSend(body_of(sp.key, v));
-    }
-  }
-
-  function commit(sp: Spec) {
-    const v = drag[sp.key];
-    if (v == null) return;
-    onSend(body_of(sp.key, v));
-    const rest = { ...drag };
-    delete rest[sp.key];
-    setDrag(rest);
-  }
-
-  const off = settings == null;
   return (
     <div
       className="controls-row"
@@ -162,51 +218,9 @@ export function ControlsBar({ settings, sink, onSend }: ControlsBarProps) {
       }
     >
       <span className="controls-label">generate()</span>
-      {SPECS.map((sp) => {
-        const engine_v = value_of(settings, sp.key);
-        const v = drag[sp.key] != null ? drag[sp.key] : engine_v;
-        const shown = v == null ? sp.model_default : v;
-        return (
-          <div key={sp.key} className={"ctl" + (off ? " off" : "")} title={sp.hint}>
-            <span className="ctl-name">{sp.key}</span>
-            <Knob
-              value={to_knob(sp, shown)}
-              size={26}
-              color={sp.color}
-              onChange={(k) => {
-                if (!off) turn(sp, from_knob(sp, k));
-              }}
-              onCommit={() => commit(sp)}
-            />
-            <input
-              className="ctl-in"
-              type="number"
-              disabled={off}
-              min={String(sp.min)}
-              max={String(sp.max)}
-              step={String(sp.step)}
-              key={sp.key + String(shown)}
-              defaultValue={shown.toFixed(digits(sp))}
-              onBlur={(e) => {
-                if (e.target.value === "") return;
-                const nv = snap(sp, parseFloat(e.target.value));
-                if (nv !== engine_v) onSend(body_of(sp.key, nv));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-            />
-            <button
-              className="ctl-reset"
-              disabled={off || shown === sp.model_default}
-              title={"Back to MRT2's default, " + sp.model_default.toFixed(digits(sp))}
-              onClick={() => onSend(body_of(sp.key, sp.model_default))}
-            >
-              ↺
-            </button>
-          </div>
-        );
-      })}
+      {SPECS.map((sp) => (
+        <ControlKnob key={sp.key} spec={sp} settings={settings} onSend={onSend} />
+      ))}
     </div>
   );
 }
