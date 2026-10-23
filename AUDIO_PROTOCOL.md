@@ -18,7 +18,7 @@ ws://<client>/audio?role=clock&name=browser
 
 There is one clock at a time: the newest connection that asked for `role=clock`. Earlier ones become monitors (the camera page then mutes itself). When the clock disconnects, the next newest clock-asker becomes the clock again. For example, stopping `sc-audio` hands playback back to the page. While no clock is connected nothing is acked, so the server stops once its credits are used up.
 
-The Tracking page (SuperConductor — Tracking, `app.html`) asks for `role=clock` when you press Start, so it takes over from a player that connected earlier. Opened as `http://localhost:8467/?audio=monitor`, it asks for `role=monitor` instead and stays quiet; `make visualize` (touchdesigner branch) opens it that way, so the SC Playback app keeps the sound.
+The Tracking page (SuperConductor — Tracking, `app.html`) asks for `role=clock` when you press Start, so it takes over from a player that connected earlier. Opened as `http://localhost:8467/?audio=monitor`, it asks for `role=monitor` instead and stays quiet; `make visualize` (touchdesigner branch) opens it that way, so the SuperConductor Playback VST3 Plugin app keeps the sound.
 
 ## Client → player
 
