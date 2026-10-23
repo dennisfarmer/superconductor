@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "OscSender.h"

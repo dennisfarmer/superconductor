@@ -32,3 +32,4 @@ FetchContent_MakeAvailable(juce ixwebsocket)
 
 add_subdirectory(shared)
 add_subdirectory(plugin)
+add_subdirectory(tests)

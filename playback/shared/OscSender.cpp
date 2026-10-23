@@ -1,6 +1,7 @@
 #include "OscSender.h"
 
 #include <chrono>
+#include <thread>
 
 namespace sc
 {
@@ -28,10 +29,10 @@ void OscSender::run()
     int preparedBands = -1;
     std::vector<float> samples (Features::fftSize);
     auto last = std::chrono::steady_clock::now();
+    auto next = last;  // a steady schedule: late ticks don't push the later ones back
 
     while (! threadShouldExit())
     {
-        const auto tickStart = std::chrono::steady_clock::now();
         {
             std::lock_guard<std::mutex> l (lock);
             if (changed)
@@ -87,10 +88,18 @@ void OscSender::run()
                 sent.fetch_add (1);
         }
 
-        const auto next = tickStart + std::chrono::microseconds (1000000 / juce::jlimit (1, 240, settings.rate));
-        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds> (next - std::chrono::steady_clock::now());
-        if (remaining.count() > 0)
-            wait ((int) remaining.count());
+        next += std::chrono::microseconds (1000000 / juce::jlimit (1, 240, settings.rate));
+        const auto now = std::chrono::steady_clock::now();
+        if (next < now)
+            next = now;  // fell behind (e.g. the machine slept): start over from now
+        while (! threadShouldExit() && std::chrono::steady_clock::now() < next)
+        {
+            const auto remaining = std::chrono::duration_cast<std::chrono::microseconds> (next - std::chrono::steady_clock::now());
+            if (remaining.count() > 1500)
+                wait ((int) (remaining.count() / 1000) - 1);  // sleep, then spin the last ~1 ms
+            else
+                std::this_thread::yield();
+        }
     }
 }
 } // namespace sc
