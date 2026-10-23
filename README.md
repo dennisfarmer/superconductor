@@ -27,6 +27,10 @@ camera track (`MediaStreamTrackProcessor`), so both pages keep running in backgr
 `make web-deps` downloads `@mediapipe/tasks-vision` and `hand_landmarker.task` into `var/web`,
 and `make conduct` runs it for you. `make test` runs `test_conducting_web.py`.
 
+`ws://localhost:8480/ws/hands/monitor` is listen-only (TouchDesigner reads it): each frame's
+hands message as the page sent it (`seq`, `t_ms`, `width`, `height`, `hands`: 21 points per
+hand, x and y 0–1, `handedness`), plus `conduct`, the conductor's reply to that frame.
+
 The Python-only live conductor below is unchanged.
 
 Run live camera conducting against the tempo server (Linux/macOS):

@@ -8,6 +8,8 @@ the camera, MediaPipe and the preview moved into the browser (app.html):
                                 "height", "hands": [[{x, y, z} x 21], ...], "handedness",
                                 "detect_ms"}, or {"type": "key", "key": "f" | "r"}
                                 here -> page: {"type": "conduct", "seq", ...} per frame
+    WS  /ws/hands/monitor       listen-only (e.g. TouchDesigner): each frame's "hands"
+                                message as the page sent it, plus "conduct": the reply
     GET /api/web                where the page finds MediaPipe, the model, and the server
     GET /api/stats              frames received, fps, age of the last frame, latencies
 
@@ -19,6 +21,7 @@ server branch).
     python conducting_web/server.py --port 8480 --server-url http://localhost:9100
 """
 import argparse
+import asyncio
 import json
 import math
 import sys
@@ -163,11 +166,14 @@ class ConductingServer:
         self.fps = 0.0
         self._fps_count, self._fps_since = 0, time.monotonic()
         self.connections = 0
+        self.monitors = set()  # open /ws/hands/monitor sockets
+        self._sends = set()  # their pending sends (kept so they aren't garbage-collected)
 
     def app(self):
         app = web.Application()
         app.router.add_get("/", self._home)
         app.router.add_get("/ws/hands", self._hands)
+        app.router.add_get("/ws/hands/monitor", self._monitor)
         app.router.add_get("/api/web", self._web_config)
         app.router.add_get("/api/stats", self._stats)
         for sub in ("mediapipe", "models"):
@@ -228,8 +234,36 @@ class ConductingServer:
                     self._count_frame()
                     reply = conductor.step(hands, t_ns, aspect)
                     await ws.send_str(json.dumps({"type": "conduct", "seq": m.get("seq"), **reply}))
+                    if self.monitors:
+                        self._to_monitors(json.dumps({**m, "conduct": reply}))
         finally:
             self.connections -= 1
+        return ws
+
+    def _to_monitors(self, text):
+        """send without holding up the page's reply; a slow listener only delays itself"""
+        async def send(ws):
+            try:
+                await ws.send_str(text)
+            except ConnectionError:
+                pass
+        for ws in list(self.monitors):
+            if not ws.closed:
+                task = asyncio.ensure_future(send(ws))
+                self._sends.add(task)
+                task.add_done_callback(self._sends.discard)
+
+    async def _monitor(self, request):
+        """listen-only: every hands frame and the conductor's reply; anything sent here
+        is ignored"""
+        ws = web.WebSocketResponse(heartbeat=20)
+        await ws.prepare(request)
+        self.monitors.add(ws)
+        try:
+            async for _ in ws:
+                pass
+        finally:
+            self.monitors.discard(ws)
         return ws
 
 

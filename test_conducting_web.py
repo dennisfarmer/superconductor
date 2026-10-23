@@ -156,6 +156,7 @@ class EndToEndTests(unittest.TestCase):
         async with TestClient(TestServer(server.app())) as client:
             config = await (await client.get("/api/web")).json()
             self.assertEqual(config["server_url"], server.server_url)
+            monitor = await client.ws_connect("/ws/hands/monitor")
             ws = await client.ws_connect("/ws/hands")
             last = None
             for seq, (t_ns, hands) in enumerate(conducting(120, seconds=8)):
@@ -164,6 +165,12 @@ class EndToEndTests(unittest.TestCase):
                 last = json.loads((await ws.receive()).data)
                 self.assertEqual(last["seq"], seq)
             self.assertIsNotNone(last["bpm"])
+            # the listener got every frame as the page sent it, with the conductor's reply
+            for seq in range(240):
+                seen = json.loads((await monitor.receive(timeout=2)).data)
+                self.assertEqual((seen["type"], seen["seq"], len(seen["hands"][0])), ("hands", seq, 21))
+            self.assertIn("bpm", seen["conduct"])
+            await monitor.close()
             await ws.send_str(json.dumps({"type": "hands", "seq": -1, "hands": "nope"}))
             self.assertEqual(json.loads((await ws.receive()).data)["type"], "error")
             stats = await (await client.get("/api/stats")).json()
