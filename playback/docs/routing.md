@@ -9,7 +9,7 @@ Set the DAW (and TouchDesigner) to **48 kHz**: the stream is 48 kHz, so the plug
 Exactly one player paces the server: the **clock**. It tells the client each time it has played a block, and that's what lets the server generate the next one. Every other player is a **monitor**: it gets the same audio and plays along, adjusting its speed by a few hundredths of a percent to stay in step.
 
 - The newest player that asked to be the clock is the clock. The camera page asks too, so it goes quiet while the plugin is the clock and plays again when the plugin closes.
-- With the plugin in a DAW and in TouchDesigner at the same time, set one to **Clock** and the other to **Monitor**.
+- The plugin starts as the clock in a DAW and in the app, and as a monitor in TouchDesigner. So with a copy in each, the DAW's copy paces the server and TouchDesigner's plays along, with no switching needed. Each copy remembers its setting in its project.
 - Turn **Send OSC** on in only one of them.
 
 ## In a DAW

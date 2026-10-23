@@ -2,9 +2,25 @@
 
 #include "PluginEditor.h"
 
+namespace
+{
+// JUCE doesn't recognise TouchDesigner as a host; its executable name does
+juce::String hostName()
+{
+    const auto exe = juce::File::getSpecialLocation (juce::File::hostApplicationPath).getFileNameWithoutExtension();
+    if (exe.containsIgnoreCase ("TouchDesigner"))
+        return "TouchDesigner";
+    const auto known = juce::String (juce::PluginHostType().getHostDescription());
+    return known != "Unknown" ? known : exe;
+}
+} // namespace
+
 SCPlaybackProcessor::SCPlaybackProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
+    // in TouchDesigner the plugin usually plays along with the DAW's copy, so it starts
+    // as a monitor there; anywhere else it starts as the clock
+    settings.clock = wrapperType == wrapperType_Standalone || hostName() != "TouchDesigner";
     setSettings (settings);
 }
 
@@ -18,7 +34,7 @@ juce::String SCPlaybackProcessor::playerName() const
     // how the client's other players see this one ("sound plays in ...")
     if (wrapperType == wrapperType_Standalone)
         return "SC Playback app";
-    return "SC Playback in " + juce::String (juce::PluginHostType().getHostDescription());
+    return "SC Playback in " + hostName();
 }
 
 SCPlaybackProcessor::Settings SCPlaybackProcessor::getSettings() const
