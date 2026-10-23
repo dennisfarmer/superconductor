@@ -1,6 +1,6 @@
 # Running SuperConductor in TouchDesigner
 
-What to do inside TouchDesigner to get the music, the sound measurements (OSC), the tracking, the MediaPipe hands and the webcams. `README.md` lists what each operator holds.
+How to get a visualizer running: building the plugin, starting the services, opening a visualizer, and checking that the music, the sound measurements (OSC), the tracking, the MediaPipe hands and the webcams all arrive. What the inputs contain, and how to make your own visualizer, is in `TOUCHDESIGNER_PROTOCOL_GETTING_STARTED.md`.
 
 ## Before you start
 
@@ -17,60 +17,19 @@ What to do inside TouchDesigner to get the music, the sound measurements (OSC), 
    ```
    Open the camera page and the conducting page in the browser. Their tracking only flows while they're open.
 
-## Open the project
+## Open a visualizer
 
-Open **`touchdesigner/superconductor.toe`**, by double-clicking it, or with:
+Each visualizer is a `.toe` in its own folder under `visualizers/`. Open one by double-clicking it, or with:
 ```bash
-open -n -a TouchDesigner touchdesigner/superconductor.toe     # -n: a new TouchDesigner window
+open -n -a TouchDesigner touchdesigner/visualizers/overlay_example_1/overlay_example_1.toe     # -n: a new TouchDesigner window
 ```
-It holds three components, each loaded from its file in this folder when the project opens:
+Run one visualizer at a time: two would both listen on OSC port 7000, both load the plugin and both open the webcam.
 
-| Component | File | What |
-|---|---|---|
-| `/inputs` | `superconductor_inputs.tox` | everything SuperConductor sends: audio, OSC, tracking, hands, webcams |
-| `/demo` | `demo.tox` | a demo drawing all of it over the webcam (below) |
-| `/mcp_webserver_base` | `mcp/mcp_webserver_base.tox` | lets Claude Code work in this TouchDesigner (below) |
+When it opens, it loads the two shared components from `touchdesigner/` (`superconductor_inputs.tox` as `/inputs`, and the MCP component) and contains its own visual part (e.g. `/overlay_example_1`). Save with **Cmd+S**. TouchDesigner also writes numbered copies (`overlay_example_1.1.toe`, …) and a `Backup/` folder next to the `.toe`; git ignores them.
 
-Both are linked by paths relative to the project, so keep the files where they are, and save the project in this folder (**Cmd+S**). TouchDesigner also writes numbered copies (`superconductor.1.toe`, …) and a `Backup/` folder; git ignores them.
+## Full screen
 
-**`superconductor_inputs.tox` is the inputs component's source.** The project reloads it every time it opens, so changes you make inside `/inputs` are lost unless you save the component back to its file: right-click it → **Save Component .tox**, or in the Textport:
-```python
-op('/inputs').save('superconductor_inputs.tox')
-```
-
-### Using it in another project
-
-Drag `superconductor_inputs.tox` into that project's Network Editor. Or, in its Textport:
-```python
-op('/project1').loadTox('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/superconductor_inputs.tox')
-```
-
-### Rebuilding it from the script
-
-After changing `build_inputs.py` (e.g. other ports):
-1. Open the Textport: menu **Dialogs → Textport and DATs** (or **⌥T**).
-2. Paste this line and press Return:
-   ```python
-   exec(open('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/build_network.py').read())
-   ```
-   It prints `built /inputs: ...` and replaces the earlier copy, keeping its link to `superconductor_inputs.tox`.
-3. Save the component to its file, as above.
-
-## The demo
-
-`/demo` draws everything `/inputs` receives over the webcam:
-- **MediaPipe hands:** the points, with bigger fingertips; orange is the right hand, blue the left. They grow with the music's loudness.
-- **Tracking:** the camera page's tracked objects in their colour, and hand boxes in cyan.
-- **Frequency bands:** bars, bottom left.
-- **Beat:** one dot per beat, top right. The current beat is big, and beat one is yellow.
-- **Hits:** a white flash on each one.
-- **Text line:** tempo, beat, loudness, the conductor's status and the camera page's message.
-
-`build_demo.py` explains how it's built, as a starting point for real visuals. Its result is `/demo/out`.
-
-**Full screen:** click `/demo/window` and, on its **Window** page, click **Open**, or run `op('/demo/window').par.winopen.pulse()` in the Textport. **Esc** closes it. It fills the monitor it opens on. To choose which one, set the window's **Display** parameter, for a projector, say.
-
-**Rebuilding** after changing `build_demo.py`: run `exec(open('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/build_demo.py').read())` in the Textport, then save it with `op('/demo').save('demo.tox')`.
+Each visualizer has a `window` component that shows its result full screen. For `overlay_example_1`: click `/overlay_example_1/window` and, on its **Window** page, click **Open**. Or run `op('/overlay_example_1/window').par.winopen.pulse()` in the Textport (**Dialogs → Textport and DATs**, or **⌥T**). **Esc** closes it. It fills the monitor it opens on; to choose which one, set the window's **Display** parameter, for a projector, say.
 
 ## The plugin's settings
 
@@ -81,7 +40,7 @@ After changing `build_inputs.py` (e.g. other ports):
    - **Send OSC.** Turn it on in **one** copy only: here, or in the DAW's copy. That's what fills the `osc` operator.
    - **Per second** sets how often OSC is sent (15–120, default 60). **Bands** sets the number of frequency bands (4–32).
 
-The plugin's settings are saved with the project.
+The plugin's settings are saved with the visualizer's `.toe`.
 
 **Sample rate:** `audio` runs at 48 kHz (its **Sample Rate** parameter), the stream's own rate. Keep it there.
 
@@ -89,7 +48,7 @@ The plugin's settings are saved with the project.
 
 ## Webcams
 
-`camera1` opens the first webcam. To use another one, click `camera1` and pick it under **Device**. For more cameras, copy `camera1` (**Cmd+C**, **Cmd+V**) and give each copy its own Device. A camera can also be open in the browser's camera page at the same time. If one can't be shared, make a duplicate with an OBS virtual camera and use that here.
+`/inputs/camera1` opens the first webcam. To use another one, click `camera1` and pick it under **Device**. For more cameras, copy `camera1` (**Cmd+C**, **Cmd+V**) and give each copy its own Device. A camera can also be open in the browser's camera page at the same time. If one can't be shared, make a duplicate with an OBS virtual camera and use that here.
 
 ## Checking it works
 
@@ -113,9 +72,20 @@ Inside `inputs`:
 
 `tools/osc_listen.py` shows the OSC from the terminal, without TouchDesigner.
 
+## Rebuilding the inputs component
+
+`superconductor_inputs.tox` is built by `build_inputs.py`. Only rebuild it when the inputs themselves change (e.g. other ports), since every visualizer loads it:
+1. Open any visualizer and its Textport.
+2. Paste this line and press Return:
+   ```python
+   exec(open('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/build_inputs.py').read())
+   ```
+   It prints `built /inputs: ...` and replaces the earlier copy, keeping its link to the `.tox` file.
+3. Save it to its file: right-click `inputs` → **Save Component .tox**, onto `touchdesigner/superconductor_inputs.tox`. Or in the Textport: `op('/inputs').save('../../superconductor_inputs.tox')` (the path is relative to the visualizer's folder).
+
 ## Claude Code in TouchDesigner (MCP)
 
-With `superconductor.toe` open, Claude Code can build, inspect and test the project itself, through the TouchDesigner MCP plugin (install: `../TOUCHDESIGNER_MCP_PLUGIN.md`; host `127.0.0.1`, port `9981`).
+With a visualizer open, Claude Code can build, inspect and test it through the TouchDesigner MCP plugin (install: `../TOUCHDESIGNER_MCP_PLUGIN.md`; host `127.0.0.1`, port `9981`).
 
 - **The component is pinned to v2.0.0** of touchdesigner-mcp, matching the plugin's MCP server. It's committed in `mcp/` as downloaded from the release (Python files and a `.tox`, the same on Mac and Windows). To change versions, replace `mcp/` with the matching release's `touchdesigner-mcp-td.zip`.
 - **It accepts commands from any machine on the network**, with no password: it listens on port 9981 on all network interfaces and runs whatever Python it's sent. Switch it off when you don't need it, and always on shared Wi-Fi or at a show: select `/mcp_webserver_base` and turn **Active** off. Then save, so it stays off.

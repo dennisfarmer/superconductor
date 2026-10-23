@@ -1,10 +1,14 @@
-"""Builds the demo: everything `inputs` receives, drawn over the webcam. Run it from
-the Textport (Dialogs > Textport and DATs) after build_inputs.py:
+"""overlay_example_1: one example visualizer. Everything /inputs receives, drawn over
+the webcam.
 
-    exec(open('/path/to/superconductor_touchdesigner/touchdesigner/build_demo.py').read())
+overlay_example_1.toe (next to this file) already contains it. This script rebuilds the
+`overlay_example_1` component from scratch, e.g. after you change it here. Run it in
+overlay_example_1.toe's Textport (Dialogs > Textport and DATs), then save the project
+(Cmd+S):
 
-It creates `demo` next to `inputs` (replacing an earlier one); save it as
-touchdesigner/demo.tox (TOUCHDESIGNER_SETUP.md). What it draws:
+    exec(open('/path/to/superconductor_touchdesigner/touchdesigner/visualizers/overlay_example_1/build_overlay_example_1.py').read())
+
+What it draws:
 
   webcam      camera1, as the background
   hands       MediaPipe's 21 points per hand (fingertips bigger; orange = right hand,
@@ -231,44 +235,40 @@ def _shapes(parent, name, sop_type, chop, material, x, y, scale_y=None):
     return geo
 
 
-def build_demo(parent=None):
+def build_overlay_example_1(parent=None):
     parent = parent or op('/project1') or op('/')
     if parent.op('inputs') is None:
-        raise RuntimeError('run build_inputs.py first: demo reads from inputs')
-    old = parent.op('demo')
-    linked = old.par.externaltox.eval() if old is not None else ''
+        raise RuntimeError('load superconductor_inputs.tox first: the overlay reads from /inputs')
+    old = parent.op('overlay_example_1')
     if old is not None:
         old.destroy()
-    demo = parent.create(containerCOMP, 'demo')
-    if linked:
-        demo.par.externaltox = linked
-        demo.par.enableexternaltox = True
+    overlay = parent.create(containerCOMP, 'overlay_example_1')
 
     # data -> shapes
-    hands = _script_chop(demo, 'hand_shapes', HANDS, 0, 0)
-    boxes = _script_chop(demo, 'box_shapes', BOXES, 200, 0)
-    bars = _script_chop(demo, 'bar_shapes', BARS, 400, 0)
-    beat = _script_chop(demo, 'beat_shapes', BEAT, 600, 0)
-    pulse = _script_chop(demo, 'flash', PULSE, 800, 0)
+    hands = _script_chop(overlay, 'hand_shapes', HANDS, 0, 0)
+    boxes = _script_chop(overlay, 'box_shapes', BOXES, 200, 0)
+    bars = _script_chop(overlay, 'bar_shapes', BARS, 400, 0)
+    beat = _script_chop(overlay, 'beat_shapes', BEAT, 600, 0)
+    pulse = _script_chop(overlay, 'flash', PULSE, 800, 0)
 
-    solid = _material(demo, 'solid', 1.0, 0, -500)
-    glass = _material(demo, 'glass', 0.3, 200, -500)
+    solid = _material(overlay, 'solid', 1.0, 0, -500)
+    glass = _material(overlay, 'glass', 0.3, 200, -500)
 
     geos = [
-        _shapes(demo, 'boxes_geo', rectangleSOP, boxes, glass, 200, -300, scale_y='sy'),
-        _shapes(demo, 'bars_geo', rectangleSOP, bars, solid, 400, -300, scale_y='sy'),
-        _shapes(demo, 'hands_geo', circleSOP, hands, solid, 0, -300),
-        _shapes(demo, 'beat_geo', circleSOP, beat, solid, 600, -300),
+        _shapes(overlay, 'boxes_geo', rectangleSOP, boxes, glass, 200, -300, scale_y='sy'),
+        _shapes(overlay, 'bars_geo', rectangleSOP, bars, solid, 400, -300, scale_y='sy'),
+        _shapes(overlay, 'hands_geo', circleSOP, hands, solid, 0, -300),
+        _shapes(overlay, 'beat_geo', circleSOP, beat, solid, 600, -300),
     ]
 
-    cam = demo.create(cameraCOMP, 'ortho')
+    cam = overlay.create(cameraCOMP, 'ortho')
     cam.par.projection = 'ortho'
     cam.par.orthoorigin = 'bottomleft'
     cam.par.orthowidth = 1
     cam.par.tx, cam.par.ty, cam.par.tz = 0, 0, 5
     cam.nodeX, cam.nodeY = 800, -300
 
-    render = demo.create(renderTOP, 'render')
+    render = overlay.create(renderTOP, 'render')
     render.par.camera = cam
     render.par.geometry = ' '.join(g.name for g in geos)
     render.par.outputresolution = 'custom'
@@ -277,14 +277,14 @@ def build_demo(parent=None):
     render.nodeX, render.nodeY = 1000, -300
 
     # the picture: webcam, shapes, text, flash
-    webcam = demo.create(selectTOP, 'webcam')
+    webcam = overlay.create(selectTOP, 'webcam')
     webcam.par.top = '../inputs/camera1'
     webcam.nodeX, webcam.nodeY = 1000, 0
 
-    text = demo.create(textDAT, 'info_text')
+    text = overlay.create(textDAT, 'info_text')
     text.text = INFO_TEXT
     text.nodeX, text.nodeY = 1000, -620
-    info = demo.create(textTOP, 'info')
+    info = overlay.create(textTOP, 'info')
     info.par.text.expr = "mod('info_text').line()"
     info.par.outputresolution = 'custom'
     info.par.resolutionw, info.par.resolutionh = W, H
@@ -293,14 +293,14 @@ def build_demo(parent=None):
     info.par.bgalpha = 0
     info.nodeX, info.nodeY = 1000, -500
 
-    flash = demo.create(constantTOP, 'flash_top')
+    flash = overlay.create(constantTOP, 'flash_top')
     flash.par.outputresolution = 'custom'
     flash.par.resolutionw, flash.par.resolutionh = W, H
     flash.par.alpha.expr = "op('flash')['flash'] * 0.35"
     flash.nodeX, flash.nodeY = 1000, -700
 
     def over(name, top, under, x):
-        o = demo.create(overTOP, name)
+        o = overlay.create(overTOP, name)
         o.inputConnectors[0].connect(top)
         o.inputConnectors[1].connect(under)
         o.nodeX, o.nodeY = x, -300
@@ -309,11 +309,11 @@ def build_demo(parent=None):
     picture = over('over_shapes', render, webcam, 1200)
     picture = over('over_text', info, picture, 1400)
     picture = over('over_flash', flash, picture, 1600)
-    out = demo.create(nullTOP, 'out')
+    out = overlay.create(nullTOP, 'out')
     out.inputConnectors[0].connect(picture)
     out.nodeX, out.nodeY = 1800, -300
 
-    window = demo.create(windowCOMP, 'window')
+    window = overlay.create(windowCOMP, 'window')
     window.par.winop = out
     window.par.size = 'fill'
     window.par.borders = False
@@ -321,10 +321,10 @@ def build_demo(parent=None):
     window.nodeX, window.nodeY = 2000, -300
 
     # the container shows the result in the Network Editor and in perform mode
-    demo.par.w, demo.par.h = W, H
-    demo.par.top = out
-    print(f'built {demo.path}: open {window.path} (pulse Open) for full screen')
-    return demo
+    overlay.par.w, overlay.par.h = W, H
+    overlay.par.top = out
+    print(f'built {overlay.path}: open {window.path} (pulse Open) for full screen')
+    return overlay
 
 
-build_demo()
+build_overlay_example_1()

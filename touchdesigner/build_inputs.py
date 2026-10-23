@@ -4,7 +4,8 @@ Run it once from the Textport (Dialogs > Textport and DATs):
     exec(open('/path/to/superconductor_touchdesigner/touchdesigner/build_inputs.py').read())
 
 It creates /project1/inputs (replacing an earlier one); save it as
-touchdesigner/superconductor_inputs.tox (TOUCHDESIGNER_SETUP.md). Inside:
+touchdesigner/superconductor_inputs.tox (TOUCHDESIGNER_SETUP.md). The full list of what
+it provides is in TOUCHDESIGNER_PROTOCOL_GETTING_STARTED.md. Inside:
 
   audio     SC Playback plugin (Audio VST CHOP): the music, as two audio channels.
             Starts as a monitor (plays along with the DAW's copy); pulse
