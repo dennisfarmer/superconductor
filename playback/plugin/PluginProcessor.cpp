@@ -36,8 +36,8 @@ juce::String SCPlaybackProcessor::playerName() const
 {
     // how the client's other players see this one ("sound plays in ...")
     if (wrapperType == wrapperType_Standalone)
-        return "SC Playback app";
-    return "SC Playback in " + hostName();
+        return "SuperConductor Playback VST3 Plugin";
+    return "SuperConductor Playback VST3 Plugin in " + hostName();
 }
 
 SCPlaybackProcessor::Settings SCPlaybackProcessor::getSettings() const

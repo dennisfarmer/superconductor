@@ -14,15 +14,15 @@ Exactly one player paces the server: the **clock**. It tells the client each tim
 
 ## In a DAW
 
-Put **SC Playback** on an instrument track. It plays as long as the DAW is processing that track, whether or not the transport is running. To record it, record-arm the track, or route it to an audio track.
+Put **SuperConductor Playback VST3 Plugin** on an instrument track. It plays as long as the DAW is processing that track, whether or not the transport is running. To record it, record-arm the track, or route it to an audio track.
 
 ## In TouchDesigner
 
-**Audio VST CHOP** → Plugin: `~/Library/Audio/Plug-Ins/VST3/SC Playback.vst3` (Mac) or `C:\Program Files\Common Files\VST3\SC Playback.vst3` (Windows). Its output is the stereo stream as CHOP channels. Open the plugin's window from the CHOP to set Clock/Monitor and OSC.
+**Audio VST CHOP** → Plugin: `~/Library/Audio/Plug-Ins/VST3/SuperConductor Playback VST3 Plugin.vst3` (Mac) or `C:\Program Files\Common Files\VST3\SuperConductor Playback VST3 Plugin.vst3` (Windows). Its output is the stereo stream as CHOP channels. Open the plugin's window from the CHOP to set Clock/Monitor and OSC.
 
 ## Without a DAW: the app
 
-`SC Playback.app` (built next to the plugins, or `make playback`) plays the stream on any output device. Choose it under **Options → Audio/MIDI Settings**:
+`SuperConductor Playback VST3 Plugin.app` (built next to the plugins, or `make playback`) plays the stream on any output device. Choose it under **Options → Audio/MIDI Settings**:
 
 - **Speakers / headphones:** the built-in output.
 - **A program that can't load plugins:** a virtual device, which that program records from:

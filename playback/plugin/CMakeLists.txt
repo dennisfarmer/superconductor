@@ -15,7 +15,7 @@ juce_add_plugin(SCPlayback
     PLUGIN_MANUFACTURER_CODE Supc
     PLUGIN_CODE Scpb
     FORMATS ${SC_FORMATS}
-    PRODUCT_NAME "SC Playback"
+    PRODUCT_NAME "SuperConductor Playback VST3 Plugin"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE      # some hosts only put instruments that take MIDI on instrument tracks
     NEEDS_MIDI_OUTPUT FALSE

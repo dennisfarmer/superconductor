@@ -1,12 +1,12 @@
-# SC Playback
+# SuperConductor Playback VST3 Plugin
 
 A second way to hear SuperConductor, next to the camera page: a plugin that plays the music stream inside a DAW or TouchDesigner, and the same thing as a small app. The camera page keeps working as before.
 
 ```
 MRT2 server :9100 ─► client ─► ws://localhost:8470/audio ─┬─► camera page (unchanged)
-                                                           ├─► SC Playback in a DAW
-                                                           ├─► SC Playback in TouchDesigner (Audio VST CHOP)
-                                                           └─► SC Playback app ─► speakers / BlackHole
+                                                           ├─► SuperConductor Playback VST3 Plugin in a DAW
+                                                           ├─► SuperConductor Playback VST3 Plugin in TouchDesigner (Audio VST CHOP)
+                                                           └─► SuperConductor Playback VST3 Plugin app ─► speakers / BlackHole
                                     one copy also sends OSC ─► TouchDesigner: loudness, bands, hits, tempo
 ```
 
@@ -24,7 +24,7 @@ The plugins are copied to your plugin folders after each build (Mac: `~/Library/
 ## Use
 
 1. Start the server and client as usual (`make server`, `make client` in client-web).
-2. Load **SC Playback** in a DAW, in TouchDesigner, or open the app. It connects to `ws://localhost:8470/audio`.
+2. Load **SuperConductor Playback VST3 Plugin** in a DAW, in TouchDesigner, or open the app. It connects to `ws://localhost:8470/audio`.
 3. Pick **Clock** (this copy sets the pace; the camera page goes quiet) or **Monitor** (plays along). Turn on **Send OSC** in one copy.
 
 Settings are saved with the DAW or TouchDesigner project. Details: `docs/routing.md` (where the sound goes, per OS) and `docs/osc.md` (every OSC message).

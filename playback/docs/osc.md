@@ -1,6 +1,6 @@
 # OSC messages
 
-One copy of the SC Playback plugin (or app) sends these, with **Send OSC** on. They go to the OSC host and port set in the plugin (default `127.0.0.1:7000`), as one bundle, **Per second** times a second (15, 30, 60 or 120; default 60).
+One copy of the SuperConductor Playback VST3 Plugin (or app) sends these, with **Send OSC** on. They go to the OSC host and port set in the plugin (default `127.0.0.1:7000`), as one bundle, **Per second** times a second (15, 30, 60 or 120; default 60).
 
 The sound measurements come from the samples the plugin is outputting at that moment, so they follow what is heard. The tempo comes from the MRT2 server's `GET /tempo/status`, read 5 times a second, with the beat moved forward smoothly in between.
 

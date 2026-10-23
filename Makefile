@@ -1,4 +1,4 @@
-# SC Playback (playback/README.md)
+# SuperConductor Playback VST3 Plugin (playback/README.md)
 #
 #   make playback-build   build the plugins (VST3 / AU / LV2) and the Standalone app
 #   make playback         build if needed, then open the Standalone app
@@ -14,7 +14,7 @@ playback-build:
 
 playback: playback-build
 ifeq ($(shell uname),Darwin)
-	open "$(APP_DIR)/SC Playback.app"
+	open "$(APP_DIR)/SuperConductor Playback VST3 Plugin.app"
 else
-	"$(APP_DIR)/SC Playback"
+	"$(APP_DIR)/SuperConductor Playback VST3 Plugin"
 endif
