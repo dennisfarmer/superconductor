@@ -4,3 +4,4 @@
 Backup/
 __pycache__/
 .DS_Store
+var/

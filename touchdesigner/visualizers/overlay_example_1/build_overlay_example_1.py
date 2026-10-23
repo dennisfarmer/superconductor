@@ -13,11 +13,14 @@ What it draws:
   webcam      camera1, as the background
   hands       MediaPipe's 21 points per hand (fingertips bigger; orange = right hand,
               blue = left), growing with the music's loudness
-  boxes       the camera page's tracked objects (their colour) and hand boxes (cyan)
+  boxes       the Tracking page's tracked objects (their colour) and hand boxes (cyan)
   bars        the frequency bands from OSC, bottom left
   beat        one dot per beat of the bar, top right; the current beat is big
   flash       a white flash on every detected hit (onset)
-  text        tempo, beat, loudness, the conductor's status, the camera page's message
+  text        tempo, beat, loudness, the conductor's status, the Tracking page's message
+
+Full screen: `make visualize` starts it in perform mode (SC_PERFORM=1). Opened normally,
+it starts in the editor; F1 switches to full screen, Esc back.
 
 How it's built: Script CHOPs turn the tables / OSC channels into one sample per shape
 (tx, ty, sx, sy, r, g, b); Geometry COMPs draw one shape per sample (instancing); a
@@ -191,6 +194,18 @@ def line():
 '''
 
 
+PERFORM = '''"""Full screen when the project starts, if launched with SC_PERFORM=1 (make visualize).
+Opened normally, the project starts in the editor; F1 switches to full screen, Esc back."""
+import os
+
+
+def onStart():
+    project.performWindowPath = op('window').path
+    if os.environ.get('SC_PERFORM') == '1':
+        ui.performMode = True
+'''
+
+
 def _script_chop(parent, name, code, x, y):
     dat = parent.create(textDAT, name + '_callbacks')
     dat.text = code
@@ -318,6 +333,14 @@ def build_overlay_example_1(parent=None):
     window.par.size = 'fill'
     window.par.borders = False
     window.par.closeescape = True  # Esc leaves full screen
+
+    # perform mode (full screen, editor hidden) shows this window: always on F1, and at
+    # start-up when launched with SC_PERFORM=1
+    project.performWindowPath = window.path
+    start = overlay.create(executeDAT, 'perform_on_start')
+    start.text = PERFORM
+    start.par.start = True
+    start.nodeX, start.nodeY = 2000, -500
     window.nodeX, window.nodeY = 2000, -300
 
     # the container shows the result in the Network Editor and in perform mode

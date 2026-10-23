@@ -2,6 +2,23 @@
 
 How to get a visualizer running: building the plugin, starting the services, opening a visualizer, and checking that the music, the sound measurements (OSC), the tracking, the MediaPipe hands and the webcams all arrive. What the inputs contain, and how to make your own visualizer, is in `TOUCHDESIGNER_PROTOCOL_GETTING_STARTED.md`.
 
+## The quick way: one command
+
+From the `superconductor_touchdesigner` folder (after building the plugin once, below):
+```bash
+make visualize                                # overlay_example_1
+make visualize VISUALIZER=<name>              # visualizers/<name>/<name>.toe
+```
+It:
+1. starts the MRT2 server, the client and the conducting server (any that aren't already running);
+2. starts the **SC Playback app** (`playback` branch), which plays the music on your Mac's current sound output (speakers or headphones) and sets the pace;
+3. opens the **Tracking** page (quiet, so the music isn't played twice) and the **Conducting** page in the browser;
+4. opens the visualizer full screen.
+
+Press **Start** on the Tracking page for the object tracking. **Esc** leaves full screen; quitting TouchDesigner (**Cmd+Q**) stops the services and the app it started. Logs are in `var/logs/`. This is macOS only, and needs the SC Playback app built (`make playback-build` in `superconductor_playback`).
+
+The rest of this document is the same thing step by step, and how to check each part.
+
 ## Before you start
 
 1. **Build the plugin** (`playback` branch, once, and again after plugin changes):
@@ -12,10 +29,10 @@ How to get a visualizer running: building the plugin, starting the services, ope
 2. **Start the services** (in `superconductor_client_web`, each in its own terminal):
    ```bash
    make server    # MRT2 server, :9100
-   make client    # camera page http://localhost:8467 + the audio stream :8470
-   make conduct   # conducting page http://localhost:8480 (MediaPipe hands)
+   make client    # Tracking page http://localhost:8467 + the audio stream :8470
+   make conduct   # Conducting page http://localhost:8480 (MediaPipe hands)
    ```
-   Open the camera page and the conducting page in the browser. Their tracking only flows while they're open.
+   Open the Tracking page and the Conducting page in the browser. Their tracking only flows while they're open.
 
 ## Open a visualizer
 
@@ -29,15 +46,17 @@ When it opens, it loads the two shared components from `touchdesigner/` (`superc
 
 ## Full screen
 
-Each visualizer has a `window` component that shows its result full screen. For `overlay_example_1`: click `/overlay_example_1/window` and, on its **Window** page, click **Open**. Or run `op('/overlay_example_1/window').par.winopen.pulse()` in the Textport (**Dialogs → Textport and DATs**, or **⌥T**). **Esc** closes it. It fills the monitor it opens on; to choose which one, set the window's **Display** parameter, for a projector, say.
+A visualizer opened normally starts in the editor. **F1** switches to *perform mode*: only the visualizer's picture, full screen, with the editor hidden. **Esc** goes back. `make visualize` starts straight in perform mode (it opens TouchDesigner with `SC_PERFORM=1`).
+
+Perform mode shows the visualizer's `window` component (for `overlay_example_1`, `/overlay_example_1/window`). It fills the monitor it opens on; to choose which one, set the window's **Display** parameter, for a projector, say.
 
 ## The plugin's settings
 
 1. Double-click `inputs` to go inside it, and click the **`audio`** operator.
 2. In its parameters (press **p** if they're hidden), on the **VST** page, click **Display Plugin GUI**. In the Textport, that's `op('/inputs/audio').par.displaygui.pulse()`.
 3. In the plugin window:
-   - **Role.** It starts as **Monitor**: it plays along with the copy in your DAW, which is the **Clock** and sets the pace. With no DAW (and no camera page or SC Playback app playing), switch it to **Clock**, or nothing plays.
-   - **Send OSC.** Turn it on in **one** copy only: here, or in the DAW's copy. That's what fills the `osc` operator.
+   - **Role.** In TouchDesigner it starts as **Monitor**: it plays along with the copy in your DAW, which is the **Clock** and sets the pace. With no DAW (and no Tracking page or SC Playback app playing), switch it to **Clock**, or nothing plays.
+   - **Send OSC.** On by default in TouchDesigner, off in a DAW. Only one copy should send it. That's what fills the `osc` operator.
    - **Per second** sets how often OSC is sent (15–120, default 60). **Bands** sets the number of frequency bands (4–32).
 
 The plugin's settings are saved with the visualizer's `.toe`.
@@ -48,7 +67,7 @@ The plugin's settings are saved with the visualizer's `.toe`.
 
 ## Webcams
 
-`/inputs/camera1` opens the first webcam. To use another one, click `camera1` and pick it under **Device**. For more cameras, copy `camera1` (**Cmd+C**, **Cmd+V**) and give each copy its own Device. A camera can also be open in the browser's camera page at the same time. If one can't be shared, make a duplicate with an OBS virtual camera and use that here.
+`/inputs/camera1` opens the first webcam. To use another one, click `camera1` and pick it under **Device**. For more cameras, copy `camera1` (**Cmd+C**, **Cmd+V**) and give each copy its own Device. A camera can also be open in the browser's Tracking page at the same time. If one can't be shared, make a duplicate with an OBS virtual camera and use that here.
 
 ## Checking it works
 
@@ -57,17 +76,17 @@ Inside `inputs`:
 | Look at | You should see |
 |---|---|
 | `audio` | two moving audio channels |
-| `osc` | `sc/level`, `sc/bands1…8`, `sc/onset`, `sc/tempo/…` changing (once one copy sends OSC) |
-| `tracking_info` | `connected` 1, `seq` counting up while the camera page runs |
-| `objects`, `hand_boxes`, `objects_chop` | rows / samples for what the camera page tracks |
-| `conduct` | `connected` 1, `bpm` while you conduct on the conducting page |
+| `osc` | `sc/level`, `sc/bands1…8`, `sc/onset`, `sc/tempo/…` changing |
+| `tracking_info` | `connected` 1, `seq` counting up while the Tracking page runs |
+| `objects`, `hand_boxes`, `objects_chop` | rows / samples for what the Tracking page tracks |
+| `conduct` | `connected` 1, `bpm` while you conduct on the Conducting page |
 | `hand_points`, `hand_points_chop` | 21 rows / samples per hand |
 | `camera1` | the webcam picture |
 
 **If something's empty:**
 - **`audio` says "Loading Plugin…"** It takes a few seconds the first time.
-- **`audio` is silent.** Nothing is the clock: set one copy to Clock (see above), or open the camera page.
-- **`osc` has no channels.** No copy has Send OSC on.
+- **`audio` is silent.** Nothing is the clock: set one copy to Clock (see above), or open the Tracking page.
+- **`osc` has no channels.** No copy has Send OSC on (TouchDesigner's is on unless someone switched it off).
 - **`connected` is 0.** That service isn't running (`make client` for tracking, `make conduct` for hands). The connections retry by themselves once it is.
 
 `tools/osc_listen.py` shows the OSC from the terminal, without TouchDesigner.

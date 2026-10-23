@@ -13,7 +13,7 @@ it provides is in TOUCHDESIGNER_PROTOCOL_GETTING_STARTED.md. Inside:
   osc       OSC In CHOP on port 7000: loudness, bands, hits, tempo from the one plugin
             copy that has "Send OSC" on (playback/docs/osc.md).
   tracking  WebSocket DAT on the client's ws://localhost:8467/ws/tracking: what the
-            camera page tracked, as tables (objects, hand_boxes, combos, tracking_info)
+            Tracking page tracked, as tables (objects, hand_boxes, combos, tracking_info)
             and a CHOP with one sample per object (objects_chop).
   hands     WebSocket DAT on the conducting server's ws://localhost:8480/ws/hands/monitor:
             MediaPipe's 21 points per hand (hand_points, hand_points_chop) and the
@@ -29,7 +29,7 @@ import os
 import sys
 
 CLIENT_HOST, CLIENT_PORT = "localhost", 8467       # sc-collab: /ws/tracking
-CONDUCT_HOST, CONDUCT_PORT = "localhost", 8480     # conducting page server: /ws/hands/monitor
+CONDUCT_HOST, CONDUCT_PORT = "localhost", 8480     # Conducting page's server: /ws/hands/monitor
 OSC_PORT = 7000
 
 if sys.platform == "darwin":
@@ -94,7 +94,7 @@ def onReceiveText(dat, rowIndex, message):
     info['music', 1] = status.get('music', '')
 '''
 
-HANDS_CALLBACKS = '''"""/ws/hands/monitor: each frame's MediaPipe hands from the conducting page, plus the
+HANDS_CALLBACKS = '''"""/ws/hands/monitor: each frame's MediaPipe hands from the Conducting page, plus the
 conductor's reply (README.md on conducting_sendtoserver). Fills hand_points and conduct."""
 import json
 
@@ -226,7 +226,7 @@ def build(parent_path=None):
     osc.par.active = True
     osc.nodeX, osc.nodeY = 0, -200
 
-    # tracking from the camera page
+    # tracking from the Tracking page
     objects = _table(sc, 'objects', ['identity', 'track_id', 'class_name', 'label', 'x1', 'y1', 'x2', 'y2',
                                      'cx', 'cy', 'coasted', 'combined', 'color'], x=400, y=0)
     _table(sc, 'hand_boxes', ['x1', 'y1', 'x2', 'y2'], x=400, y=-150)
@@ -243,7 +243,7 @@ def build(parent_path=None):
     _table_chop(sc, 'objects_chop', objects, ['identity', 'cx', 'cy', 'x1', 'y1', 'x2', 'y2', 'coasted', 'combined'],
                 x=600, y=0)
 
-    # MediaPipe hands from the conducting page
+    # MediaPipe hands from the Conducting page
     points = _table(sc, 'hand_points', ['hand', 'handedness', 'point', 'x', 'y', 'z'], x=900, y=0)
     _table(sc, 'conduct', ['key', 'value'], [['connected', ''], ['seq', '']], x=900, y=-150)
     hands_cb = _text(sc, 'hands_callbacks', HANDS_CALLBACKS, x=800, y=-120)

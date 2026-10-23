@@ -4,15 +4,15 @@ This explains how the TouchDesigner side is organised, exactly what information 
 
 ## The idea
 
-SuperConductor's programs (the MRT2 music server, the camera page with its object tracking, the conducting page with MediaPipe) send their information out in their own formats: an audio stream, OSC messages and JSON over websockets. One shared TouchDesigner component, `superconductor_inputs.tox`, receives all of it and turns it into things TouchDesigner works with directly: audio channels, tables, CHOP channels and webcam images.
+SuperConductor's programs (the MRT2 music server, the Tracking page with its object tracking, the Conducting page with MediaPipe) send their information out in their own formats: an audio stream, OSC messages and JSON over websockets. One shared TouchDesigner component, `superconductor_inputs.tox`, receives all of it and turns it into things TouchDesigner works with directly: audio channels, tables, CHOP channels and webcam images.
 
 Every **visualizer** is a separate TouchDesigner project (`.toe`) that loads that shared component and draws something with it. The component stays the same; the visualizers are where people experiment.
 
 ```
 MRT2 server ──► client ──► audio stream ──► SC Playback plugin ─┐
                                     (plugin also sends OSC) ─────┤
-camera page (object tracking) ──► client ──► websocket ──────────┤──► /inputs ──► a visualizer
-conducting page (MediaPipe) ──► conducting server ──► websocket ─┤   (superconductor_inputs.tox)
+Tracking page (object tracking) ──► client ──► websocket ──────────┤──► /inputs ──► a visualizer
+Conducting page (MediaPipe) ──► conducting server ──► websocket ─┤   (superconductor_inputs.tox)
 webcams ─────────────────────────────────────────────────────────┘
 ```
 
@@ -67,7 +67,7 @@ Two channels, `chan1` and `chan2` (left and right), at 48 kHz: the music as it p
 
 ### Sound measurements and tempo: `osc` (OSC In CHOP, port 7000)
 
-One channel per value, updated 60 times a second by default. These only arrive while one copy of the plugin has **Send OSC** on (see `TOUCHDESIGNER_SETUP.md`). The measurements describe the sound as it's being heard.
+One channel per value, updated 60 times a second by default. They come from the plugin copy that has **Send OSC** on, which by default is TouchDesigner's own (see `TOUCHDESIGNER_SETUP.md`). The measurements describe the sound as it's being heard.
 
 | Channel | Range | Meaning |
 |---|---|---|
@@ -86,21 +86,21 @@ One channel per value, updated 60 times a second by default. These only arrive w
 | `sc/tempo/beats_per_bar` | 3 or 4 | 4 while the server isn't sure |
 | `sc/tempo/bar_phase` | 0–1 | How far through the bar |
 
-### Object tracking from the camera page
+### Object tracking from the Tracking page
 
-Updated on every camera frame the client handles (around 15 a second), while the camera page is open.
+Updated on every camera frame the client handles (around 15 a second), while the Tracking page is open.
 
 | Operator | Type | Contents |
 |---|---|---|
 | `objects` | table | One row per object the client recognised: `identity` (stays the same for the same object), `track_id`, `class_name`, `label` (ready to show), `x1 y1 x2 y2` (its box), `cx cy` (its centre), `coasted` (1 = not seen right now; last known place), `combined` (1 = part of an active combo), `color` (`#rrggbb`) |
 | `objects_chop` | CHOP | The same, one sample per object: `identity`, `cx`, `cy`, `x1`, `y1`, `x2`, `y2`, `coasted`, `combined`. Ready for instancing (one shape per object) |
-| `hand_boxes` | table | One row per hand the camera page found: `x1 y1 x2 y2` |
+| `hand_boxes` | table | One row per hand the Tracking page found: `x1 y1 x2 y2` |
 | `combos` | table | `active` (0/1), `label`: objects that play something together |
-| `tracking_info` | table | `connected` (0/1), `seq` (frame number), `width`, `height` (camera page's image size), `message` (calibration instruction), `vision_fps`, `music` (the music engine's status) |
+| `tracking_info` | table | `connected` (0/1), `seq` (frame number), `width`, `height` (Tracking page's image size), `message` (calibration instruction), `vision_fps`, `music` (the music engine's status) |
 
-### MediaPipe hands from the conducting page
+### MediaPipe hands from the Conducting page
 
-Updated on every frame the conducting page tracks, while it's open.
+Updated on every frame the Conducting page tracks, while it's open.
 
 | Operator | Type | Contents |
 |---|---|---|
@@ -121,7 +121,11 @@ The quickest way is to copy the example:
 1. Copy the folder `visualizers/overlay_example_1` to `visualizers/<your_name>`, and rename the `.toe` inside to `<your_name>.toe`. Delete the copied `build_overlay_example_1.py` and any numbered `.toe` copies.
 2. Open `<your_name>.toe`. Delete the `overlay_example_1` component, or keep it to look at while you work.
 3. Make your own component next to `inputs`: in the Network Editor, press **Tab**, choose **COMP → Container**, and name it, e.g. `<your_name>`. Build inside it, reading from `../inputs/...`.
-4. Save (**Cmd+S**).
+4. For full screen (F1, and `make visualize`), give it what the example has:
+   - a **Window COMP** showing your final TOP, with **Size** set to Fill and **Borders** off;
+   - an **Execute DAT** with **Start** on, whose `onStart` sets `project.performWindowPath` to that window and switches to perform mode when `SC_PERFORM` is `1`. Copy `perform_on_start` from `overlay_example_1` and change the window's name if needed.
+5. Save (**Cmd+S**).
+6. Run it: `make visualize VISUALIZER=<your_name>`.
 
 **Starting from an empty project instead:**
 1. **File → New**.
@@ -133,7 +137,7 @@ The quickest way is to copy the example:
        c.par.externaltox = path            # reload it from the file each time the project opens
        c.par.enableexternaltox = True
    ```
-4. Build your component inside `/project1`, next to `inputs`, and save.
+4. Build your component inside `/project1`, next to `inputs`, add the full-screen window and start-up hook (step 4 above), and save.
 
 **Rules:**
 - **Don't change `/inputs` inside a visualizer.** It's reloaded from `superconductor_inputs.tox` each time the project opens, so changes there are lost, and other visualizers depend on it staying the same. If the protocol itself needs to change, change `build_inputs.py` and rebuild it (`TOUCHDESIGNER_SETUP.md`), then check the other visualizers still work.
@@ -148,6 +152,7 @@ It uses every input, so it doubles as a reference for reading them. Its build sc
 - **Rendering:** a Render TOP with an orthographic camera draws them in the same 0–1 coordinates as the image.
 - **Layering:** Over TOPs layer the shapes, a text line and a flash over `inputs/camera1`.
 - **Result:** `out` is the final image, and `window` shows it full screen.
+- **Start-up:** `perform_on_start` (an Execute DAT) points perform mode at `window`, and switches to it when launched by `make visualize`.
 
 ## Licence note
 
