@@ -312,7 +312,10 @@ async function startAudio() {
 function connectAudio() {
   const base = config.audio_url ? wsUrl(config.audio_url)
     : `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:${config.audio_port || 8470}/audio`;
-  audioWs = new WebSocket(`${base}${base.includes("?") ? "&" : "?"}role=clock&name=browser`);
+  // ?audio=monitor: leave the sound to another player (e.g. the SC Playback app), even when
+  // this page connects after it
+  const role = new URLSearchParams(location.search).get("audio") === "monitor" ? "monitor" : "clock";
+  audioWs = new WebSocket(`${base}${base.includes("?") ? "&" : "?"}role=${role}&name=browser`);
   audioWs.binaryType = "arraybuffer";
   audioWs.onopen = () => {
     worklet.port.postMessage({ type: "reset" });
