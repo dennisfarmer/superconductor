@@ -1,4 +1,4 @@
-"""Check the SC Playback plugin's OSC without TouchDesigner: listens for a while, then
+"""Check the SuperConductor Playback VST3 Plugin's OSC without TouchDesigner: listens for a while, then
 prints how often each address arrived and its last value (playback/docs/osc.md).
 
     python touchdesigner/tools/osc_listen.py [seconds=10] [port=7000]

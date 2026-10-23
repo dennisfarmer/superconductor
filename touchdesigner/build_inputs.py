@@ -7,7 +7,7 @@ It creates /project1/inputs (replacing an earlier one); save it as
 touchdesigner/superconductor_inputs.tox (TOUCHDESIGNER_SETUP.md). The full list of what
 it provides is in TOUCHDESIGNER_PROTOCOL_GETTING_STARTED.md. Inside:
 
-  audio     SC Playback plugin (Audio VST CHOP): the music, as two audio channels.
+  audio     SuperConductor Playback VST3 Plugin (Audio VST CHOP): the music, as two audio channels.
             Starts as a monitor (plays along with the DAW's copy); pulse
             "Display Plugin GUI" on it for its settings.
   osc       OSC In CHOP on port 7000: loudness, bands, hits, tempo from the one plugin
@@ -33,10 +33,10 @@ CONDUCT_HOST, CONDUCT_PORT = "localhost", 8480     # Conducting page's server: /
 OSC_PORT = 7000
 
 if sys.platform == "darwin":
-    PLUGIN = os.path.expanduser("~/Library/Audio/Plug-Ins/VST3/SC Playback.vst3")
+    PLUGIN = os.path.expanduser("~/Library/Audio/Plug-Ins/VST3/SuperConductor Playback VST3 Plugin.vst3")
     CAMERA_DRIVER = "avfoundation"
 else:
-    PLUGIN = "C:/Program Files/Common Files/VST3/SC Playback.vst3"
+    PLUGIN = "C:/Program Files/Common Files/VST3/SuperConductor Playback VST3 Plugin.vst3"
     CAMERA_DRIVER = "mediafoundation"
 
 
@@ -256,7 +256,7 @@ def build(parent_path=None):
     _table_chop(sc, 'hand_points_chop', points, ['hand', 'point', 'x', 'y', 'z'], x=1000, y=-300)
 
     add_camera(sc)
-    print(f'built {sc.path}: audio (SC Playback, {PLUGIN}), osc :{OSC_PORT}, '
+    print(f'built {sc.path}: audio (SuperConductor Playback VST3 Plugin, {PLUGIN}), osc :{OSC_PORT}, '
           f'tracking ws://{CLIENT_HOST}:{CLIENT_PORT}/ws/tracking, '
           f'hands ws://{CONDUCT_HOST}:{CONDUCT_PORT}/ws/hands/monitor, camera1')
     return sc

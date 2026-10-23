@@ -11,11 +11,11 @@ make visualize VISUALIZER=<name>              # visualizers/<name>/<name>.toe
 ```
 It:
 1. starts the MRT2 server, the client and the conducting server (any that aren't already running);
-2. starts the **SC Playback app** (`playback` branch), which plays the music on your Mac's current sound output (speakers or headphones) and sets the pace;
+2. starts the **SuperConductor Playback VST3 Plugin app** (`playback` branch), which plays the music on your Mac's current sound output (speakers or headphones) and sets the pace;
 3. opens the **Tracking** page (quiet, so the music isn't played twice) and the **Conducting** page in the browser;
 4. opens the visualizer showing only its output, in a window you can resize or make full screen.
 
-Press **Start** on the Tracking page for the object tracking. **Esc** shows the editor (**F1** goes back); quitting TouchDesigner (**Cmd+Q**) stops the services and the app it started. Logs are in `var/logs/`. This is macOS only, and needs the SC Playback app built (`make playback-build` in `superconductor_playback`).
+Press **Start** on the Tracking page for the object tracking. **Esc** shows the editor (**F1** goes back); quitting TouchDesigner (**Cmd+Q**) stops the services and the app it started. Logs are in `var/logs/`. This is macOS only, and needs the SuperConductor Playback VST3 Plugin app built (`make playback-build` in `superconductor_playback`).
 
 The rest of this document is the same thing step by step, and how to check each part.
 
@@ -25,7 +25,7 @@ The rest of this document is the same thing step by step, and how to check each 
    ```bash
    cd superconductor_playback && make playback-build
    ```
-   This installs `~/Library/Audio/Plug-Ins/VST3/SC Playback.vst3`.
+   This installs `~/Library/Audio/Plug-Ins/VST3/SuperConductor Playback VST3 Plugin.vst3`.
 2. **Start the services** (in `superconductor_client_web`, each in its own terminal):
    ```bash
    make server    # MRT2 server, :9100
@@ -55,7 +55,7 @@ Perform mode shows the visualizer's `window` component (for `overlay_example_1`,
 1. Double-click `inputs` to go inside it, and click the **`audio`** operator.
 2. In its parameters (press **p** if they're hidden), on the **VST** page, click **Display Plugin GUI**. In the Textport, that's `op('/inputs/audio').par.displaygui.pulse()`.
 3. In the plugin window:
-   - **Role.** In TouchDesigner it starts as **Monitor**: it plays along with the copy in your DAW, which is the **Clock** and sets the pace. With no DAW (and no Tracking page or SC Playback app playing), switch it to **Clock**, or nothing plays.
+   - **Role.** In TouchDesigner it starts as **Monitor**: it plays along with the copy in your DAW, which is the **Clock** and sets the pace. With no DAW (and no Tracking page or SuperConductor Playback VST3 Plugin app playing), switch it to **Clock**, or nothing plays.
    - **Send OSC.** On by default in TouchDesigner, off in a DAW. Only one copy should send it. That's what fills the `osc` operator.
    - **Per second** sets how often OSC is sent (15–120, default 60). **Bands** sets the number of frequency bands (4–32).
 

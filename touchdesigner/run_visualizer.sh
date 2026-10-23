@@ -6,7 +6,7 @@
 #
 # 1. starts the MRT2 server, the client and the conducting server (make server / client /
 #    conduct in superconductor_client_web), unless they're already running;
-# 2. starts the SC Playback app (playback branch), which plays the music on this Mac's
+# 2. starts the SuperConductor Playback VST3 Plugin app (playback branch), which plays the music on this Mac's
 #    current sound output (speakers / headphones) and sets the pace (the clock);
 # 3. opens the Tracking page (as a monitor, so it stays quiet: ?audio=monitor) and the
 #    Conducting page in the browser;
@@ -17,7 +17,7 @@
 #    and the app it started. Anything that was already running is left alone.
 #
 # Logs: var/logs/<server|client|conduct>.log. CLIENT_WEB_DIR and PLAYBACK_APP override
-# where superconductor_client_web and the SC Playback app are (default: next to this
+# where superconductor_client_web and the SuperConductor Playback VST3 Plugin app are (default: next to this
 # worktree; the app is built by `make playback-build` in superconductor_playback).
 set -euo pipefail
 
@@ -25,13 +25,13 @@ name="${1:-overlay_example_1}"
 here="$(cd "$(dirname "$0")" && pwd)"                       # .../touchdesigner
 toe="$here/visualizers/$name/$name.toe"
 client_web="${CLIENT_WEB_DIR:-$(cd "$here/../.." && pwd)/superconductor_client_web}"
-app="${PLAYBACK_APP:-$(cd "$here/../.." && pwd)/superconductor_playback/playback/build/plugin/SCPlayback_artefacts/Release/Standalone/SC Playback.app}"
+app="${PLAYBACK_APP:-$(cd "$here/../.." && pwd)/superconductor_playback/playback/build/plugin/SCPlayback_artefacts/Release/Standalone/SuperConductor Playback VST3 Plugin.app}"
 app_id=edu.umich.superconductor.playback
 logs="$(cd "$here/.." && pwd)/var/logs"
 
 [ -f "$toe" ] || { echo "no visualizer at $toe"; exit 1; }
 [ -d "$client_web" ] || { echo "superconductor_client_web not found at $client_web (set CLIENT_WEB_DIR)"; exit 1; }
-[ -d "$app" ] || { echo "SC Playback app not found at $app: run make playback-build in superconductor_playback (or set PLAYBACK_APP)"; exit 1; }
+[ -d "$app" ] || { echo "SuperConductor Playback VST3 Plugin app not found at $app: run make playback-build in superconductor_playback (or set PLAYBACK_APP)"; exit 1; }
 mkdir -p "$logs"
 
 listening() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
@@ -76,10 +76,10 @@ for port in 9100 8470 8467 8480; do
     listening "$port" || { echo "nothing listening on :$port after 5 minutes; see var/logs"; exit 1; }
 done
 
-if pgrep -f "SC Playback.app/Contents/MacOS" >/dev/null; then
-    echo "SC Playback app: already running"
+if pgrep -f "SuperConductor Playback VST3 Plugin.app/Contents/MacOS" >/dev/null; then
+    echo "SuperConductor Playback VST3 Plugin app: already running"
 else
-    echo "SC Playback app: starting (the music plays on this Mac's sound output)"
+    echo "SuperConductor Playback VST3 Plugin app: starting (the music plays on this Mac's sound output)"
     open -n "$app"
     started_app=1
 fi

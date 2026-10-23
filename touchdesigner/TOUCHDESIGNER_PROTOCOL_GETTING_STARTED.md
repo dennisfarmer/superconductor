@@ -9,7 +9,7 @@ SuperConductor's programs (the MRT2 music server, the Tracking page with its obj
 Every **visualizer** is a separate TouchDesigner project (`.toe`) that loads that shared component and draws something with it. The component stays the same; the visualizers are where people experiment.
 
 ```
-MRT2 server ──► client ──► audio stream ──► SC Playback plugin ─┐
+MRT2 server ──► client ──► audio stream ──► SuperConductor Playback VST3 Plugin ─┐
                                     (plugin also sends OSC) ─────┤
 Tracking page (object tracking) ──► client ──► websocket ──────────┤──► /inputs ──► a visualizer
 Conducting page (MediaPipe) ──► conducting server ──► websocket ─┤   (superconductor_inputs.tox)
@@ -63,7 +63,7 @@ TouchDesigner's own y runs bottom to top, so use `1 - y` there.
 
 ### Music: `audio` (Audio VST CHOP)
 
-Two channels, `chan1` and `chan2` (left and right), at 48 kHz: the music as it plays, from the SC Playback plugin.
+Two channels, `chan1` and `chan2` (left and right), at 48 kHz: the music as it plays, from the SuperConductor Playback VST3 Plugin.
 
 ### Sound measurements and tempo: `osc` (OSC In CHOP, port 7000)
 
