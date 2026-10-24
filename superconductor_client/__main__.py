@@ -1,49 +1,64 @@
 """Start the client and the processes that send it messages.
 
-    python -m superconductor_client              local music server
-    python -m superconductor_client --remote     the server through the SSH tunnel
+    python -m superconductor_client                     ask where the music server is
+    python -m superconductor_client --where local       server on this computer
+    python -m superconductor_client --where remote      server through the SSH tunnel
+    python -m superconductor_client --where cluster
+    python -m superconductor_client --describe        also start the describe server
     python -m superconductor_client -- --mode calibration
+
+The name is an entry in superconductor_client/addresses.toml. That file has the
+input socket, the playback socket, and the http address. This script does not
+build one from another.
 """
 import argparse
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
 
+from superconductor_client.addresses import AddressError, choose_place, load_place
+
 CLIENT_URL = "http://127.0.0.1:8470"
-LOCAL_SERVER = "ws://localhost:9100/stream"
-REMOTE_SERVER = "ws://localhost:9000/stream"
 # these two keep the session; the others are started with them and may exit on their own
 REQUIRED = ("client", "tracking")
-
-
-def _http_base(websocket_url):
-    http = websocket_url.replace("wss://", "https://").replace("ws://", "http://")
-    if http.endswith("/stream"):
-        http = http[: -len("/stream")]
-    return http
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--remote", action="store_true",
-                        help=f"music server at {REMOTE_SERVER} (the SSH tunnel)")
-    parser.add_argument("--server", default=None, help="MRT2 server websocket")
+    parser.add_argument("--where", dest="place", default=None, metavar="NAME",
+                        help="which music server, a name in addresses.toml "
+                             "(local, remote, cluster). Omit to be asked.")
+    parser.add_argument("--describe", action="store_true",
+                        help="also start the describe server (needs Ollama already running)")
     args, tracking_args = parser.parse_known_args()
-    server = args.server or (REMOTE_SERVER if args.remote else LOCAL_SERVER)
+    place_name = args.place
+    if place_name is None:
+        place_name = choose_place(socket.gethostname(), sys.stdin.isatty(), input)
+        if place_name is None:
+            return 2
+    try:
+        place = load_place(place_name)
+    except AddressError as exc:
+        parser.error(str(exc))
     py = sys.executable
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     commands = [
-        ("client", [py, "-m", "superconductor_client.client", "--server", server]),
-        ("describe", [py, "-m", "superconductor_client.describe.describe_server"]),
+        ("client", [py, "-m", "superconductor_client.client", "--server", place.direct.input]),
+    ]
+    if args.describe:
+        commands.append(("describe", [py, "-m", "superconductor_client.describe.describe_server"]))
+    commands += [
         ("midi", [py, "-m", "superconductor_client.midi.midi_player"]),
         ("conducting", [py, "-m", "superconductor_client.conducting.conducting_web.server",
-                        "--server-url", _http_base(server)]),
+                        "--server-url", place.direct.http,
+                        "--page-server-url", place.browser.http]),
         ("tracking", [py, "-m", "superconductor_client.tracking.collab",
-                      "--client-url", CLIENT_URL, "--server", server, *tracking_args]),
+                      "--client-url", CLIENT_URL, "--where", place.name, *tracking_args]),
     ]
     procs = []
     shutting_down = False

@@ -7,15 +7,11 @@ connected interface as the old in-process LocalMagentaClient, plus set_paused.
 
 The websocket runs in a separate *process* so that it never competes with the
 tracking loop for the GIL. The parent process only sends small control messages
-over a queue. Nothing plays here: the audio goes to whoever listens on WS /audio
-(below), by default the camera page, or audio_receiver.py at the repo root (make audio).
-
-Flow control: `StartSession` grants the server `credits` blocks, and the player
-acknowledges each block it finishes playing, which sends one `ReceivedChunk`, so
-the server is always `credits` blocks ahead. Control latency is roughly
-credits * frames_per_block * 40ms plus the one-way network delay. Buffered
-audio is never dropped on a recipe change: the model state has already moved
-past it, so dropping it would be an audible jump.
+over a queue. This process opens the server's `GET /stream/input` and sends
+recipe, controls, pattern, and pause. It does not play audio and it does not
+grant credits. A player (the camera page, the playback plugin, or
+audio_receiver.py) opens `GET /stream/playback`, sends `Credits` once, and
+`ReceivedChunk` for each block it finishes.
 
 Until the server answers (it may still be loading the model, or not started yet), and
 again whenever it goes away, the child process retries every RETRY_S seconds;
@@ -37,19 +33,6 @@ DRUMS input, while this client keeps providing the prompts:
     GET  /input     the prompts and controls this client sends to MRT2, as its camera
                     overlay shows them (collab.CollabFrontend.mrt2_input):
                     {connected, rows: [{prompt, source, value, share, color}], controls}
-
-The same HTTP app serves the audio (see AUDIO_PROTOCOL.md):
-    WS   /audio?role=clock|monitor&name=...
-                    Every audio frame from the server is forwarded as is to every
-                    connection. One of them is the clock: it answers {"type": "ack"}
-                    each time it finishes playing a block, and only then is
-                    ReceivedChunk sent. The clock is the newest connection that asked
-                    for role=clock (the default); the others are monitors and never
-                    ack. When the clock goes away, the next newest clock-asker takes
-                    over and gets the blocks not acked yet again. Each connection is
-                    told its role ({"type": "role", "role", "clock": name}). While no
-                    clock is connected nothing is acked, so the server stops once its
-                    credits are used up.
 """
 import argparse
 import asyncio
@@ -59,13 +42,10 @@ import multiprocessing as mp
 import queue
 import urllib.error
 import urllib.request
-from collections import deque
-
-SAMPLE_RATE = 48000
-CHANNELS = 2
-RETRY_S = 2.0  # between attempts to reach the MRT2 server
 
 logger = logging.getLogger(__name__)
+
+RETRY_S = 2.0  # between attempts to reach the MRT2 server
 
 
 def _publish(stats_q, link, msg):
@@ -97,94 +77,10 @@ def _client_process(control_q, stats_q, uri, credits, midi_port):
     stats_q.put({"disconnected": True})
 
 
-class _Sink:
-    def __init__(self, ws, name, wants_clock):
-        self.ws, self.name, self.wants_clock = ws, name, wants_clock
-
-
-class AudioSinks:
-    """Everyone listening on WS /audio. `acks` gets one entry per block the clock
-    finished playing (each becomes a ReceivedChunk)."""
-
-    def __init__(self):
-        self.acks = asyncio.Queue()
-        self.pending = deque()  # frames sent and not acked by the clock yet, oldest first
-        self.sinks = []  # in connection order
-        self.clock = None  # the _Sink whose acks count
-        self.underruns = 0
-
-    async def _send(self, sink, data):
-        ws = sink.ws
-        if ws.closed:
-            return
-        try:
-            if isinstance(data, bytes):
-                await ws.send_bytes(data)
-            else:
-                await ws.send_str(json.dumps(data))
-        except ConnectionError:
-            pass
-
-    async def play(self, frame):
-        """a frame from the server ([uint32 seq][float32 (n, 2)]), to every listener"""
-        self.pending.append(frame)
-        for sink in list(self.sinks):
-            await self._send(sink, frame)
-
-    async def paused(self):
-        """the silence while paused isn't an underrun"""
-        for sink in list(self.sinks):
-            await self._send(sink, {"type": "pause"})
-
-    def buffered_s(self):
-        return sum((len(f) - 4) // (4 * CHANNELS) for f in self.pending) / SAMPLE_RATE
-
-    async def _update_roles(self):
-        """the newest clock-asker is the clock; tell everyone their role, and give a new
-        clock the blocks not acked yet"""
-        clock = next((s for s in reversed(self.sinks) if s.wants_clock), None)
-        changed = clock is not self.clock
-        self.clock = clock
-        name = clock.name if clock else None
-        for sink in list(self.sinks):
-            await self._send(sink, {"type": "role", "role": "clock" if sink is clock else "monitor",
-                                    "clock": name})
-        if changed and clock is not None:
-            for frame in list(self.pending):  # what the server already sent, again
-                await self._send(clock, frame)
-
-    async def handle(self, request):
-        from aiohttp import web
-
-        ws = web.WebSocketResponse(heartbeat=20)
-        await ws.prepare(request)
-        role = request.query.get("role", "clock")
-        sink = _Sink(ws, request.query.get("name") or "player", role != "monitor")
-        self.sinks.append(sink)
-        await self._update_roles()
-        try:
-            async for msg in ws:
-                if msg.type != web.WSMsgType.TEXT or sink is not self.clock:
-                    continue  # monitors don't ack
-                try:
-                    kind = json.loads(msg.data).get("type")
-                except (ValueError, AttributeError):
-                    continue
-                if kind == "ack" and self.pending:
-                    self.pending.popleft()
-                    self.acks.put_nowait(None)
-                elif kind == "underrun":
-                    self.underruns += 1
-        finally:
-            self.sinks.remove(sink)
-            await self._update_roles()
-        return ws
-
-
-async def _start_client_midi(port, link, sinks, stats_q, control_q):
+async def _start_client_midi(port, link, stats_q, control_q):
     """HTTP front door for note sources; `link` holds the server websocket once
-    connected ({"ws", "model", "last_pattern_id"}). Also WS /audio for the players
-    (`sinks`, an AudioSinks). POST /prompts goes to the parent over `stats_q`."""
+    connected ({"ws", "model", "last_pattern_id"}). POST /prompts goes to the
+    parent over `stats_q`."""
     from aiohttp import web
 
     cors = {"Access-Control-Allow-Origin": "*",
@@ -289,12 +185,11 @@ async def _start_client_midi(port, link, sinks, stats_q, control_q):
     app.router.add_post("/input", post_input)
     app.router.add_post("/pause", pause)
     app.router.add_route("OPTIONS", "/{tail:.*}", options)
-    app.router.add_get("/audio", sinks.handle)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, "127.0.0.1", port).start()
     print(f"client_midi on http://localhost:{port} "
-          f"(POST /pattern /controls /recipe /pause /prompts, WS /audio)")
+          f"(POST /pattern /controls /recipe /pause /prompts)")
     return runner
 
 
@@ -302,18 +197,17 @@ async def _client_main(control_q, stats_q, uri, credits, midi_port):
     import websockets
 
     link = {}  # client_midi's view of the connection
-    sinks = AudioSinks()
     if not midi_port:
-        raise RuntimeError("midi_port is needed: the players connect to client_midi's /audio")
+        raise RuntimeError("midi_port is needed: note sources POST patterns to client_midi")
     try:
-        midi = await _start_client_midi(midi_port, link, sinks, stats_q, control_q)
+        midi = await _start_client_midi(midi_port, link, stats_q, control_q)
     except OSError as e:
-        raise RuntimeError(f"client_midi: port {midi_port} unavailable ({e}); the players need it") from e
+        raise RuntimeError(f"client_midi: port {midi_port} unavailable ({e}); note sources need it") from e
     try:
         reported = False  # the current outage was printed
         while True:
             try:
-                if await _stream(control_q, stats_q, uri, credits, link, websockets, sinks):
+                if await _stream(control_q, stats_q, uri, credits, link, websockets):
                     return  # stop
                 error = "it went away"
             except (OSError, asyncio.TimeoutError, websockets.exceptions.WebSocketException) as e:
@@ -349,34 +243,22 @@ async def _wait_for_retry(control_q, link):
     return False
 
 
-async def _stream(control_q, stats_q, uri, credits, link, websockets, sinks):
-    """One session with the server. True when it ended on "stop", False when the
-    server went away (connection errors while connecting are raised)."""
-    sinks.pending.clear()  # blocks of an earlier session aren't acked to this one
-    sinks.acks = asyncio.Queue()
+async def _stream(control_q, stats_q, uri, credits, link, websockets):
+    """One input connection to the server. True when it ended on "stop", False when
+    the server went away (connection errors while connecting are raised).
+    `credits` is unused: the player grants the lead on /stream/playback."""
     async with websockets.connect(uri, compression=None, max_size=None) as ws:
         ready = json.loads(await ws.recv())
         _publish(stats_q, link, {"ready": True, **ready["body"]})
         link.update(ws=ws, model=ready["body"].get("model"))
-        await ws.send(json.dumps({"type": "StartSession", "body": {"credits": credits}}))
 
         async def receive():
             async for message in ws:
-                if isinstance(message, bytes):  # [uint32 LE seq][float32 LE samples (n, 2)]
-                    await sinks.play(message)
+                if isinstance(message, bytes):
                     continue
                 msg = json.loads(message)
                 if msg.get("type") == "Error":
                     print(f"MRT2 server: {msg['body'].get('error')}")
-                elif msg.get("type") == "Stats":
-                    _publish(stats_q, link, {**msg["body"], "underruns": sinks.underruns,
-                                             "buffered_s": sinks.buffered_s(),
-                                             "player": sinks.clock.name if sinks.clock else None})
-
-        async def send_acks():
-            while True:
-                await sinks.acks.get()
-                await ws.send(json.dumps({"type": "ReceivedChunk", "body": None}))
 
         async def send_controls():
             while True:
@@ -398,19 +280,17 @@ async def _stream(control_q, stats_q, uri, credits, link, websockets, sinks):
                     link["input"] = msg["view"]
                 elif msg["type"] == "pause":
                     link["paused"] = bool(msg["paused"])
-                    if msg["paused"]:
-                        await sinks.paused()
                     await ws.send(json.dumps({"type": "Pause" if msg["paused"] else "Resume",
                                               "body": None}))
 
-        tasks = [asyncio.create_task(t()) for t in (receive, send_acks, send_controls)]
+        tasks = [asyncio.create_task(t()) for t in (receive, send_controls)]
         try:
             # ends on "stop" (send_controls) or when the server goes away (receive)
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         finally:
             for t in tasks:
                 t.cancel()
-        control = tasks[2]
+        control = tasks[1]
         return control.done() and not control.cancelled() and control.exception() is None and bool(control.result())
 
 
@@ -420,14 +300,15 @@ async def _stream(control_q, stats_q, uri, credits, link, websockets, sinks):
 
 class MagentaClient:
 
-    def __init__(self, server_url="ws://localhost:9100/stream", credits=3, midi_port=8470):
+    def __init__(self, server_url="ws://localhost:9100/stream/input", credits=3, midi_port=8470):
         """
-        `server_url`: websocket of a running mrt2_server.py (local, or the
-            local end of the SSH tunnel to the cluster)
-        `credits`: blocks the server stays ahead of playback; control latency
-            is roughly credits * frames_per_block * 40ms (+ network delay)
+        `server_url`: input websocket of a running mrt2_server.py (local
+            `ws://localhost:9100/stream/input`, or the local end of the SSH tunnel
+            to the cluster, `ws://localhost:9000/stream/input`)
+        `credits`: kept so callers don't break; the player grants the lead on
+            `/stream/playback`, not this process
         `midi_port`: port of client_midi, where note sources POST patterns
-            (NOTES / DRUMS input) and the players connect (WS /audio)
+            (NOTES / DRUMS input)
         """
         ctx = mp.get_context("spawn")
         self._control_q = ctx.Queue()
@@ -480,8 +361,7 @@ class MagentaClient:
         self._control_q.put({"type": "input_view", "view": view})
 
     def set_paused(self, paused):
-        """Pause: the server stops generating (after the ~credits blocks already
-        sent have played, it goes silent). Resume continues the same music."""
+        """Pause: the server stops generating. Resume continues the same music."""
         self.paused = bool(paused)
         self._control_q.put({"type": "pause", "paused": self.paused})
 
@@ -560,12 +440,16 @@ def main():
     """The client process: the MRT2 websocket and client_midi. Tracking, midi
     and Atlas talk to it; this process does not run the camera."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--server", default="ws://localhost:9100/stream",
-                        help="MRT2 server websocket")
+    parser.add_argument("--server", default=None,
+                        help="MRT2 input websocket. Default: the local entry in addresses.toml.")
     parser.add_argument("--credits", type=int, default=3)
     parser.add_argument("--midi-port", type=int, default=8470)
     args = parser.parse_args()
-    _client_process(queue.Queue(), queue.Queue(), args.server, args.credits, args.midi_port)
+    server = args.server
+    if server is None:
+        from superconductor_client.addresses import load_place
+        server = load_place("local").direct.input
+    _client_process(queue.Queue(), queue.Queue(), server, args.credits, args.midi_port)
 
 
 if __name__ == "__main__":

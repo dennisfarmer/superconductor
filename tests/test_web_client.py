@@ -1,11 +1,9 @@
 """Unit tests for the web client's parts: the browser's detections in place of YOLO
-(ObjectTracker.track_detections), the frame message, the overlay the page draws, and
-the audio sinks (one clock, monitors never ack).
+(ObjectTracker.track_detections), the frame message, and the overlay the page draws.
 
 No camera, browser, detector or MRT2 server needed. Run with
 `python tests/test_web_client.py` (or pytest).
 """
-import asyncio
 import json
 import struct
 import tempfile
@@ -15,7 +13,6 @@ from pathlib import Path
 import numpy as np
 
 from superconductor_client.tracking.collab import DEFAULT_CONFIG, CollabFrontend, load_config
-from superconductor_client.client import AudioSinks
 from superconductor_client.tracking.object_tracking import ObjectTracker
 from superconductor_client.tracking.tracking_view import parse_frame_message
 
@@ -115,65 +112,6 @@ def test_prompts_page_puts_parameters_first():
     assert 'aria-selected="true">Parameters' in html
     assert 'id="add-param"' in html
     assert 'id="list"' in html
-
-
-def test_audio_sinks_one_clock_monitors_never_ack():
-    from aiohttp import ClientSession, WSMsgType, web
-
-    async def run():
-        sinks = AudioSinks()
-        app = web.Application()
-        app.router.add_get("/audio", sinks.handle)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "127.0.0.1", 0)
-        await site.start()
-        url = f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}/audio"
-
-        async def recv(ws, kind):
-            while True:
-                m = await asyncio.wait_for(ws.receive(), 2)
-                if kind == "bytes" and m.type == WSMsgType.BINARY:
-                    return m.data
-                if kind != "bytes" and m.type == WSMsgType.TEXT and json.loads(m.data).get("type") == kind:
-                    return json.loads(m.data)
-
-        block = lambda n: struct.pack("<I", n) + np.zeros(8, "<f4").tobytes()
-        async with ClientSession() as http:
-            page = await http.ws_connect(url + "?role=clock&name=browser")
-            assert (await recv(page, "role"))["role"] == "clock"
-            mon = await http.ws_connect(url + "?role=monitor&name=meter")
-            assert (await recv(mon, "role"))["role"] == "monitor"
-
-            await sinks.play(block(1))
-            await sinks.play(block(2))
-            assert await recv(page, "bytes") == block(1) and await recv(mon, "bytes") == block(1)
-            await mon.send_str('{"type": "ack"}')  # a monitor's ack doesn't count
-            await page.send_str('{"type": "ack"}')  # the clock played block 1
-            await asyncio.sleep(0.1)
-            assert sinks.acks.qsize() == 1 and len(sinks.pending) == 1
-
-            # sc-audio takes over the clock: the page becomes a monitor, sc-audio gets block 2 again
-            sc = await http.ws_connect(url + "?role=clock&name=sc-audio")
-            assert (await recv(sc, "role"))["role"] == "clock"
-            assert (await recv(page, "role")) == {"type": "role", "role": "monitor", "clock": "sc-audio"}
-            assert await recv(sc, "bytes") == block(2)
-            await page.send_str('{"type": "ack"}')  # ignored now
-            await asyncio.sleep(0.1)
-            assert sinks.acks.qsize() == 1
-
-            # sc-audio stops: the page is the clock again and gets the unacked block 2 again
-            await sc.close()
-            assert (await recv(page, "role"))["role"] == "clock"
-            assert await recv(page, "bytes") == block(2)  # (the page got block 2 live too; it resets its queue)
-            await page.send_str('{"type": "ack"}')
-            await asyncio.sleep(0.1)
-            assert sinks.acks.qsize() == 2 and not sinks.pending
-            await page.close()
-            await mon.close()
-        await runner.cleanup()
-
-    asyncio.run(run())
 
 
 if __name__ == "__main__":

@@ -1,15 +1,16 @@
 # SuperConductor collaborative mode: physical objects -> Magenta RealTime 2 parameters
 # run with: sc-tracking   (or: sc-tracking --config path/to/other.toml)
-# make client starts this together with the client, conducting, describe and midi
+# make client starts this together with the client, conducting, and midi.
+# The describe server is separate (`make describe`, or `make client DESCRIBE=1`).
 
 [camera]
 name = "C920"                 # Logitech HD Pro Webcam C920; substring of the macOS camera name
 resolution = [1280, 720]
 
 [music]
-# The model is chosen when starting the server: `make server` (mrt2_small), or
-# mrt2_base on the cluster (--remote; see superconductor_server/README.md).
-server_url = "ws://localhost:9100/stream"
+# Which block of superconductor_client/addresses.toml. make client uses local;
+# make client-remote passes --where remote. The addresses themselves are not here.
+where = "local"
 base_prompt = "ambient electronic"
 base_weight = 0.3             # style weight that is always present
 credits = 3                   # blocks the server stays ahead of playback (~latency: 3 x 200ms)

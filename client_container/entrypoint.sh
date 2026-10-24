@@ -4,8 +4,10 @@
 # If any of them exits, the others are stopped and the container exits.
 #
 # Environment:
-#   SC_SERVER_URL     MRT2 server websocket (default: the laptop's tunnel, through Docker's host)
-#   SC_SERVICES       which services to run (default "client describe midi atlas conduct")
+#   SC_WHERE          which music server, a name in addresses.toml
+#                     (default cluster; make client-docker passes docker)
+#   SC_SERVICES       which services to run (default "client midi atlas conduct";
+#                     add describe to also start Ollama and the describe server)
 #   OLLAMA_URL        use this Ollama instead of the bundled one (e.g. http://host.docker.internal:11434)
 #   SC_OLLAMA_PORT    port of the bundled Ollama (default 11434)
 #   SC_GATEWAY_BIND   gateway address (default 0.0.0.0)
@@ -17,8 +19,13 @@
 # Everything written goes under /data (a Docker volume, or a bind mount on the cluster).
 set -Eeuo pipefail
 
-export SC_SERVER_URL=${SC_SERVER_URL:-ws://host.docker.internal:9000/stream}
-SC_SERVICES=${SC_SERVICES:-client describe midi atlas conduct}
+if [ -n "${SC_SERVER_URL:-}" ]; then
+    echo "SC_SERVER_URL is no longer used. Set SC_WHERE to a name in addresses.toml" \
+         "(local, remote, cluster, docker, docker-local)." >&2
+    exit 1
+fi
+SC_WHERE=${SC_WHERE:-cluster}
+SC_SERVICES=${SC_SERVICES:-client midi atlas conduct}
 SC_OLLAMA_PORT=${SC_OLLAMA_PORT:-11434}
 export SC_GATEWAY_BIND=${SC_GATEWAY_BIND:-0.0.0.0}
 export SC_GATEWAY_PORT=${SC_GATEWAY_PORT:-8080}
@@ -33,9 +40,11 @@ fi
 
 has() { [[ " $SC_SERVICES " == *" $1 "* ]]; }
 
-# the MRT2 server's http base, for the gateway's server.localhost (its /tempo and /conduct pages)
-SC_SERVER_HTTP=${SC_SERVER_URL/#ws/http}
-export SC_SERVER_HTTP=${SC_SERVER_HTTP%/stream}
+# addresses.toml, the place SC_WHERE names. SC_HTTP is what programs in this
+# container open. SC_BROWSER_HTTP is what the laptop browser opens. The gateway
+# forwards server.localhost to SC_HTTP.
+eval "$(python -m superconductor_client.addresses --where "$SC_WHERE" --shell)"
+export SC_SERVER_HTTP=$SC_HTTP
 export OLLAMA_URL=${OLLAMA_URL:-}
 
 pids=()      # every service, stopped together
@@ -112,10 +121,10 @@ if has client; then
         mkdir -p /data/web/models && cp -f /opt/web/models/* /data/web/models/
     fi
     # the client holds the music-server connection; tracking sends it recipes
-    sc-client --server "$SC_SERVER_URL" > /data/run/client.log 2>&1 &
+    sc-client --server "$SC_INPUT" > /data/run/client.log 2>&1 &
     pids+=($!); watched+=($!)
     # run in /opt/models, where the YOLOE weights are; everything it writes is under /data
-    (cd /opt/models && exec sc-tracking --config "$config" --server "$SC_SERVER_URL" \
+    (cd /opt/models && exec sc-tracking --config "$config" --where "$SC_WHERE" \
         --client-url http://127.0.0.1:8470) &
     pids+=($!); watched+=($!)
 fi
@@ -126,8 +135,8 @@ fi
 # http://localhost.
 if has conduct; then
     python "$SC/client/superconductor_client/conducting/conducting_web/server.py" --host 127.0.0.1 --port 8480 \
-        --server-url "$SC_SERVER_HTTP" \
-        --page-server-url "http://server.localhost:$SC_GATEWAY_PORT" \
+        --server-url "$SC_HTTP" \
+        --page-server-url "$SC_BROWSER_HTTP" \
         > /data/run/conduct.log 2>&1 &
     pids+=($!); watched+=($!)
 fi
@@ -143,7 +152,7 @@ fi
 # gateway at /engine. Both run in the Atlas folder (walker.toml, the presets).
 if has atlas; then
     (cd "$SC/atlas" && exec python audio_engine/engine.py --sink superconductor \
-        --client-midi http://localhost:8470 --sc-server "$SC_SERVER_HTTP" --preset warm_piano \
+        --client-midi http://localhost:8470 --sc-server "$SC_HTTP" --preset warm_piano \
         --port 8765 > /data/run/atlas-engine.log 2>&1) &
     pids+=($!)
     (cd "$SC/atlas" && ATLAS_DATA=/data/atlas ATLAS_ENGINE_PUBLIC_URL=/engine \
@@ -161,7 +170,7 @@ echo "  SuperConductor: open http://localhost:$SC_GATEWAY_PORT in Chrome, Edge o
 if has conduct; then
     echo "  Conducting (MediaPipe hands): http://localhost:$SC_GATEWAY_PORT/conduct/"
 fi
-echo "  (MRT2 server: $SC_SERVER_URL)"
+echo "  (music server: $SC_WHERE, programs open $SC_HTTP, the browser opens $SC_BROWSER_HTTP)"
 echo
 
 wait -n "${watched[@]}"

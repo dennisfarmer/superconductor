@@ -46,7 +46,8 @@
 </header>
 <main>
   <div class="controls">
-    <button id="start" class="primary">Start camera + sound</button>
+    <button id="start" class="primary">Start camera</button>
+    <button id="sound" class="primary">Start sound</button>
     <select id="camera" title="camera" hidden></select>
     <select id="size" title="resolution sent to the client">
       <option value="640x360">640 × 360</option>
@@ -61,7 +62,7 @@
     <video id="video" playsinline muted></video>
     <canvas id="overlay"></canvas>
   </div>
-  <div id="status">Press Start: the browser asks for the camera, then the music plays here.</div>
+  <div id="status">Press Start camera. Start sound plays the music in this page.</div>
 </main>
 <canvas id="frame" hidden></canvas>
 
@@ -72,10 +73,9 @@
 // frame at a time: the next only after the client answered the last with its overlay
 // (what to draw), so nothing queues up over a slow link. Without WebGPU, or in
 // compatibility mode, the header has no objects and the client detects. The overlay is
-// drawn over the live video; boxes trail moving objects by the client's delay. Audio
-// comes from client_midi's /audio (superconductor_client/client.py, AUDIO_PROTOCOL.md): as the clock,
-// each block is acked once played, which gives the MRT2 server its credits back; when
-// another player (sc-audio) is the clock, this page goes quiet.
+// drawn over the live video; boxes trail moving objects by the client's delay. Sound is
+// separate: Start sound opens the server's /stream/playback, sends Credits once, and
+// ReceivedChunk after each block it plays.
 import { startDetector } from "/web/vision_js/index.js";
 import { drawOverlay } from "/web/overlay.js";
 
@@ -83,7 +83,7 @@ const SAMPLE_RATE = 48000, CHANNELS = 2;
 const STALE_MS = 1000;
 const $ = id => document.getElementById(id);
 const wsUrl = path => new URL(path, location.href.replace(/^http/, "ws")).href;
-const stats = { sent: 0, answered: 0, fps: 0, delay: 0, detectMs: 0, audio: "off", role: null, clock: null,
+const stats = { sent: 0, answered: 0, fps: 0, delay: 0, detectMs: 0, audio: "off",
                 underruns: 0, buffered: 0 };
 let config = {}, camWs = null, audioWs = null, stream = null, worklet = null, bus = null, ctx = null;
 let detector = null, detectorState = "off";  // "starting" | "ready" | "unavailable: ..." | "off"
@@ -294,48 +294,42 @@ async function startAudio() {
   ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
   await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
   worklet = new AudioWorkletNode(ctx, "player", { numberOfInputs: 0, outputChannelCount: [CHANNELS] });
-  // the output bus: everything this page plays goes through it (muted while another player is the clock)
+  // the output bus: everything this page plays goes through it
   bus = new GainNode(ctx, { gain: 1 });
   worklet.connect(bus).connect(ctx.destination);
   worklet.port.onmessage = e => {
-    const clock = stats.role === "clock" && audioWs && audioWs.readyState === 1;
+    const open = audioWs && audioWs.readyState === 1;
     if (e.data === "played") {
       stats.buffered--;
-      if (clock) audioWs.send('{"type": "ack"}');
+      if (open) audioWs.send('{"type":"ReceivedChunk","body":null}');
     } else if (e.data === "underrun") {
-      if (stats.role === "clock") stats.underruns++;
-      if (clock) audioWs.send('{"type": "underrun"}');
+      stats.underruns++;
     }
   };
   connectAudio();
 }
 
 function connectAudio() {
-  const base = config.audio_url ? wsUrl(config.audio_url)
-    : `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:${config.audio_port || 8470}/audio`;
-  // ?audio=monitor: leave the sound to another player (e.g. the SuperConductor Playback VST3 Plugin app), even when
-  // this page connects after it
-  const role = new URLSearchParams(location.search).get("audio") === "monitor" ? "monitor" : "clock";
-  audioWs = new WebSocket(`${base}${base.includes("?") ? "&" : "?"}role=${role}&name=browser`);
+  // local server: ws://localhost:9100/stream/playback
+  // SSH tunnel:  ws://localhost:9000/stream/playback
+  const url = config.playback_url;
+  if (!url) {
+    stats.audio = "no playback url";
+    return;
+  }
+  audioWs = new WebSocket(url);
   audioWs.binaryType = "arraybuffer";
   audioWs.onopen = () => {
     worklet.port.postMessage({ type: "reset" });
     stats.buffered = 0;
     stats.audio = "connected";
+    const credits = config.credits || 3;
+    audioWs.send(JSON.stringify({ type: "Credits", body: { credits } }));
   };
   audioWs.onmessage = e => {
     if (typeof e.data === "string") {
       const m = JSON.parse(e.data);
-      if (m.type === "pause") worklet.port.postMessage({ type: "pause" });
-      else if (m.type === "role") {
-        if (m.role === "clock" && stats.role !== "clock") {
-          // the client sends every block not acked yet again, so start from an empty queue
-          worklet.port.postMessage({ type: "reset" });
-          stats.buffered = 0;
-        }
-        stats.role = m.role; stats.clock = m.clock;
-        bus.gain.value = m.role === "clock" ? 1 : 0;
-      }
+      if (m.type === "Error") stats.audio = m.body && m.body.error ? m.body.error : "error";
       return;
     }
     // [uint32 LE seq][float32 LE samples (n, 2)]
@@ -343,7 +337,7 @@ function connectAudio() {
     worklet.port.postMessage({ type: "block", samples }, [e.data]);
     stats.buffered++;
   };
-  audioWs.onclose = () => { stats.audio = "reconnecting"; stats.role = null; setTimeout(connectAudio, 1000); };
+  audioWs.onclose = () => { stats.audio = "reconnecting"; setTimeout(connectAudio, 1000); };
 }
 
 // ---------- start ----------
@@ -359,10 +353,19 @@ $("start").onclick = async () => {
     return;
   }
   $("start").hidden = true;
-  try { await startAudio(); } catch (e) { stats.audio = `error: ${e.message}`; }
   initDetector();
   connectCamera();
   requestAnimationFrame(frameLoop);
+};
+$("sound").onclick = async () => {
+  $("sound").disabled = true;
+  try {
+    await startAudio();
+    $("sound").hidden = true;
+  } catch (e) {
+    stats.audio = `error: ${e.message}`;
+    $("sound").disabled = false;
+  }
 };
 $("camera").onchange = $("size").onchange = () => { if (stream) openCamera(); };
 
@@ -379,7 +382,6 @@ setInterval(() => {
   const s = overlay?.status;
   const client = s ? ` · client ${s.vision_fps.toFixed(0)} fps, ${s.track_ms.toFixed(0)} ms · ${s.music}` : "";
   const snd = stats.audio !== "connected" ? `<span class="bad">○ sound (${stats.audio})</span>`
-    : stats.role === "monitor" ? `<span class="ok">● sound plays in ${stats.clock || "another player"}</span>`
     : '<span class="ok">● sound</span>';
   const settings = stream.getVideoTracks()[0].getSettings();
   $("status").innerHTML = `${cam} ${stats.fps.toFixed(0)} fps (${settings.width}×${settings.height}), ` +

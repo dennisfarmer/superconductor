@@ -17,4 +17,5 @@ conda run -n sc_env python -m pip install --no-deps "magenta-rt[mlx]==2.0.3" "re
 conda run -n sc_env python -m pip install --no-deps -e .
 
 # Music weights are downloaded by `make setup` in the server checkout.
-# Parameter-icon weights (SVGen) are downloaded by `make setup` in this checkout.
+# Parameter-icon weights (SVGen) and the Ollama vision model are downloaded by
+# `make setup DESCRIBE=1` in this checkout.

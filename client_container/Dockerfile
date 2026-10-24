@@ -4,7 +4,7 @@
 # (see client_container/README.md): the client process, tracking, the describe server
 # with Ollama, the MIDI player, conducting, SuperConductor Atlas, and Caddy as the
 # single-port gateway. The MRT2 server is not in here; the client and conducting
-# connect to it by URL (SC_SERVER_URL).
+# connect to it by the place named in SC_WHERE (addresses.toml).
 #
 # tracking, conducting, describe and midi are inside superconductor_client/. Atlas still comes from its
 # branch, as a named build context:

@@ -22,11 +22,11 @@ On the machine running the container, conducting is also at http://127.0.0.1:848
 
 ## What starts
 
-Each service listens on 127.0.0.1. Caddy on 8080 forwards by hostname. `client_container/entrypoint.sh` starts them. `SC_SERVICES` defaults to `client describe midi atlas conduct`.
+Each service listens on 127.0.0.1. Caddy on 8080 forwards by hostname. `client_container/entrypoint.sh` starts them. `SC_SERVICES` defaults to `client midi atlas conduct`. Add `describe` to that list to start Ollama and the describe server.
 
 | Service | Port |
 |---|---|
-| Client (camera page, objects, client_midi, `/audio`) | 8467, 8470 |
+| Client (camera page, objects, client_midi) | 8467, 8470 |
 | Describe server, Ollama, and the SVGen icon model | 9200, 11434 |
 | MIDI player | 8475 |
 | Atlas app, Atlas engine | 8764, 8765 |
@@ -37,16 +37,20 @@ Writable files go under `/data`: the object library (`/data/client/library`), up
 
 ## Build a new image
 
-GitHub builds `ghcr.io/dennisfarmer/superconductor:client`. Pushing a branch does not rebuild it.
+These are the four images. Pushing a branch does not build one.
 
-1. On GitHub: **Actions** → **client image** → **Run workflow**. The workflow on the `client` branch is the one GitHub shows. It checks out `client` and `atlas`. The build takes about 10–20 minutes.
-2. On lh2300, in this checkout: `git pull && make sif`. That pull is:
+| Image | GHCR tag | Who publishes it | Pull on lh2300 |
+|---|---|---|---|
+| Client release | `ghcr.io/dennisfarmer/superconductor:client` | **Actions** → **release** → **Run workflow** | `make sif` |
+| Server release | `ghcr.io/dennisfarmer/superconductor_server:server` | the same button | `make sif` in the server checkout |
+| Client dev | `ghcr.io/dennisfarmer/superconductor:client-dev` | `make image-push` on a laptop | `make sif-dev` |
+| Server dev | `ghcr.io/dennisfarmer/superconductor_server:server-dev` | `make image-push` in the server checkout | `make sif-dev` in the server checkout |
 
-   ```bash
-   singularity pull --force superconductor_client.sif docker://ghcr.io/dennisfarmer/superconductor:client
-   ```
+**Release.** The workflow GitHub shows is the one on the `client` branch. It takes the current `client`, `server`, and `atlas` commits, builds both release images, and opens a GitHub Release. The tag points at the client commit. The notes and the `release.json` asset name the server commit and the atlas commit in the client image. Before pressing the button, add bullets under `## [Unreleased]` in `CHANGELOG.md` on both branches; those sections are the release notes. The version defaults to the next patch (`v0.1.0` the first time). The build takes about 10–20 minutes. On lh2300, `make sif` in each checkout pulls the new release tags.
 
-The registry keeps the current image. Each build moves the `client` tag and deletes the previous one.
+The release list keeps every version's commits. A new release moves the two release tags. The two dev tags stay until the next `make image-push`. `make client-singularity` pulls `:client` when `superconductor_client.sif` is absent, and leaves a file that is already there. `make sif` pulls again.
+
+**Dev.** On a machine with Docker, `make image` builds `:client-dev` and `make image-push` sends it (log in first: `docker login ghcr.io`, with a token that has `write:packages`). On lh2300, `make sif-dev` pulls that tag into `superconductor_client-dev.sif`, and `make client-singularity-dev` runs it. The server checkout has the same pair: `make image-push`, then `make sif-dev` and `make server-singularity-dev`.
 
 If the package is private, log in once on lh2300:
 
@@ -62,24 +66,23 @@ Use a GitHub token with `read:packages`.
 
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
+module load singularity
+export SINGULARITY_CACHEDIR=/scratch/aimusic_project_root/aimusic_project/shared_data/.singularity_cache
+
 git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
-cd superconductor_server && make setup
 
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
 git clone -b client --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_client
-module load singularity
-export SINGULARITY_CACHEDIR=/scratch/aimusic_project_root/aimusic_project/$USER/.singularity
-cd superconductor_client && make sif
 ```
 
 **Each time:**
 
-1. On lh2300, start the music server and wait for `Serving mrt2_base (jax) on port 9100`:
+1. On lh2300, start the server image and wait for `Serving mrt2_base (jax) on port 9100`:
    ```bash
    cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
-   make server
+   module load singularity && make server-singularity
    ```
-2. On lh2300, start the client:
+2. On lh2300, start the client image:
    ```bash
    cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
    module load singularity && make client-singularity
@@ -87,18 +90,18 @@ cd superconductor_client && make sif
 3. On the laptop: `ssh -N -L 8080:lh2300:8080 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
 4. Open http://localhost:8080 and press **Start**.
 
-`make client-singularity` talks to the music server on the same node (`ws://localhost:9100/stream`). Singularity shares the node's network, so these ports belong to whoever starts the container. If another Ollama already has 11434, set `SINGULARITYENV_SC_OLLAMA_PORT=11435`.
+`make client-singularity` uses the `cluster` entry in `superconductor_client/addresses.toml`. Programs in the container open `localhost:9100`. The browser opens `server.localhost:8080`. Singularity shares the node's network, so these ports belong to whoever starts the container. If another Ollama already has 11434, set `SINGULARITYENV_SC_OLLAMA_PORT=11435`.
 
-After a new image is published: `git pull && make sif` on lh2300, then start it again.
+After a new release is published: `make sif` in the server checkout and `make sif` in this checkout, then start them again. For a laptop dev image, `make sif-dev` and `make client-singularity-dev` (and `make server-singularity-dev` in the server checkout).
 
-To play the music on the laptop's speakers instead of the browser, from a checkout with the conda env: `make audio AUDIO_URL=ws://localhost:8080/audio`. Ctrl-C hands playback back to the page.
+To play the music on this machine's speakers, from a checkout with the conda env: `make audio` asks where the server is, the same question as `make client`. `make audio-local` and `make audio-remote` skip it.
 
 ## Settings
 
 | Variable | Default | |
 |---|---|---|
-| `SC_SERVER_URL` | `ws://host.docker.internal:9000/stream` | Music server websocket. `make client-singularity` uses `ws://localhost:9100/stream` when this default is still set. |
-| `SC_SERVICES` | `client describe midi atlas conduct` | Which services to start |
+| `SC_WHERE` | `cluster` | Which entry in `superconductor_client/addresses.toml`. `make client-singularity` uses `cluster`. |
+| `SC_SERVICES` | `client midi atlas conduct` | Which services to start. Add `describe` for Ollama and the describe server. |
 | `OLLAMA_URL` | the Ollama in the image | Another Ollama, for example `http://host.docker.internal:11434` |
 | `DESCRIBE_MODEL` | `qwen2.5vl:3b` | Describe server's vision model. The image already has this one. A different name is pulled into `/data/ollama` on a machine that has internet. |
 | `SC_OLLAMA_PORT` | `11434` | Port of the Ollama in the image |
@@ -108,14 +111,4 @@ With Singularity, pass them as `--env NAME=value` or `SINGULARITYENV_NAME=value`
 
 ## Docker, as a build step
 
-Docker produces the `linux/amd64` image that Singularity pulls. The cluster has no Docker. GitHub Actions is the build we use. `make image` does the same build on a machine that has Docker (`make image-push` also sends it to ghcr.io). On a laptop that is not linux/amd64, that build runs under emulation and is slow.
-
-Running the app from that image with Docker is a way to look at it on a laptop, not how it runs on lh2300:
-
-```bash
-make client-docker
-# music server on the laptop:
-make client-docker SC_SERVER_URL=ws://host.docker.internal:9100/stream
-```
-
-Then open http://localhost:8080. `make client-docker-stop` stops it. The image is `linux/amd64`, so on a laptop that is not linux/amd64, Docker runs it under emulation and without a GPU. For day-to-day work on the laptop, run `make client` instead. That serves the camera page at http://localhost:8467/.
+Docker produces the `linux/amd64` image that Singularity pulls. The cluster has no Docker. GitHub Actions builds the two release images. `make image` builds the dev image on a machine that has Docker, and `make image-push` sends it to `:client-dev`. On a laptop that is not linux/amd64, that build runs under emulation and is slow.

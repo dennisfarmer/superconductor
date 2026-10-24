@@ -1,32 +1,35 @@
-# Audio protocol (`WS /audio`)
+# Playback (`GET /stream/playback`)
 
-The music comes from the MRT2 server, already tempo-stretched, over the client's server connection. The client process (`superconductor_client/client.py`) plays none of it itself. It forwards every block to whoever listens on client_midi's `WS /audio`:
-- `ws://localhost:8470/audio` natively
-- `ws://localhost:8080/audio` through the container's gateway
+One player receives the music directly from the MRT2 server. The client process does not forward audio.
 
-The camera page is one such player and `audio_receiver.py` (`make audio`) is another. A later receiver (TouchDesigner, a DAW, stem separation) connects the same way, without changes to the server or the client.
+- Local server: `ws://localhost:9100/stream/playback`
+- SSH tunnel (`ssh -N -L 9000:lh2300:9100`): `ws://localhost:9000/stream/playback`
 
-## Connecting
+The camera page (Start sound), `make audio` (`audio_receiver.py`), and the playback plugin each open this socket. A second connection is closed with "Session already active".
+
+The client process uses the other socket, `GET /stream/input`, for recipe, controls, pattern, and pause:
+
+- Local: `ws://localhost:9100/stream/input` (`make client`)
+- SSH tunnel: `ws://localhost:9000/stream/input` (`make client-remote`)
+
+Generation waits until a player is attached, that player has granted a lead, and a recipe has been set. The lead is that many blocks. A new recipe, controls, or pattern applies on the next block. Blocks already sent still play.
+
+## Server → player
+
+- **Ready** (text), once on connect: `{"type": "Ready", "body": {"model", "backend", "sample_rate", "frames_per_block", "host"}}`
+- **Stats** (text), about once a second: `{"type": "Stats", "body": {"rtf", "gen_ms_per_frame"}}` (`rtf` > 1 means generating faster than real time)
+- **Error** (text): `{"type": "Error", "body": {"error": "..."}}`
+- **Audio** (binary), one block per message (`frames_per_block` × 40 ms, 200 ms by default, 48 kHz stereo):
 
 ```
-ws://<client>/audio?role=clock&name=browser
+[4 bytes: uint32 LE block sequence number][rest: float32 LE samples, interleaved stereo]
 ```
 
-- **`role=clock`** (the default): this player sets the pace. It answers `ack` once it has played each block, and only then does the client send the server a `ReceivedChunk`, which lets the server generate the next block. This keeps the server's credits, and its beat grid, tied to what is actually heard.
-- **`role=monitor`**: this player gets the same blocks but never acks. Its `ack`s are ignored.
-- **`name`**: how the player is shown to the others (for example "sound plays in sc-audio").
+## Player → server
 
-There is one clock at a time: the newest connection that asked for `role=clock`. Earlier ones become monitors (the camera page then mutes itself). When the clock disconnects, the next newest clock-asker becomes the clock again. For example, stopping `sc-audio` hands playback back to the page. While no clock is connected nothing is acked, so the server stops once its credits are used up.
+- `{"type": "Credits", "body": {"credits": N}}` once per connection. `N` is how many blocks may be in flight. It sets the lead; it is not added to it.
+- `{"type": "ReceivedChunk", "body": null}` when a block has finished playing. That grants one more block.
 
-The Tracking page (SuperConductor — Tracking, `app.html`) asks for `role=clock` when you press Start, so it takes over from a player that connected earlier. Opened as `http://localhost:8467/?audio=monitor`, it asks for `role=monitor` instead and stays quiet; `make visualize` (touchdesigner branch) opens it that way, so the SuperConductor Playback VST3 Plugin app keeps the sound.
+`UpdateRecipe`, `UpdateControls`, `Pattern`, `Pause`, `Resume`, and `EndSession` on this socket get an `Error` and change nothing.
 
-## Client → player
-
-- **Audio (binary):** `[uint32 LE sequence number][float32 LE samples]`. The samples are interleaved stereo at 48 kHz, one block per message (`frames_per_block` × 40 ms, 200 ms by default).
-- **Role (text):** `{"type": "role", "role": "clock" | "monitor", "clock": "<name of the clock>" | null}`. Sent on connecting and whenever the clock changes. A player that becomes the clock gets the blocks not acked yet sent again, so it should empty its queue when it receives `role: clock`.
-- **Pause (text):** `{"type": "pause"}`. The music was paused, and the silence that follows isn't an underrun.
-
-## Player → client (the clock only)
-
-- `{"type": "ack"}`: one block finished playing.
-- `{"type": "underrun"}`: the player ran out of audio. It's counted in the client's stats; send it once per stretch of silence.
+When the player disconnects, generation stops and the lead is cleared. The recipe, controls, pattern, and model state stay, and the block sequence keeps climbing. The next player continues from there.

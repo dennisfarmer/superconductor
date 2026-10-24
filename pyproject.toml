@@ -58,10 +58,14 @@ dependencies = [
       "websockets"
 ]
 
+[tool.setuptools]
+py-modules = ["audio_receiver"]
+
 [tool.setuptools.packages.find]
 exclude = ["media", "bin"]
 
 [tool.setuptools.package-data]
+"superconductor_client" = ["addresses.toml"]
 "superconductor_client.tracking" = ["collab.toml", "collab.container.toml"]
 "superconductor_client.tracking.object_tracking" = ["*.yaml"]
 
@@ -71,3 +75,4 @@ sc-tracking = "superconductor_client.tracking.collab:main"
 sc-describe = "superconductor_client.describe.describe_server:main"
 sc-midi = "superconductor_client.midi.midi_player:main"
 sc-conduct = "superconductor_client.conducting.conducting_web.server:main"
+sc-audio-reciever = "audio_receiver:main"

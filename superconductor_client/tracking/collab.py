@@ -9,9 +9,10 @@ WebGPU it sends plain frames and YOLOE + BoT-SORT run here (compatibility mode).
 Recognition (DINOv2), identities and the music mapping always run here. What to
 draw over the video goes back to the page as JSON (`overlay`, see
 CAMERA_PROTOCOL.md). Magenta RealTime 2 runs in a separate server process, locally
-(`make server`) or on the cluster (--remote); see superconductor_client/client.py and
-superconductor_server/mrt2_server.py. Its audio plays in the page, or in sc-audio
-(audio_receiver.py).
+(`make server`) or on the cluster through the SSH tunnel (`--where remote`); see
+superconductor_client/client.py and superconductor_server/mrt2_server.py. This
+process sends inputs on `/stream/input`. The page, the playback plugin, or
+sc-audio (`audio_receiver.py`) play `/stream/playback`.
 
 Two modes ([tracking] mode, or --mode):
 - unsupervised (default): every object gets a permanent id when it first appears
@@ -31,7 +32,7 @@ point (during calibration: click an object to label it). Ctrl-C here quits.
 """
 import json
 import logging
-import re
+import os
 import socket
 import subprocess
 import threading
@@ -47,6 +48,7 @@ import cv2
 import numpy as np
 import yaml
 
+from superconductor_client.addresses import AddressError, load_place
 from superconductor_client.tracking.describe_client import DescribeClient
 from superconductor_client.client import HttpMagentaClient, MagentaClient
 from superconductor_client.tracking.object_tracking import (Calibration, Combo, ObjectLibrary, ObjectTracker, Parameter,
@@ -72,8 +74,6 @@ def tracking_path(path):
 # describe only what should be there ("no vocals" would add a pull toward vocals).
 TEST_BEAT = "solo drum kit groove, isolated drums, instrumental percussion only"
 COMBO_COLORS = [(60, 220, 220), (220, 220, 80), (200, 90, 220), (255, 160, 60)]
-# local end of `ssh -N -L 9000:lh2300:9100 ...` (see superconductor_server/README.md)
-REMOTE_URL = "ws://localhost:9000/stream"
 
 
 def load_config(path):
@@ -104,6 +104,14 @@ class CollabFrontend:
         self.mapper = mapper
         self.benchmark = benchmark
         music = cfg["music"]
+        if "server_url" in music:
+            raise SystemExit("[music] server_url is not read. Set where to a name in "
+                             "superconductor_client/addresses.toml.")
+        try:
+            self.place = load_place(music.get("where", "local"),
+                                    gateway_port=os.environ.get("SC_GATEWAY_PORT"))
+        except AddressError as exc:
+            raise SystemExit(str(exc)) from exc
 
         self.magenta = None
         if not no_music:
@@ -113,7 +121,7 @@ class CollabFrontend:
                 self.magenta = HttpMagentaClient(client_url)
             else:
                 self.magenta = MagentaClient(
-                    server_url=music["server_url"],
+                    server_url=self.place.direct.input,
                     credits=music["credits"],
                     midi_port=music.get("midi_port", 8470),
                 )
@@ -180,10 +188,12 @@ class CollabFrontend:
         web_dir = tracking_path(web_cfg.get("web_dir", "var/web"))
         detection = web_cfg.get("detection", "auto")
         model_ok = detection != "container" and ensure_web_model(t["model"], t.get("classes") or [], web_dir)
-        # camera page: its player connects to client_midi's /audio, at [web] audio_url if
-        # set (e.g. "/audio" through the gateway), else on the midi port
-        page_config = {"audio_url": web_cfg.get("audio_url"), "audio_port": music.get("midi_port", 8470),
-                       "links": web_cfg.get("public_urls", {}),
+        # camera page plays on the browser's playback address when its sound button is pressed
+        links = dict(web_cfg.get("public_urls") or {})
+        links["server"] = self.place.browser.http
+        page_config = {"playback_url": self.place.browser.playback,
+                       "credits": music.get("credits", 3),
+                       "links": links,
                        "detector": {"mode": detection if model_ok else "container",
                                     "model_url": "/web/models/yoloe.onnx" if model_ok else None,
                                     "ort_url": "/web/ort/" if (web_dir / "ort").is_dir() else None,
@@ -624,7 +634,7 @@ class CollabFrontend:
         if self.magenta is None:
             music = {"model": "music off", "where": "-"}
         elif not self.magenta.connected:
-            music = {"model": f"not connected ({self.cfg['music']['server_url']})", "where": "-"}
+            music = {"model": f"not connected ({self.place.direct.input})", "where": "-"}
         else:
             info = self.magenta.info
             music = {"model": f"Magenta RealTime 2 {info.get('model')} ({info.get('backend')})",
@@ -641,8 +651,8 @@ class CollabFrontend:
         svc = self.cfg.get("services", {})
         midi_port = self.cfg["music"].get("midi_port", 8470)
         return {
-            # ws://localhost:9000/stream (the Lighthouse tunnel) -> http://localhost:9000
-            "server": re.sub(r"^ws", "http", self.cfg["music"]["server_url"]).removesuffix("/stream"),
+            # probed from this process, so the direct address, not the browser's
+            "server": self.place.direct.http,
             "objects": f"http://localhost:{self.panel.port}",
             "client_midi": f"http://localhost:{midi_port}" if midi_port and self.magenta is not None else None,
             "describe": self.describer.server_url if self.describer is not None
@@ -693,11 +703,11 @@ class CollabFrontend:
                           + (" (connected)" if engine.get("connected") else " (client not connected)"))
         else:
             atlas_note = "standalone: plays through its own speakers" if engine else ""
+        located = where(self.place.direct.http, self.magenta.info if self.magenta is not None else None)
+        server_note = self.place.description + (f" {located}." if located else "")
         rows = [
-            row("server", "Music server (mrt2_server.py)", "superconductor_server: make server",
-                [("page", "/tempo"), ("page", "/conduct"), ("GET", "/tempo/status"), ("POST", "/tempo/beat"),
-                 ("POST", "/tempo/target"), ("POST", "/tempo/free"), ("WS", self.cfg["music"]["server_url"])],
-                where(urls["server"], self.magenta.info if self.magenta is not None else None)),
+            row("server", "Music server (mrt2_server.py)", f"addresses.toml · {self.place.name}",
+                self.place.service_endpoints(), server_note),
             row("objects", "Objects page (this app)", "superconductor_client: make client",
                 [("page", "/objects"), ("GET", "/api/objects")]),
             row("client_midi", "client_midi (this app)", "superconductor_client: make client",
@@ -1126,12 +1136,11 @@ def _find_atlas(svc, search=True):
 
 @click.command()
 @click.option("--config", "config_path", default=str(DEFAULT_CONFIG), type=click.Path(exists=True))
-@click.option("--server", default=None,
-              help="Override [music].server_url (websocket of a running mrt2_server.py).")
+@click.option("--where", default=None,
+              help="Which music server, a name in superconductor_client/addresses.toml. "
+                   "Overrides [music] where.")
 @click.option("--describe-server", default=None,
               help="Override [describe].server_url (describe server for one-time object descriptions).")
-@click.option("--remote", is_flag=True,
-              help=f"Use the SSH tunnel to the cluster server ({REMOTE_URL}).")
 @click.option("--device", default=None, type=click.Choice(["cpu", "mps", "cuda"]),
               help="Override [tracking].device (where YOLO runs in compatibility mode).")
 @click.option("--detection", default=None, type=click.Choice(["auto", "browser", "container"]),
@@ -1147,14 +1156,12 @@ def _find_atlas(svc, search=True):
 @click.option("--benchmark", default=None, type=float,
               help="Run for N seconds, then print vision fps / MRT2 realtime stats.")
 @click.option("--loglevel", default="warning")
-def main(config_path, server, describe_server, remote, device, detection, mode, skip_calibration,
+def main(config_path, where, describe_server, device, detection, mode, skip_calibration,
          client_url, no_music, benchmark, loglevel):
     logging.basicConfig(level=loglevel.upper())
     cfg, mapper = load_config(config_path)
-    if remote:
-        cfg["music"]["server_url"] = REMOTE_URL
-    if server:
-        cfg["music"]["server_url"] = server
+    if where:
+        cfg["music"]["where"] = where
     if device:
         cfg["tracking"]["device"] = device
     if detection:

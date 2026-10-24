@@ -1,48 +1,81 @@
-# SuperConductor client
+# SuperConductor
 
-This checkout is the client. Tracking, conducting, describe, and the MIDI player live in `superconductor_client/`. The music server is the `server` branch, in `../superconductor_server`. Atlas, playback, and TouchDesigner are their own checkouts. `make worktrees` creates the ones that are missing.
+Recent years have witnessed major advances in generative AI and its success in many fields. Yet, interfaces for AI music generation models remain unsatisfactory in terms of interactability, real-timeness, and accessibility. Few music generation models allow interactive controls with real-time feedback, and existing music generation models rely on command-line interfaces, making them hard to reach to musicians, artists and the general public. This project aims at challenging the state of the art of AI music for live performances and art installations – can we create a new interface where the user can co-create lively with an AI music generation model through simple gestures or body motions?
 
-`make client` starts the client together with tracking, conducting, describe, and midi. The browser is the camera, the view, and the speakers. Each process also has its own command: `sc-client`, `sc-tracking`, `sc-conduct`, `sc-describe`, `sc-midi`.
+SuperConductor will be an interactive human-AI music co-creating system where the user can control an AI music generator through hand gestures and body movements. The user will be able to control the instrumentation, dynamic, tempo, density, and tension of the generated music – as if they were “conducting” an ensemble of AI music agents. The SuperConductor explores the future of human-AI music co-creativity.
 
-Testing, on the laptop or on lh2300, is `git pull`, `make setup`, `make client`. `make setup` is idempotent. On macOS it creates `sc_env` if that conda env is missing. On lh2300 it creates `.venv` from `client_container/requirements.txt` (CUDA 12.6, for the V100) and the client runs from that checkout, without Singularity. The music weights are `make setup` in the server checkout. On macOS that downloads `mrt2_small` and skips `mrt2_base`.
+# Development Guide
 
-The Singularity image is the release build. `make sif` pulls it, and `make client-singularity` runs it. Details are in [client_container/README.md](client_container/README.md).
+## Web Application Views
 
-There are three ways to run it.
+These are opened on the laptop to provide insight behind the messages the client sends to the server, as well as to the touchdesigner branch visualizer(s) and playback branch VST3 plugin.
 
-## 1. Everything on the laptop
+| | All local (Macbook Pro) | Client local, server remote | All remote, from the clones | All remote, published images |
+|---|---|---|---|---|
+| Camera | http://localhost:8467 | http://localhost:8467 | http://localhost:8467 | http://localhost:8080 |
+| Objects | http://localhost:8467/objects | http://localhost:8467/objects | http://localhost:8467/objects | http://localhost:8080/objects |
+| Conducting | http://localhost:8480 | http://localhost:8480 | http://localhost:8480 | http://localhost:8080/conduct/ |
+| MIDI player | http://localhost:8475 | http://localhost:8475 | http://localhost:8475 | http://midi.localhost:8080 |
+| Tempo | http://localhost:9100/tempo | http://localhost:9000/tempo | http://localhost:9100/tempo | http://server.localhost:8080/tempo |
+| Conductor (space bar = one beat) | http://localhost:9100/conduct | http://localhost:9000/conduct | http://localhost:9100/conduct | http://server.localhost:8080/conduct |
 
-The music server is `mrt2_small` on the laptop, port 9100.
+Saved objects are `superconductor_client/tracking/library/<id>/` when you run a clone, and `/data/client/library` inside the image.
 
-**Once:**
+
+## All local (Macbook Pro)
+
+The client and the server both run on the Macbook Pro. The server is `mrt2_small` on port 9100. Use two terminals. One runs the server. The other runs the client. A new terminal starts in your home directory, so each one changes into its own checkout.
+
+**First time.** In one terminal:
 
 ```bash
+cd ~/Michigan/superconductor
 git clone -b client https://github.com/dennisfarmer/superconductor.git superconductor_client
 cd superconductor_client
 make worktrees
 make setup
-cd ../superconductor_server && make setup && cd -
 ```
 
-`make setup` here builds `sc_env`. `make setup` in the server checkout downloads `mrt2_small`.
+`make worktrees` puts the server at `~/Michigan/superconductor/superconductor_server`. In a second terminal:
 
-**Each time,** from this checkout: `git pull && make setup`. In the server checkout, the same, then:
+```bash
+cd ~/Michigan/superconductor/superconductor_server
+make setup
+```
 
-1. `make server`. Wait for `Serving mrt2_small (mlx) on port 9100`. The client connects once at startup, so the server has to be up first.
-2. `make client`. The first run fetches onnxruntime-web and exports the page's detector (about 30 seconds).
-3. Open http://localhost:8467 and press **Start**. Allow the camera.
+**Each time you run it.** Leave the server terminal open.
 
-Object descriptions need Ollama running (`ollama serve`). Describe starts with `make client`. Without Ollama, objects still track and play; they get no description or suggested instrument.
+Server terminal:
 
-**Stop:** Ctrl-C in each terminal.
+```bash
+cd ~/Michigan/superconductor/superconductor_server
+git pull && make setup && make server
+```
 
-## 2. Server on lh2300, client on the laptop
+Wait until that terminal prints `Serving mrt2_small (mlx) on port 9100`.
 
-The music server is `mrt2_base` on a Lighthouse GPU node. Tracking, conducting, describe, and midi stay on the laptop. The laptop reaches the server through an SSH tunnel on port 9000.
+Client terminal:
 
-**Once, on the laptop:** the same clone, `make worktrees`, and `make setup` as mode 1.
+```bash
+cd ~/Michigan/superconductor/superconductor_client
+git pull && make setup && make client
+```
 
-**Once, on lh2300:**
+## Client local, server remote
+
+The client runs on the Macbook Pro. The server is `mrt2_base` on lh2300, port 9100. An SSH tunnel on the Macbook Pro forwards localhost port 9000 to that server.
+
+**First time, on the Macbook Pro:**
+
+```bash
+cd ~/Michigan/superconductor
+git clone -b client https://github.com/dennisfarmer/superconductor.git superconductor_client
+cd superconductor_client
+make worktrees
+make setup
+```
+
+**First time, on lh2300:**
 
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
@@ -51,117 +84,120 @@ cd superconductor_server
 make setup
 ```
 
-`make setup` creates `.venv` from `requirements_lighthouse.txt` (the JAX install for the V100) and downloads `mrt2_base` and `mrt2_small` onto the shared scratch disk. A second run leaves what is already there.
+**Each time you run it.** On lh2300, in the server checkout:
 
-**Each time:**
+```bash
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
+git pull && make setup && make server
+```
 
-1. On lh2300:
-   ```bash
-   cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
-   git pull && make setup && make server
-   ```
-   Wait for `Serving mrt2_base (jax) on port 9100`.
-2. On the laptop, leave the tunnel open:
-   ```bash
-   ssh -N -L 9000:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
-   ```
-3. On the laptop, in this checkout: `make client-remote`. It connects to `ws://localhost:9000/stream`.
-4. Open http://localhost:8467 and press **Start**.
+Wait until that terminal prints `Serving mrt2_base (jax) on port 9100`.
 
-**Stop:** Ctrl-C in each terminal, and on lh2300.
+On the Macbook Pro, open a terminal and leave the tunnel running:
 
-## 3. Client and server on lh2300
+```bash
+ssh -N -L 9000:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
+```
 
-Both run on the GPU node. For testing, run the checkouts. The Singularity image is the release.
+Open another terminal on the Macbook Pro for the client:
 
-**Testing**, in each checkout: `git pull && make setup`, then `make server` in the server checkout and `make client` in this one. The client talks to the server on the same node (`ws://localhost:9100/stream`). The camera page listens on localhost:8467, so from the laptop:
+```bash
+cd ~/Michigan/superconductor/superconductor_client
+git pull && make setup && make client-remote
+```
+
+## All remote
+
+The client and the server both run on lh2300. One way is the git checkouts. The other is the published images.
+
+### Testing from the git clones
+
+**First time, on lh2300:**
+
+```bash
+cd /scratch/aimusic_project_root/aimusic_project/shared_data
+git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
+cd superconductor_server && make setup
+
+cd /scratch/aimusic_project_root/aimusic_project/shared_data
+git clone -b client --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_client
+cd superconductor_client && make setup
+```
+
+**Each time you run it.** On lh2300, start the server and leave that terminal open:
+
+```bash
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
+git pull && make setup && make server
+```
+
+Wait until it prints `Serving mrt2_base (jax) on port 9100`. Then start the client in another terminal on lh2300:
+
+```bash
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
+git pull && make setup && make client
+```
+
+On the Macbook Pro, open a tunnel to the node that is running `make client`. Leave it open:
 
 ```bash
 ssh -N -L 8467:localhost:8467 YOUR_UNIQNAME@lh2300
 ```
 
-Open http://localhost:8467 and press **Start**. That tunnel has to land on the node where `make client` is running.
+### Running the published images
 
-**Release.** The laptop only forwards port 8080. Once, on lh2300, the server venv from mode 2, then the image:
+**Actions** → **release** → **Run workflow** publishes the two release images and a GitHub Release for the current `client` and `server` commits. On lh2300, `make server-singularity` and `make client-singularity` pull those images when the `.sif` is not already in the checkout. `make sif` pulls again after a new release. `make sif-dev` does the same for a dev image from `make image-push` on a laptop. See [client_container/README.md](client_container/README.md).
+
+**First time, on lh2300:**
 
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
-git clone -b client --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_client
 module load singularity
-export SINGULARITY_CACHEDIR=/scratch/aimusic_project_root/aimusic_project/$USER/.singularity
-cd superconductor_client && make sif
+export SINGULARITY_CACHEDIR=/scratch/aimusic_project_root/aimusic_project/shared_data/.singularity_cache
+
+git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
+
+cd /scratch/aimusic_project_root/aimusic_project/shared_data
+git clone -b client --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_client
 ```
 
-`make sif` pulls `ghcr.io/dennisfarmer/superconductor:client` and writes `superconductor_client.sif`. How the image is built, and the full list of ports, is in [client_container/README.md](client_container/README.md).
-
-**Each time:**
-
-1. On lh2300, start the server the same way as mode 2. Wait for `Serving mrt2_base (jax) on port 9100`.
-2. On lh2300, in the client checkout:
-   ```bash
-   module load singularity && make client-singularity
-   ```
-   That talks to the server on the same node, `ws://localhost:9100/stream`.
-3. On the laptop:
-   ```bash
-   ssh -N -L 8080:lh2300:8080 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
-   ```
-4. Open http://localhost:8080 and press **Start**.
-
-After a new image is published, `git pull && make sif` on lh2300, then start the container again.
-
-To play the music on the laptop's speakers instead of the browser, from a checkout that has `sc_env`: `make audio AUDIO_URL=ws://localhost:8080/audio`. Ctrl-C hands playback back to the page.
-
-## Pages
-
-| | On the laptop (modes 1 and 2) | Through the container (mode 3) |
-|---|---|---|
-| Camera | http://localhost:8467 | http://localhost:8080 |
-| Objects | http://localhost:8467/objects | http://localhost:8080/objects |
-| Conducting | http://localhost:8480 | http://localhost:8080/conduct/ |
-| MIDI player | http://localhost:8475 | http://midi.localhost:8080 |
-| Tempo | http://localhost:9100/tempo | http://server.localhost:8080/tempo |
-| Conductor (space bar = one beat) | http://localhost:9100/conduct | http://server.localhost:8080/conduct |
-
-In mode 2 the server's tempo and conductor pages are on port 9000, the tunnel, rather than 9100.
-
-Saved objects are `superconductor_client/tracking/library/<id>/` on the laptop, and `/data/client/library` inside the container.
-
-## When something is wrong
-
-- **The music ignores the objects (it sounds like the default jazz piano).** The camera loop is not running, so the client never sends prompts and the server plays its default `jazz` prompt. The camera page should show video, and the objects page's Music row should say `Magenta RealTime 2`, not `not connected`. A frozen picture usually means another app is holding the camera.
-- **Notes from the MIDI player or Atlas do nothing, and the server prints `WS unknown message type: Pattern`.** That server is older than the notes input. `git pull` on the server checkout and restart it.
-- **The client says the connection failed.** Start the server, and the tunnel in mode 2, before the client. Then start the client again.
-
-### New-object check
-
-With Ollama running: `make server`, then `make client`. Open http://localhost:8467 and http://localhost:8467/objects.
-
-1. A new object shows a dashed "? new" box, then `#1`. A card appears, and `superconductor_client/tracking/library/1/` is created.
-2. After about 5–10 seconds the card shows a description and an instrument, and you hear it.
-3. Out of frame and back: still `#1`.
-4. After Ctrl-C and `make client` again: still `#1`, with the same description and instrument.
-5. A second object becomes `#2`.
-
-### Tempo check
-
-`make server`, then `make client`. Music only plays while a client is connected.
-
-1. After about 4 seconds, "Model bpm" on the tempo page shows MRT2's tempo.
-2. **Match this bpm** brings "Heard bpm" to that bpm gradually.
-3. Tapping steadily in the conductor window moves the music toward that tempo. When the tapping stops, the tempo holds.
-4. **Stop tempo control** eases the music back to MRT2's own tempo.
-
-## Notes and drums from another program
-
-While the client runs, it listens on http://localhost:8470. Other programs POST MRT2 notes and drums there, and the client forwards them to the server. The prompts still come from the objects. The message format is [docs/MIDI_MSG_PROTOCOL.md](docs/MIDI_MSG_PROTOCOL.md).
+**Each time you run it.** On lh2300, start the server image and leave that terminal open:
 
 ```bash
-curl -s localhost:8470/status
-curl -s -X POST localhost:8470/pattern -d '{"drums":{"loop":true,"steps":[{"frames":25,"first":1}]}}'
-curl -s -X POST localhost:8470/pattern -d 'null'
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
+module load singularity && make server-singularity
 ```
 
-The camera page and tracking talk over [docs/CAMERA_PROTOCOL.md](docs/CAMERA_PROTOCOL.md). Playback of the music is [docs/AUDIO_PROTOCOL.md](docs/AUDIO_PROTOCOL.md).
+Wait until it prints `Serving mrt2_base (jax) on port 9100`. Then start the client image in another terminal on lh2300:
 
-![diagram](docs/media/diagram.jpeg)
+```bash
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
+module load singularity && make client-singularity
+```
+
+On the Macbook Pro, open a tunnel and leave it open:
+
+```bash
+ssh -N -L 8080:lh2300:8080 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
+```
+
+A `.sif` already in the checkout is reused. When a new release is published, run `make sif` in the server checkout and in the client checkout, then start them again. For a dev image, `make sif-dev`, then `make server-singularity-dev` / `make client-singularity-dev`.
+
+## Sound on this machine
+
+`make audio` asks where the music server is, the same question as `make client`. `make audio-local` and `make audio-remote` skip it (`--where local` and `--where remote`).
+
+```bash
+python audio_receiver.py --list-devices
+#    0 ASUS VG34V, Core Audio (0 in, 2 out)
+# <  2 USB-C to 3.5mm Headphone Jack Adapter, Core Audio (0 in, 2 out)
+#    5 BlackHole 2ch, Core Audio (2 in, 2 out)
+#    7 MacBook Pro Speakers, Core Audio (0 in, 2 out)
+#    8 Microsoft Teams Audio, Core Audio (1 in, 1 out)
+#    9 Steam Streaming Microphone, Core Audio (2 in, 2 out)
+#   10 Steam Streaming Speakers, Core Audio (2 in, 2 out)
+#   11 ZoomAudioDevice, Core Audio (2 in, 2 out)
+
+# to play audio using device x (default shown above by '<')
+python audio_receiver.py --device 2
+```

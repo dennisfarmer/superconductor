@@ -5,7 +5,7 @@ How to run the client is [the README at the root of this checkout](../README.md)
 | | |
 |---|---|
 | [CAMERA_PROTOCOL.md](CAMERA_PROTOCOL.md) | Camera page ↔ tracking, `WS /ws/camera` |
-| [AUDIO_PROTOCOL.md](AUDIO_PROTOCOL.md) | Client → whoever plays the music, `WS /audio` |
+| [AUDIO_PROTOCOL.md](AUDIO_PROTOCOL.md) | Server → the one player, `GET /stream/playback` |
 | [MIDI_MSG_PROTOCOL.md](MIDI_MSG_PROTOCOL.md) | Notes and drums posted to the client |
 | [DEBUG_BROWSER_YOLOE.md](DEBUG_BROWSER_YOLOE.md) | The page's detector finding fewer objects than the Python one |
 | [CLIENT_PLAN.md](CLIENT_PLAN.md) | Notes on browser detection and tracking |

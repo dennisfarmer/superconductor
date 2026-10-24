@@ -94,7 +94,7 @@ class DescribeServer:
             async with self._session.get(f"{self._ollama_url}/api/tags") as r:
                 names = [m["name"] for m in (await r.json()).get("models", [])]
         except aiohttp.ClientError as e:
-            raise SystemExit(f"Ollama not reachable at {self._ollama_url} ({e}): start it with `ollama serve`")
+            raise SystemExit(f"Ollama is not running at {self._ollama_url} ({e})")
         if self._model not in names:
             raise SystemExit(f"model {self._model} not pulled in Ollama: run `make pull MODEL={self._model}`")
         print(f"Serving {self._model} (ollama) on port {self._port}", flush=True)

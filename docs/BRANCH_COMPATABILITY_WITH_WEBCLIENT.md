@@ -37,4 +37,4 @@ All of it is additive: without `--web` the client behaves as before (camera wind
 
 ### `server`
 
-Nothing needed: the MRT2 server stays outside the container. The gateway serves its pages at `http://server.localhost:8080` (`/tempo`, `/conduct`) by forwarding to `SC_SERVER_URL`.
+Nothing needed: the MRT2 server stays outside the container. The gateway serves its pages at `http://server.localhost:8080` (`/tempo`, `/conduct`) by forwarding to the `http` address of the place named by `SC_WHERE` (`addresses.toml`).

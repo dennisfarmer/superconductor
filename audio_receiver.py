@@ -1,20 +1,23 @@
 """sc-audio: plays the music on this machine's sound device.
 
-Connects to the client's WS /audio (client_midi, see AUDIO_PROTOCOL.md) and plays
-every block it receives. As the clock (--role clock, the default) it acknowledges
-each block once it has played, which is what lets the server generate the next one;
-the camera page then goes quiet. As a monitor (--role monitor) it only plays along.
-Stopping it hands playback back to the camera page.
+Connects to the server's GET /stream/playback and plays every block it receives.
+Sends Credits once, then ReceivedChunk after each block it finishes, which is
+what lets the server generate the next one. One playback connection at a time.
 
-It runs where the speakers are: with the client on lh2300, that's the laptop,
-through the SSH tunnel to the gateway (--url ws://localhost:8080/audio).
+The playback address comes from superconductor_client/addresses.toml, the same
+question `make client` asks. `--where NAME` skips it.
 
-    python audio_receiver.py [--url ws://localhost:8470/audio] [--role clock|monitor] [--device NAME]
+    python audio_receiver.py                       # ask
+    python audio_receiver.py --where local         # this computer, port 9100
+    python audio_receiver.py --where remote        # SSH tunnel, port 9000
+
     python audio_receiver.py --list-devices
     make audio
 """
 import asyncio
 import json
+import socket
+import sys
 from collections import deque
 
 import click
@@ -24,14 +27,14 @@ SAMPLE_RATE = 48000
 CHANNELS = 2
 
 
-async def play(url, role, device):
+async def play(url, credits, device):
     import sounddevice as sd
     import websockets
 
     loop = asyncio.get_running_loop()
     buffer = deque()  # np.ndarray blocks of shape (n, 2)
     played = asyncio.Queue()  # one entry per block the callback finished
-    state = {"started": False, "underruns": 0, "role": None}
+    state = {"started": False, "underruns": 0}
 
     def callback(outdata, frames, time_info, status):
         filled = 0
@@ -50,25 +53,21 @@ async def play(url, role, device):
             if state["started"]:  # don't count the silence before the first block
                 state["underruns"] += 1
                 state["started"] = False
-                loop.call_soon_threadsafe(played.put_nowait, "underrun")
 
     stream = sd.OutputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, callback=callback,
                              blocksize=1024, device=device)
     stream.start()
-    sep = "&" if "?" in url else "?"
-    target = f"{url}{sep}role={role}&name=sc-audio"
     try:
         while True:
             try:
-                async with websockets.connect(target, compression=None, max_size=None) as ws:
-                    print(f"connected to {url} as {role}")
+                async with websockets.connect(url, compression=None, max_size=None) as ws:
+                    print(f"connected to {url}")
+                    await ws.send(json.dumps({"type": "Credits", "body": {"credits": credits}}))
 
                     async def acks():
                         while True:
-                            event = await played.get()
-                            if state["role"] != "clock":
-                                continue
-                            await ws.send('{"type": "underrun"}' if event == "underrun" else '{"type": "ack"}')
+                            await played.get()
+                            await ws.send('{"type":"ReceivedChunk","body":null}')
 
                     sender = asyncio.create_task(acks())
                     try:
@@ -78,23 +77,12 @@ async def play(url, role, device):
                                 state["started"] = True
                                 continue
                             msg = json.loads(message)
-                            if msg.get("type") == "role":
-                                if msg["role"] == "clock" and state["role"] != "clock":
-                                    # the blocks not acked yet come again: start from an empty queue
-                                    buffer.clear()
-                                    while not played.empty():
-                                        played.get_nowait()
-                                if msg["role"] != state["role"]:
-                                    print("playing as the clock" if msg["role"] == "clock" else
-                                          f"monitoring (the clock is {msg.get('clock') or 'nobody'})")
-                                state["role"] = msg["role"]
-                            elif msg.get("type") == "pause":
-                                state["started"] = False  # the silence while paused isn't an underrun
+                            if msg.get("type") == "Error":
+                                print(f"server: {(msg.get('body') or {}).get('error')}")
                     finally:
                         sender.cancel()
             except (OSError, websockets.exceptions.WebSocketException) as e:
                 print(f"{url}: {e}; retrying")
-            state["role"] = None
             buffer.clear()
             await asyncio.sleep(1.0)
     finally:
@@ -103,23 +91,37 @@ async def play(url, role, device):
 
 
 @click.command()
-@click.option("--url", default="ws://localhost:8470/audio",
-              help="The client's WS /audio (through the gateway: ws://localhost:8080/audio).")
-@click.option("--role", default="clock", type=click.Choice(["clock", "monitor"]),
-              help="clock: play and pace the server (the camera page goes quiet); monitor: only play along.")
+@click.option("--where", default=None, metavar="NAME",
+              help="Which music server, a name in addresses.toml. Omit to be asked.")
+@click.option("--url", default=None,
+              help="Playback websocket, instead of --where.")
+@click.option("--credits", default=3, show_default=True,
+              help="Blocks the server stays ahead of this player.")
 @click.option("--device", default=None, help="Output device (name or index; see --list-devices).")
 @click.option("--list-devices", is_flag=True, help="List output devices and exit.")
-def main(url, role, device, list_devices):
+def main(where, url, credits, device, list_devices):
     if list_devices:
         import sounddevice as sd
 
         devices = sd.query_devices()
         print(sd.DeviceList(d for d in devices if d["max_output_channels"] > 0))
         return
+    if url and where:
+        raise SystemExit("pass --where or --url, not both")
+    if not url:
+        from superconductor_client.addresses import AddressError, choose_place, load_place
+        if not where:
+            where = choose_place(socket.gethostname(), sys.stdin.isatty(), input)
+            if where is None:
+                raise SystemExit(2)
+        try:
+            url = load_place(where).browser.playback
+        except AddressError as exc:
+            raise SystemExit(str(exc)) from exc
     if device is not None and device.isdigit():
         device = int(device)
     try:
-        asyncio.run(play(url, role, device))
+        asyncio.run(play(url, credits, device))
     except KeyboardInterrupt:
         pass
 

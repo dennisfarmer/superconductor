@@ -1,0 +1,270 @@
+# Cuts a release by hand. Actions → release → Run workflow (the button is on
+# the default branch, client). Pushing a branch does not run this.
+#
+# It takes the current client, server, and atlas commits, builds the two release
+# images, and opens a GitHub Release. The git tag points at the client commit.
+# The notes and the release.json asset name the server commit and the atlas
+# commit baked into the client image. Unreleased bullets in CHANGELOG.md on
+# client and on server become those notes. The release list keeps every
+# version's commits.
+#
+# GHCR keeps four tags, and a new release moves the two release tags:
+#   ghcr.io/dennisfarmer/superconductor:client                  this workflow
+#   ghcr.io/dennisfarmer/superconductor_server:server           this workflow
+#   ghcr.io/dennisfarmer/superconductor:client-dev              make image-push
+#   ghcr.io/dennisfarmer/superconductor_server:server-dev       make image-push
+# Provenance and SBOM are off so each tag is one manifest. Untagged versions
+# are deleted; the four tags stay. `make sif` pulls a release tag, `make sif-dev`
+# pulls a dev tag.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (first release is v0.1.0, or v1.0.0 for major)
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      client_sha: ${{ steps.meta.outputs.client_sha }}
+      server_sha: ${{ steps.meta.outputs.server_sha }}
+      atlas_sha: ${{ steps.meta.outputs.atlas_sha }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: client
+          path: client
+      - uses: actions/checkout@v4
+        with:
+          ref: server
+          path: server
+      - uses: actions/checkout@v4
+        with:
+          ref: atlas
+          path: atlas
+      - name: Version, notes, and commits
+        id: meta
+        env:
+          BUMP: ${{ inputs.bump }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess
+
+          def unreleased(path):
+              lines = pathlib.Path(path).read_text().splitlines()
+              body, capture, found = [], False, False
+              for line in lines:
+                  if line.strip() == "## [Unreleased]":
+                      found, capture = True, True
+                      continue
+                  if capture and line.startswith("## "):
+                      break
+                  if capture:
+                      body.append(line)
+              if not found:
+                  raise SystemExit(f"{path} has no '## [Unreleased]' section")
+              text = "\n".join(body).strip()
+              bullets = [ln for ln in body if ln.lstrip().startswith(("- ", "* "))]
+              if not bullets:
+                  raise SystemExit(f"{path} needs at least one Unreleased bullet")
+              return text + "\n"
+
+          client_notes = unreleased("client/CHANGELOG.md")
+          server_notes = unreleased("server/CHANGELOG.md")
+          client_sha = subprocess.check_output(["git", "-C", "client", "rev-parse", "HEAD"], text=True).strip()
+          server_sha = subprocess.check_output(["git", "-C", "server", "rev-parse", "HEAD"], text=True).strip()
+          atlas_sha = subprocess.check_output(["git", "-C", "atlas", "rev-parse", "HEAD"], text=True).strip()
+
+          def gh_lines(url, jq):
+              result = subprocess.run(
+                  ["gh", "api", "--paginate", url, "--jq", jq],
+                  text=True, capture_output=True,
+              )
+              if result.returncode != 0:
+                  if "404" in result.stderr or "404" in result.stdout:
+                      return []
+                  raise SystemExit(result.stderr.strip() or result.stdout.strip())
+              return result.stdout.splitlines()
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          names = gh_lines(f"repos/{repo}/releases?per_page=100", ".[].tag_name")
+          names += gh_lines(f"repos/{repo}/git/matching-refs/tags/v", ".[].ref")
+          versions = []
+          for name in names:
+              name = name.strip().removeprefix("refs/tags/")
+              match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", name)
+              if match:
+                  versions.append(tuple(int(part) for part in match.groups()))
+          bump = os.environ["BUMP"]
+          if not versions:
+              tag = "v1.0.0" if bump == "major" else "v0.1.0"
+          else:
+              major, minor, patch = max(versions)
+              if bump == "major":
+                  tag = f"v{major + 1}.0.0"
+              elif bump == "minor":
+                  tag = f"v{major}.{minor + 1}.0"
+              elif bump == "patch":
+                  tag = f"v{major}.{minor}.{patch + 1}"
+              else:
+                  raise SystemExit(f"unknown bump {bump!r}")
+
+          client_image = "ghcr.io/dennisfarmer/superconductor:client"
+          server_image = "ghcr.io/dennisfarmer/superconductor_server:server"
+          notes = f"""The git tag `{tag}` points at the client commit. The server commit is the one named here.
+
+- client `{client_sha}`
+- server `{server_sha}`
+- atlas `{atlas_sha}` (baked into the client image)
+
+Images this release publishes:
+
+- `{client_image}`
+- `{server_image}`
+
+The next release moves those two tags. This release keeps the commits above.
+Dev images (`:client-dev`, `:server-dev`) come from `make image-push` on a laptop.
+
+## Client
+
+{client_notes}
+## Server
+
+{server_notes}"""
+          pathlib.Path("notes.md").write_text(notes)
+          pathlib.Path("release.json").write_text(json.dumps({
+              "tag": tag,
+              "client": {"branch": "client", "sha": client_sha},
+              "server": {"branch": "server", "sha": server_sha},
+              "atlas": {"branch": "atlas", "sha": atlas_sha},
+              "images": {"client": client_image, "server": server_image},
+          }, indent=2) + "\n")
+          out = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          out.write_text(
+              f"client_sha={client_sha}\nserver_sha={server_sha}\natlas_sha={atlas_sha}\ntag={tag}\n"
+          )
+          print(f"release {tag}")
+          print(f"client {client_sha}")
+          print(f"server {server_sha}")
+          print(f"atlas  {atlas_sha}")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-meta
+          path: |
+            notes.md
+            release.json
+
+  client-image:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.client_sha }}
+          path: client
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.atlas_sha }}
+          path: atlas
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: client
+          file: client/client_container/Dockerfile
+          platforms: linux/amd64
+          build-contexts: |
+            atlas=atlas
+          push: true
+          tags: ghcr.io/dennisfarmer/superconductor:client
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=client
+          cache-to: type=gha,mode=max,scope=client
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: superconductor
+          package-type: container
+          min-versions-to-keep: 0
+          delete-only-untagged-versions: 'true'
+
+  server-image:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.server_sha }}
+          path: server
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: server
+          file: server/server_container/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/dennisfarmer/superconductor_server:server
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: superconductor_server
+          package-type: container
+          min-versions-to-keep: 0
+          delete-only-untagged-versions: 'true'
+
+  publish:
+    needs: [prepare, client-image, server-image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-meta
+          path: release-meta
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          CLIENT_SHA: ${{ needs.prepare.outputs.client_sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --target "$CLIENT_SHA" \
+            --title "$TAG" \
+            --notes-file release-meta/notes.md \
+            release-meta/release.json

@@ -3,13 +3,13 @@
 #
 #   make pull         download the VLM into Ollama (MODEL, default qwen2.5vl:3b)
 #   make pull-svg     download the text-to-SVG model (SVGen Qwen2.5-3B) into the HF cache
-#   make describe     describe server on port 9200 (needs `ollama serve` running)
+#   make describe     describe server on port 9200 (Ollama already running)
 #   make describe MODEL=qwen2.5vl:7b PORT=9300 ARGS="--keep_alive 0"
 #
 # Uses the sc_env conda env when it exists, without needing `conda activate`;
 # otherwise the python on PATH (e.g. an activated venv on Lighthouse).
 # Descriptions need aiohttp and a running Ollama. Icons need mlx-lm (macOS)
-# or transformers (Linux); `make setup` in the client checkout installs those.
+# or transformers (Linux); `make setup DESCRIBE=1` in the client checkout installs those and pulls the Ollama model.
 
 ENV_NAME ?= sc_env
 ENV_PREFIX := $(shell conda info --base 2>/dev/null)/envs/$(ENV_NAME)
