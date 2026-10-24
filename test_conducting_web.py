@@ -156,6 +156,10 @@ class EndToEndTests(unittest.TestCase):
         async with TestClient(TestServer(server.app())) as client:
             config = await (await client.get("/api/web")).json()
             self.assertEqual(config["server_url"], server.server_url)
+            # relative to /web/hands_worker.js, so a gateway prefix (/conduct/) is kept
+            self.assertEqual(config["bundle_url"], "mediapipe/vision_bundle.mjs")
+            self.assertEqual(config["wasm_url"], "mediapipe/wasm")
+            self.assertEqual(config["model_url"], "models/hand_landmarker.task")
             monitor = await client.ws_connect("/ws/hands/monitor")
             ws = await client.ws_connect("/ws/hands")
             last = None

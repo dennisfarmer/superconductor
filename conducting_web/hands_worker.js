@@ -11,11 +11,15 @@ const sentAt = new Map();  // seq -> performance.now() when sent
 const stats = { delay: 0, detectMs: 0, sent: 0, answered: 0 };
 const smooth = (old, now) => 0.7 * old + 0.3 * now;
 
+// /api/web's paths are relative to this worker, so they follow a gateway prefix (/conduct/)
+const asset = (path) => new URL(path, self.location.href).href;
+
 async function init(config) {
-  const { FilesetResolver, HandLandmarker } = await import(config.bundle_url);
-  const fileset = await FilesetResolver.forVisionTasks(new URL(config.wasm_url, self.location.href).href, true);
+  const { FilesetResolver, HandLandmarker } = await import(asset(config.bundle_url));
+  const fileset = await FilesetResolver.forVisionTasks(asset(config.wasm_url), true);
+  const modelUrl = asset(config.model_url);
   const options = (d) => ({
-    baseOptions: { modelAssetPath: config.model_url, delegate: d },
+    baseOptions: { modelAssetPath: modelUrl, delegate: d },
     runningMode: "VIDEO",
     numHands: 2,
     ...(d === "GPU" ? { canvas: new OffscreenCanvas(1, 1) } : {}),

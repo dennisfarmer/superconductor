@@ -22,6 +22,10 @@ make client            # camera page http://localhost:8467 (the music plays ther
 make conduct           # conducting page http://localhost:8480 (make conduct-remote: via the :9000 tunnel)
 ```
 
+The client-web container starts this same process. Open it at http://localhost:8080/conduct/
+(the camera needs `http://localhost`). On the machine running the container it is also
+http://127.0.0.1:8480, and `ws://127.0.0.1:8480/ws/hands/monitor` is unchanged.
+
 Both pages can use the same webcam, or two different ones. Frames come straight from the
 camera track (`MediaStreamTrackProcessor`), so both pages keep running in background tabs.
 `make web-deps` downloads `@mediapipe/tasks-vision` and `hand_landmarker.task` into `var/web`,

@@ -68,8 +68,8 @@
 // landmarks up /ws/hands itself, so conducting goes on while this tab is hidden. This
 // page only draws: the hands and trail as soon as they are found, the status lines from
 // the process's answers.
-import { startHands, backgroundCapable } from "/web/hands.js";
-import { drawConducting } from "/web/overlay.js";
+import { startHands, backgroundCapable } from "./web/hands.js";
+import { drawConducting } from "./web/overlay.js";
 
 const STALE_MS = 1000, TRAIL_MS = 1000;
 const $ = id => document.getElementById(id);
@@ -81,7 +81,7 @@ let config = {}, stream = null, hands = null, handsState = "off";  // "starting"
 let frame = null, reply = null, replyAt = 0, busy = false;
 const trail = [];  // {t, x, y}: the middle fingertip (landmark 12) of the first hand
 
-config = await fetch("/api/web").then(r => r.json()).catch(() => ({}));
+config = await fetch(new URL("api/web", location.href)).then(r => r.json()).catch(() => ({}));
 if (config.server_url) {
   const a = document.createElement("a");
   a.href = config.server_url.replace(/\/$/, "") + "/tempo";
@@ -93,7 +93,7 @@ if (config.server_url) {
 
 async function initHands() {
   handsState = "starting";
-  hands = startHands(config, wsUrl("/ws/hands"));
+  hands = startHands(config, wsUrl("ws/hands"));
   hands.onSocket = open => { stats.socket = open; };
   hands.onResult = r => {
     frame = r;

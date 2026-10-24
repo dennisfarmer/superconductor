@@ -10,7 +10,9 @@ the camera, MediaPipe and the preview moved into the browser (app.html):
                                 here -> page: {"type": "conduct", "seq", ...} per frame
     WS  /ws/hands/monitor       listen-only (e.g. TouchDesigner): each frame's "hands"
                                 message as the page sent it, plus "conduct": the reply
-    GET /api/web                where the page finds MediaPipe, the model, and the server
+    GET /api/web                where the page finds MediaPipe, the model, and the server.
+                                Those asset paths are relative to /web/hands_worker.js, so the
+                                page also works under a prefix (the container gateway: /conduct/)
     GET /api/stats              frames received, fps, age of the last frame, latencies
 
 Each frame goes through Wenjue's code unchanged: StopGestureDetector (stop_gesture.py),
@@ -186,9 +188,11 @@ class ConductingServer:
         return web.FileResponse(HERE / "app.html")
 
     async def _web_config(self, request):
-        return web.json_response({"bundle_url": "/web/mediapipe/vision_bundle.mjs",
-                                  "wasm_url": "/web/mediapipe/wasm",
-                                  "model_url": "/web/models/hand_landmarker.task",
+        # relative to /web/hands_worker.js, not to the page: the worker resolves them.
+        # A leading slash would ignore a gateway prefix such as /conduct/.
+        return web.json_response({"bundle_url": "mediapipe/vision_bundle.mjs",
+                                  "wasm_url": "mediapipe/wasm",
+                                  "model_url": "models/hand_landmarker.task",
                                   "server_url": self.server_url})
 
     async def _stats(self, request):
@@ -278,6 +282,9 @@ def main(argv=None):
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--server-url", default="http://localhost:9100",
                         help="MRT2 server; http://localhost:9000 through the Lighthouse tunnel")
+    parser.add_argument("--page-server-url", default=None,
+                        help="music-server URL the page links to (default: --server-url). "
+                             "The container passes the gateway here; tempo is still POSTed to --server-url")
     parser.add_argument("--tempo-window", type=float, default=5.0,
                         help="Cycle history in seconds, at least 2 (default: 5)")
     args = parser.parse_args(argv)
@@ -287,7 +294,8 @@ def main(argv=None):
         print(f"{WEB_DIR / 'mediapipe'} is missing: run make web-deps", file=sys.stderr)
     player = TimedTempoPlayer(args.server_url)
     with player:
-        server = ConductingServer(player, args.server_url, args.tempo_window)
+        # server_url on the page is only the link; the player already has where to POST
+        server = ConductingServer(player, args.page_server_url or args.server_url, args.tempo_window)
         print(f"Conducting page: http://{args.host}:{args.port}  (tempo to {args.server_url})", flush=True)
         web.run_app(server.app(), host=args.host, port=args.port, print=None, access_log=None)
     print(summary("POST /tempo/*", player.post_log))
