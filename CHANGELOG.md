@@ -9,6 +9,8 @@ The release list keeps every version's commits. GHCR keeps those two images and 
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-24
+
 - Playback (`/stream/playback`) and input (`/stream/input`) are separate websockets. One player on playback; the client steers generation on input.
 - The release image is `server_container/Dockerfile`. macOS setup uses `environment_macbook.yml`; lh2300 uses `requirements_lighthouse.txt`. Checkpoints stay on scratch (`MAGENTA_HOME`).
 - `make sif` pulls the latest release image. `make sif-dev` pulls the dev image pushed with `make image-push`.
