@@ -2,7 +2,7 @@
 
 Releases are cut from the `client` branch: **Actions** → **release** → **Run workflow**. That tags the current `client` and `server` commits and publishes
 
-- `ghcr.io/dennisfarmer/superconductor:client`
+- `ghcr.io/dennisfarmer/superconductor_client:client`
 - `ghcr.io/dennisfarmer/superconductor_server:server`
 
 The release list keeps every version's commits. GHCR keeps those two images and the two dev images (`:client-dev`, `:server-dev`). Write notes for the next release under Unreleased, on this branch and on `client`. After it ships, move those bullets under a version heading.
@@ -24,9 +24,9 @@ The release is `vX.Y.Z` (next patch, or minor/major if chosen on the button; the
 
 | Image | Tag | Published by | Pull |
 |---|---|---|---|
-| Client release | `ghcr.io/dennisfarmer/superconductor:client` | the release button | `make sif` in the client checkout, and `make client-singularity` when `superconductor_client.sif` is absent |
+| Client release | `ghcr.io/dennisfarmer/superconductor_client:client` | the release button | `make sif` in the client checkout, and `make client-singularity` when `superconductor_client.sif` is absent |
 | Server release | `ghcr.io/dennisfarmer/superconductor_server:server` | the same button | `make sif`, and `make server-singularity` when `superconductor_server.sif` is absent |
-| Client dev | `ghcr.io/dennisfarmer/superconductor:client-dev` | `make image-push` in the client checkout | `make sif-dev` there, and `make client-singularity-dev` when `superconductor_client-dev.sif` is absent |
+| Client dev | `ghcr.io/dennisfarmer/superconductor_client:client-dev` | `make image-push` in the client checkout | `make sif-dev` there, and `make client-singularity-dev` when `superconductor_client-dev.sif` is absent |
 | Server dev | `ghcr.io/dennisfarmer/superconductor_server:server-dev` | `make image-push` here | `make sif-dev`, and `make server-singularity-dev` when `superconductor_server-dev.sif` is absent |
 
 `make image` and `make image-push` publish the dev tag. `make sif` and `make sif-dev` always pull (`singularity pull --force`), which is how a `.sif` already on disk picks up a newer tag. The run targets pull only when their `.sif` is absent, and they do not run `make setup`.
