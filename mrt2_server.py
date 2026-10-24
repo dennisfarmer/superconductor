@@ -16,29 +16,46 @@ Why there is no scheduler / fork logic any more:
   * Buffered client audio is never dropped: the model state has already moved
     past it, so dropping it would be an audible jump.
 
-Flow control is credit-based: the client's `StartSession` grants N blocks, and
-every `ReceivedChunk` (sent when the client finishes playing a block) grants one
-more. The client's sound card paces generation, and the lead (~control latency)
-is N blocks.
+Flow control is credit-based. The playback socket's `Credits` grants N blocks,
+and every `ReceivedChunk` (sent when that player finishes a block) grants one
+more. The player paces generation, and the lead (~control latency) is N blocks.
+Nothing is generated until a playback socket is attached, a lead has been
+granted, and a recipe has been set. A new recipe, controls or pattern applies
+to the next block; blocks already sent still play out.
 
-Websocket protocol (`GET /stream`, one client at a time):
-  client -> server, JSON text frames {"type": ..., "body": ...}:
-    StartSession    {recipe?, controls?, credits}
-    UpdateRecipe    {recipe}                        e.g. {"jazz": 0.6, "flute": 0.3}
-    UpdateControls  {temperature?, top_k?, cfg_scales?: {musiccoca?, notes?, drums?}}   below
-    ReceivedChunk   null                            one more block of credit
-    Pause           null                            stop generating (session and state kept)
-    Resume          null                            continue from where it paused
-    Pattern         {notes?, drums?, id?}               NOTES / DRUMS input, below
-    EndSession      null
-  server -> client:
-    JSON text  {"type": "Ready", "body": {model, backend, sample_rate, frames_per_block, host}}
-    JSON text  {"type": "Stats", "body": {rtf, gen_ms_per_frame}}   (about once a second)
-    JSON text  {"type": "Error", "body": {error}}   a message was rejected (e.g. a bad Pattern)
-    binary     [uint32 LE seq][float32 LE samples, row-major (num_samples, 2)]
+Websocket protocol, JSON text frames {"type": ..., "body": ...} unless noted:
 
-Controls (UpdateControls, also StartSession's `controls`): MRT2's own generate()
-arguments, under MRT2's own names, used from the next block on:
+  GET /stream/playback   the player. One at a time; a second is closed with
+                         "Session already active".
+    player -> server:
+      Credits        {"credits": N}    once per connection: set the lead
+      ReceivedChunk  null              one more block of credit
+    server -> player:
+      Ready   {"type": "Ready", "body": {model, backend, sample_rate, frames_per_block, host}}
+      Stats   {"type": "Stats", "body": {rtf, gen_ms_per_frame}}   about once a second
+      Error   {"type": "Error", "body": {error}}
+      binary  [uint32 LE seq][float32 LE samples, row-major (num_samples, 2)]
+    UpdateRecipe, UpdateControls, Pattern, Pause, Resume and EndSession on this
+    socket get an Error and change nothing.
+    When the playback socket closes, generation stops and the lead is cleared.
+    The recipe, controls, pattern and model state stay, and the block sequence
+    keeps climbing. The next playback socket continues from there.
+
+  GET /stream/input   the client that steers generation.
+    client -> server:
+      UpdateRecipe    {recipe}                        e.g. {"jazz": 0.6, "flute": 0.3}
+      UpdateControls  {temperature?, top_k?, cfg_scales?: {musiccoca?, notes?, drums?}}   below
+      Pattern         {notes?, drums?, id?}           NOTES / DRUMS input, below
+      Pause           null                            stop generating (session and state kept)
+      Resume          null                            continue from where it paused
+      EndSession      null                            reset state and close playback
+    server -> client:
+      Ready and Error, as on the playback socket.
+    Credits and ReceivedChunk on this socket get an Error and do not add credit.
+    The input socket closing does not stop playback.
+
+Controls (UpdateControls): MRT2's own generate() arguments, under MRT2's own
+names, used from the next block on:
   temperature   sampling temperature (model default 1.3)
   top_k         top-k sampling threshold (model default 40)
   cfg_scales    classifier-free guidance per conditioning input, -1 to 7
@@ -103,8 +120,6 @@ from tempo import TempoController
 SAMPLE_RATE = 48000
 CHANNELS = 2
 FRAME_SAMPLES = 1920  # one MRT2 frame = 40ms @ 48kHz
-DEFAULT_RECIPE = {"jazz": 1.0}
-
 MODELS = ["mrt2_small", "mrt2_base"]
 PAGES = Path(__file__).parent / "pages"
 
@@ -328,18 +343,21 @@ class Generator:
                     msg = self.control_q.get(timeout=0.5) if idle else self.control_q.get_nowait()
                     idle = False  # drain the rest without blocking
                     kind = msg["type"]
-                    if kind == "start":
-                        emit, state, seq, paused = msg["emit"], None, 0, False
-                        notes, drums = Lane(), Lane()
-                        self.tempo.reset()
+                    if kind == "attach":
+                        emit = msg["emit"]
+                    elif kind == "grant":
                         credits = msg["credits"]
-                        controls = merge_controls({}, msg["controls"])
-                        style = _blend_styles(self._embed, self._cache, msg["recipe"])
-                        recipe, pattern_id = msg["recipe"], None
+                    elif kind == "detach":
+                        if emit is msg["emit"]:  # a newer playback may already be attached
+                            emit = None
+                            credits = 0
                     elif kind == "end":
                         emit, state, credits, paused = None, None, 0, False
                         notes, drums = Lane(), Lane()
+                        style, controls = None, {}
                         recipe, pattern_id = None, None
+                        seq = 0
+                        self.tempo.reset()
                     elif kind == "pattern":
                         # lanes were validated and expanded by the websocket handler
                         for name, lane in (("notes", notes), ("drums", drums)):
@@ -353,8 +371,9 @@ class Generator:
                     elif kind == "controls":
                         controls = merge_controls(controls, msg["controls"])
                     elif kind == "credit":
-                        credits += 1
-                        self.tempo.played(msg["t"])
+                        if emit is not None:
+                            credits += 1
+                            self.tempo.played(msg["t"])
                     elif kind == "pause":
                         # the state is kept, so Resume continues the music; credits keep
                         # coming in while the client plays out its buffer, so Resume
@@ -421,16 +440,17 @@ class Generator:
 
 
 class MRT2Server:
-    """Single-session websocket front-end for a `Generator`."""
+    """Websocket front-end for a `Generator`: playback on one socket, input on another."""
 
     def __init__(self, generator, ready_info, port):
         self._generator = generator
         self._ready_info = ready_info
         self._port = port
-        self._session_ws = None
-        self._session_lock = asyncio.Lock()
+        self._playback_ws = None
+        self._playback_lock = asyncio.Lock()
         self._app = web.Application()
-        self._app.router.add_get("/stream", self._handle_ws)
+        self._app.router.add_get("/stream/playback", self._handle_playback)
+        self._app.router.add_get("/stream/input", self._handle_input)
         self._app.router.add_get("/tempo", self._page("tempo.html"))
         self._app.router.add_get("/conduct", self._page("conduct.html"))
         self._app.router.add_post("/tempo/beat", self._beat)
@@ -499,18 +519,58 @@ class MRT2Server:
             print(f"Pattern {body['id']}: {', '.join(lanes) or 'nothing'}")
         return {"type": "pattern", "lanes": lanes, "id": body.get("id")}
 
-    async def _handle_ws(self, request):
+    @staticmethod
+    async def _send_error(ws, error):
+        if not ws.closed:
+            await ws.send_str(json.dumps({"type": "Error", "body": {"error": error}}))
+
+    async def _send_ready(self, ws):
+        await ws.send_str(json.dumps({"type": "Ready", "body": self._ready_info}))
+
+    async def _close_playback(self):
+        async with self._playback_lock:
+            ws = self._playback_ws
+        if ws is not None and not ws.closed:
+            await ws.close()
+
+    @staticmethod
+    def _parse_credits(body):
+        n = body.get("credits") if isinstance(body, dict) else None
+        if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+            raise ValueError("credits must be a positive integer")
+        return n
+
+    async def _messages(self, ws, client_id):
+        async for msg in ws:
+            if msg.type != web.WSMsgType.TEXT:
+                if msg.type == web.WSMsgType.ERROR:
+                    print(f"WS error from {client_id}: {ws.exception()}")
+                    return
+                if msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSING, web.WSMsgType.CLOSED):
+                    return
+                continue
+            try:
+                data = json.loads(msg.data)
+            except json.JSONDecodeError:
+                print(f"WS bad json: {msg.data!r}")
+                continue
+            if not isinstance(data, dict):
+                await self._send_error(ws, "message must be an object")
+                continue
+            yield data
+
+    async def _handle_playback(self, request):
         ws = web.WebSocketResponse(compress=False)  # float audio doesn't compress
         await ws.prepare(request)
 
-        async with self._session_lock:
-            if self._session_ws is not None and not self._session_ws.closed:
+        async with self._playback_lock:
+            if self._playback_ws is not None and not self._playback_ws.closed:
                 await ws.close(message=b"Session already active")
                 return ws
-            self._session_ws = ws
+            self._playback_ws = ws
 
         client_id = f"{request.remote}"
-        print(f"WS connected: {client_id}")
+        print(f"playback connected: {client_id}")
 
         # The generator thread hands frames to this queue; one sender task keeps
         # them in order.
@@ -531,34 +591,56 @@ class MRT2Server:
                     await ws.send_str(frame)
 
         send_task = asyncio.create_task(sender())
-        await ws.send_str(json.dumps({"type": "Ready", "body": self._ready_info}))
-
+        self._post({"type": "attach", "emit": emit})
+        granted = False
         try:
-            async for msg in ws:
-                if msg.type != web.WSMsgType.TEXT:
-                    if msg.type == web.WSMsgType.ERROR:
-                        print(f"WS error from {client_id}: {ws.exception()}")
-                        break
-                    continue
-                try:
-                    data = json.loads(msg.data)
-                except json.JSONDecodeError:
-                    print(f"WS bad json: {msg.data!r}")
-                    continue
-
+            await self._send_ready(ws)
+            async for data in self._messages(ws, client_id):
                 msg_type = data.get("type")
                 body = data.get("body") or {}
-
-                if msg_type == "StartSession":
+                if msg_type == "Credits":
+                    if granted:
+                        await self._send_error(ws, "Credits already granted")
+                        continue
                     try:
-                        controls = parse_controls(body.get("controls") or {})
-                    except (ValueError, TypeError) as e:
-                        controls = {}
-                        await ws.send_str(json.dumps({"type": "Error", "body": {"error": f"StartSession controls: {e}"}}))
-                    self._post({"type": "start", "emit": emit,
-                                "recipe": body.get("recipe") or DEFAULT_RECIPE,
-                                "controls": controls,
-                                "credits": int(body.get("credits", 3))})
+                        credits = self._parse_credits(body)
+                    except ValueError as e:
+                        await self._send_error(ws, str(e))
+                        continue
+                    granted = True
+                    self._post({"type": "grant", "credits": credits})
+                elif msg_type == "ReceivedChunk":
+                    if not granted:
+                        await self._send_error(ws, "ReceivedChunk before Credits")
+                        continue
+                    self._post({"type": "credit", "t": time.time()})  # when the block was played
+                elif msg_type in ("UpdateRecipe", "UpdateControls", "Pattern", "Pause", "Resume", "EndSession"):
+                    await self._send_error(ws, f"{msg_type} is not accepted on /stream/playback")
+                else:
+                    print(f"playback unknown message type: {msg_type}")
+        finally:
+            self._post({"type": "detach", "emit": emit})
+            send_task.cancel()
+            async with self._playback_lock:
+                if self._playback_ws is ws:
+                    self._playback_ws = None
+            if not ws.closed:
+                await ws.close()
+            print(f"playback disconnected: {client_id}")
+        return ws
+
+    async def _handle_input(self, request):
+        ws = web.WebSocketResponse(compress=False)
+        await ws.prepare(request)
+        client_id = f"{request.remote}"
+        print(f"input connected: {client_id}")
+        try:
+            await self._send_ready(ws)
+            async for data in self._messages(ws, client_id):
+                msg_type = data.get("type")
+                body = data.get("body") or {}
+                if msg_type in ("Credits", "ReceivedChunk"):
+                    await self._send_error(ws, f"{msg_type} is not accepted on /stream/input")
                 elif msg_type == "UpdateRecipe":
                     if body.get("recipe"):
                         self._post({"type": "recipe", "recipe": dict(body["recipe"])})
@@ -567,9 +649,7 @@ class MRT2Server:
                         self._post({"type": "controls", "controls": parse_controls(body)})
                     except (ValueError, TypeError) as e:
                         print(f"WS bad UpdateControls: {e}")
-                        await ws.send_str(json.dumps({"type": "Error", "body": {"error": f"UpdateControls: {e}"}}))
-                elif msg_type == "ReceivedChunk":
-                    self._post({"type": "credit", "t": time.time()})  # when the block was played
+                        await self._send_error(ws, f"UpdateControls: {e}")
                 elif msg_type in ("Pause", "Resume"):
                     self._post({"type": "pause", "paused": msg_type == "Pause"})
                 elif msg_type == "Pattern":
@@ -577,21 +657,16 @@ class MRT2Server:
                         self._post(self._parse_pattern(data.get("body")))
                     except (ValueError, TypeError, AttributeError) as e:
                         print(f"WS bad Pattern: {e}")
-                        await ws.send_str(json.dumps({"type": "Error", "body": {"error": f"Pattern: {e}"}}))
+                        await self._send_error(ws, f"Pattern: {e}")
                 elif msg_type == "EndSession":
-                    break
+                    self._post({"type": "end"})
+                    await self._close_playback()
                 else:
-                    print(f"WS unknown message type: {msg_type}")
+                    print(f"input unknown message type: {msg_type}")
         finally:
-            self._post({"type": "end"})
-            send_task.cancel()
-            async with self._session_lock:
-                if self._session_ws is ws:
-                    self._session_ws = None
             if not ws.closed:
                 await ws.close()
-            print(f"WS disconnected: {client_id}")
-
+            print(f"input disconnected: {client_id}")
         return ws
 
 

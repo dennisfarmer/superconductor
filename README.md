@@ -2,40 +2,41 @@
 
 ### Setup
 
-`environment.yml` is a verbatim copy of `superconductor_client/environment.yml`.
+`environment_macbook.yml` is a verbatim copy of `superconductor_client/environment.yml`.
 
-- **Mac (MLX):** `make env` builds the `sc_env` conda env (the same one the client uses), then `make models` downloads `mrt2_small` (`make models MODEL=mrt2_base` for base).
-- **Lighthouse (JAX):** in a Python 3.12 venv (create it once; activate it in every new terminal):
-    ```
-    cd /scratch/aimusic_project_root/aimusic_project/shared_data
-    git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
-    cd superconductor_server
-    python3.12 -m venv .venv
-    source .venv/bin/activate
-    pip install "magenta-rt[jax]==2.0.3" "jax[cuda12]" aiohttp
-    ```
-    - use `jax[cuda12]`, not cuda13: CUDA 13 dropped Volta (V100) support
-    - download the weights: `make models` (base model)
-    - or `make models MODEL=mrt2_small` (small model)
-    - V100: watch `gen_ms_per_frame` in the `Stats` messages, check if <40ms/frame
+Testing on either machine is `git pull` and `make server`. `make server` runs `make setup` when the environment is missing or `environment_macbook.yml` / `requirements_lighthouse.txt` has changed. That check is a few file tests when `.cache/setup-stamp` still matches. `make setup` creates the environment if it is missing (the `sc_env` conda env on macOS, a Python 3.12 `.venv` from `requirements_lighthouse.txt` on lh2300) and downloads weights. macOS gets `mrt2_small` only. lh2300 gets the JAX checkpoints for `mrt2_base` and `mrt2_small`. Files already on disk are left alone. `make env` updates the macOS conda env from `environment_macbook.yml` when that file changes.
+
+```bash
+cd /scratch/aimusic_project_root/aimusic_project/shared_data
+git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
+cd superconductor_server
+git pull && make server
+```
+
+`requirements_lighthouse.txt` installs `magenta-rt[jax]==2.0.3` with `jax[cuda12]`. CUDA 13 dropped Volta (V100). On a V100, watch `gen_ms_per_frame` in the `Stats` messages and check that it stays under 40 ms/frame.
+
+### Image
+
+The release image is `ghcr.io/dennisfarmer/superconductor_server:server`. It is published with the client image by **Actions** → **release** on the `client` branch. On lh2300, `make server-singularity` runs it and pulls it when `superconductor_server.sif` is absent. `make sif` pulls again after a new release. Checkpoints stay on scratch (`MAGENTA_HOME`). The image run does not run `make setup`.
+
+`make image-push` on a laptop publishes the dev image, `:server-dev`. On lh2300, `make sif-dev` pulls it and `make server-singularity-dev` runs it. Notes for the next release go under `## [Unreleased]` in `CHANGELOG.md`.
 
 ### Startup Sequence
 
-- locally: `make server` (from here or from `superconductor_client`), leave it running, then (with Ollama running) `make describe` and `make client` in `superconductor_client`
+- on the Macbook Pro: `make server` (from here or from `superconductor_client`), leave it running, then `make client` in `superconductor_client`. `make client` starts Ollama if one is not already running.
 - on Lighthouse:
-    - activate the venv, then `make server` (base model)
+    - `make server` (base model; uses `.venv` from `make setup`)
     - or `make server MODEL=mrt2_small` (small model)
     - on the laptop, start the ssh tunnel: `ssh -N -L 9000:lh2300:9100 UNIQNAME@lighthouse.arc-ts.umich.edu`
-    - the describe server still runs on the laptop: with Ollama running, `make describe` in `superconductor_client` (see `superconductor_describe/README.md`)
-    - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9000/stream`)
+    - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9000/stream/input`). That starts describe on the laptop, and Ollama if one is not already running.
 
 Other flags: `make server PORT=... ARGS="--frames_per_block 5"`, or `python mrt2_server.py --help`.
 
-### What it sends to the client
+### What playback receives
 
-MRT2 state stays in the server process. The client receives:
+MRT2 state stays in the server process. `GET /stream/playback` receives:
 
-- one `Ready` JSON text frame after the model has loaded: `{"type": "Ready", "body": {"model", "backend", "sample_rate", "frames_per_block", "host"}}`
+- one `Ready` JSON text frame when it connects: `{"type": "Ready", "body": {"model", "backend", "sample_rate", "frames_per_block", "host"}}`
 - a `Stats` JSON text frame about once a second: `{"type": "Stats", "body": {"rtf", "gen_ms_per_frame"}}` (`rtf` > 1 means generating faster than real time)
 - audio as binary frames, one per block (`frames_per_block` × 40ms, default 5 = 200ms, 48kHz stereo):
 
@@ -43,23 +44,36 @@ MRT2 state stays in the server process. The client receives:
 [4 bytes: uint32 LE block sequence number][rest: float32 LE samples, row-major (num_samples, 2)]
 ```
 
+The input socket (`GET /stream/input`) gets `Ready` when it connects, and `Error` when a message is rejected. Audio and `Stats` are not sent there.
+
 ### Websocket protocol
 
-The client opens a websocket at `GET /stream` (one client at a time; a second one is closed with "Session already active"). Flow control is credit-based: the server only generates while it has credits, so the client's sound card paces generation. All client → server messages are JSON text frames `{"type": ..., "body": ...}`:
+Two sockets. Playback is one connection at a time; a second is closed with "Session already active". The client sends recipe, controls and pattern on the input socket. Generation waits until playback is attached, playback has granted a lead, and a recipe has been set. The lead is that many blocks; a new recipe, controls or pattern applies on the next block, and blocks already sent still play.
+
+**`GET /stream/playback`** — the player.
+
+| `type`           | `body`                 | Effect |
+|------------------|------------------------|--------|
+| `Credits`        | `{"credits": N}`       | Once per connection: set how many blocks may be in flight. |
+| `ReceivedChunk`  | `null`                 | One more block of credit, sent when a block has been played. |
+
+`UpdateRecipe`, `UpdateControls`, `Pattern`, `Pause`, `Resume` and `EndSession` on this socket get an `Error` and change nothing. When playback disconnects, generation stops and the lead is cleared. The recipe, controls, pattern and model state stay, and the block sequence keeps climbing; the next playback connection continues from there.
+
+**`GET /stream/input`** — the client.
 
 | `type`           | `body`                                              | Effect |
 |------------------|-----------------------------------------------------|--------|
-| `StartSession`   | `{"recipe"?: {...}, "controls"?: {...}, "credits": int}` | Reset the state and start generating, with `credits` blocks in flight (default recipe `{"jazz": 1.0}`). |
 | `UpdateRecipe`   | `{"recipe": {"jazz": 0.6, "flute": 0.3}}`           | Weighted blend of the prompts' MusicCoCa embeddings (cached), used from the next block on. |
 | `UpdateControls` | `{"temperature"?: float, "top_k"?: int, "cfg_scales"?: {"musiccoca"?, "notes"?, "drums"?}}` | MRT2's `generate()` arguments under their own names (see Controls below), used from the next block on. |
-| `ReceivedChunk`  | `null`                                              | One more block of credit (sent when the client finishes playing a block). |
-| `Pause` / `Resume` | `null`                                            | Stop generating (session and state kept) / continue. |
 | `Pattern`        | `{"notes"?: lane, "drums"?: lane, "id"?}`          | MRT2's per-frame NOTES / DRUMS input (see below). |
-| `EndSession`     | `null`                                              | Stop generating and close the session. |
+| `Pause` / `Resume` | `null`                                            | Stop generating (session and state kept) / continue. |
+| `EndSession`     | `null`                                              | Reset the model state, recipe, controls, pattern, lead and block sequence, and close playback if it is open. |
+
+`Credits` and `ReceivedChunk` on this socket get an `Error` and do not add credit. The input socket closing does not stop playback.
 
 ### Controls (`UpdateControls`)
 
-Everything that steers sampling goes through `UpdateControls` (and `StartSession`'s `controls`), named as MRT2's `generate(conditioning, cfg_scales, temperature, top_k, ...)` names them. A message changes only the keys it carries; `null` puts a key back to the model default. A bad message gets an `Error` reply and changes nothing.
+Everything that steers sampling goes through `UpdateControls`, named as MRT2's `generate(conditioning, cfg_scales, temperature, top_k, ...)` names them. A message changes only the keys it carries; `null` puts a key back to the model default. A bad message gets an `Error` reply and changes nothing.
 
 | Key | Range | Model default | What it does |
 |---|---|---|---|
@@ -110,4 +124,4 @@ To light a beat in time: `anchor = now + latency - beat_frac * 60 / heard_bpm` i
 
 Besides the style, MRT2 takes two inputs every 40 ms frame: NOTES (128 MIDI-pitch slots: -1 model chooses, 0 off, 1 held, 2 onset, 3 on) and DRUMS (one slot: -1 model chooses, 0 no hit, 1 hit). A `Pattern` sets either lane as run-length steps, looped or played once, from the next generated frame. With no pattern every slot is -1, as before. If a pattern is rejected, the server replies `{"type": "Error", "body": {"error": ...}}` and keeps generating.
 
-Note sources don't talk to the server directly: they POST to the client's client_midi (port 8470), which forwards over this websocket. The full format, with a MIDI-file converter, is in [`superconductor_client/MIDI_MSG_PROTOCOL.md`](../superconductor_client/MIDI_MSG_PROTOCOL.md); the reference implementation is `expand_lane` / `Lane` in `mrt2_server.py`.
+`Pattern` is a message on the input websocket. Note sources POST to the client's client_midi (port 8470). The full format, with a MIDI-file converter, is in [`superconductor_client/MIDI_MSG_PROTOCOL.md`](../superconductor_client/MIDI_MSG_PROTOCOL.md); the reference implementation is `expand_lane` / `Lane` in `mrt2_server.py`.
