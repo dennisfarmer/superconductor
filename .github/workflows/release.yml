@@ -130,26 +130,30 @@ jobs:
 
           client_image = "ghcr.io/dennisfarmer/superconductor:client"
           server_image = "ghcr.io/dennisfarmer/superconductor_server:server"
-          notes = f"""The git tag `{tag}` points at the client commit. The server commit is the one named here.
-
-- client `{client_sha}`
-- server `{server_sha}`
-- atlas `{atlas_sha}` (baked into the client image)
-
-Images this release publishes:
-
-- `{client_image}`
-- `{server_image}`
-
-The next release moves those two tags. This release keeps the commits above.
-Dev images (`:client-dev`, `:server-dev`) come from `make image-push` on a laptop.
-
-## Client
-
-{client_notes}
-## Server
-
-{server_notes}"""
+          # Every line stays indented. A line at column 0 would end the YAML block.
+          notes = "\n".join([
+              f"The git tag `{tag}` points at the client commit. The server commit is the one named here.",
+              "",
+              f"- client `{client_sha}`",
+              f"- server `{server_sha}`",
+              f"- atlas `{atlas_sha}` (baked into the client image)",
+              "",
+              "Images this release publishes:",
+              "",
+              f"- `{client_image}`",
+              f"- `{server_image}`",
+              "",
+              "The next release moves those two tags. This release keeps the commits above.",
+              "Dev images (`:client-dev`, `:server-dev`) come from `make image-push` on a laptop.",
+              "",
+              "## Client",
+              "",
+              client_notes.rstrip("\n"),
+              "## Server",
+              "",
+              server_notes.rstrip("\n"),
+              "",
+          ])
           pathlib.Path("notes.md").write_text(notes)
           pathlib.Path("release.json").write_text(json.dumps({
               "tag": tag,
