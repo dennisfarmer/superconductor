@@ -1,0 +1,107 @@
+# SuperConductor collaborative mode, in the container (client_container/entrypoint.sh runs
+# sc-tracking --config this file). Same as collab.toml except:
+# - web mode: camera, view and sound are in the browser, through the gateway on :8080
+# - YOLO / DINOv2 on cuda (the entrypoint switches to cpu without a GPU)
+# - everything written goes under /data (the volume / bind mount); the client runs in
+#   /opt/models, where the image keeps the YOLOE weights
+
+[music]
+# The model is chosen when starting the server: `make server` (mrt2_small), or
+# mrt2_base on the cluster (--remote; see superconductor_server/README.md).
+server_url = "ws://localhost:9100/stream"
+base_prompt = "ambient electronic"
+base_weight = 0.3             # style weight that is always present
+credits = 3                   # blocks the server stays ahead of playback (~latency: 3 x 200ms)
+update_interval = 0.25        # seconds between recipe / control updates
+midi_port = 8470              # client_midi: other programs (e.g. SuperConductor Atlas) POST NOTES / DRUMS
+                              # patterns here, forwarded to the server (0 = off)
+
+[tracking]
+# "unsupervised": every object gets a permanent id when it first appears and is
+#   cached in the library, so it is recognized again later (also after a restart).
+#   Name it and set its instrument on the objects page (http://localhost:8467/objects).
+# "calibration": "touch the <label>" for each [assign] label at startup (see the end
+#   of this file); only those are tracked.
+mode = "unsupervised"
+# Class-agnostic by default: a generic YOLOE prompt only has to *find* objects;
+# each object's identity comes from its appearance (see object_tracking/identity.py).
+# Specific prompts also work ("green plush toy"), and yoloe-11l-seg.pt is more
+# accurate but ~3x slower (competes with MRT2 for the GPU).
+# Add "hand" to classes to let hands claim parameters too.
+model = "yoloe-11s-seg.pt"
+classes = ["stuffed toy", "toy", "hand"]   # "hand" detections: calibration and "held" triggers
+conf = 0.1                    # YOLOE's detection threshold; BoT-SORT starts tracks at new_track_thresh (botsort_superconductor.yaml)
+imgsz = 480
+device = "cuda"               # MRT2 runs elsewhere, so the GPU is free for vision
+# identities (and a crop image of each) persist here across sessions; set "label"
+# in identities.json to name an object, then link the label to a parameter in [assign]
+identity_dir = "/data/client/var/identities"   # calibration mode only
+# appearance model used to recognize each object when it first appears or comes
+# back (and to re-check it about once a second): DINOv2 ViT-S/14, ~5.5 ms per crop
+# on mps, at most embeds_per_frame crops per frame. "yolo11n-cls.pt" (embed_imgsz
+# 128) is the older, weaker option. Remove to use color histograms only.
+embedder = "dinov2_vits14"
+embed_imgsz = 224
+embed_device = "cuda"
+embeds_per_frame = 2
+# every object seen: library/<id>/ (object.json with name, description and
+# instrument; views/*.jpg; embeddings.npy). Edit them on the objects page.
+library_dir = "/data/client/library"
+
+[identity]
+# score = cosine similarity of DINOv2 embeddings to an object's saved views (0..1)
+match_threshold = 0.55        # a reappearing object is re-attached to a known one above this
+new_threshold = 0.45          # ... and becomes a new object below this (ambiguous in between)
+min_hits = 8                  # frames of evidence before deciding who a new track is
+max_hits = 45                 # ambiguous tracks are decided anyway after this many frames
+coast_seconds = 1.0           # a vanished object keeps its last box this long...
+coast_near = 0.06             # ...or as long as it is this close to a detected object (objects together)
+# reference views each object keeps (see and delete them, or freeze learning, by clicking
+# an object's picture on the objects page)
+gallery_size = 12             # views kept per object; over this, the most redundant one is dropped
+novelty = 0.85                # a view is learned only if it is less similar than this to every kept view...
+learn_threshold = 0.65        # ...and at least this similar to the closest one (else: likely another object)
+
+[describe]
+# describe server (superconductor_client/describe/, `make describe`): a Qwen VLM writes a
+# one-time description of each new object and suggests an instrument from it
+server_url = "http://localhost:9200"
+
+[web]
+port = 8467                   # the app's pages, reached through the gateway: http://localhost:8080/
+detection = "auto"            # where YOLOE + BoT-SORT run: "auto" (the browser if it has WebGPU, else
+                              # this process), "browser" or "container" (this process)
+web_dir = "/data/web"         # the browser detector's files; the entrypoint copies the image's /opt/web here
+host = "127.0.0.1"            # only the gateway (Caddy) is exposed
+audio_url = "/audio"          # the camera page's player: the gateway sends /audio to client_midi (8470)
+# where the browser reaches each service (links on the camera page and the Services tab);
+# the entrypoint replaces 8080 with SC_GATEWAY_PORT
+[web.public_urls]
+objects = "http://localhost:8080"
+midi_player = "http://midi.localhost:8080"
+describe = "http://describe.localhost:8080"
+server = "http://server.localhost:8080"
+atlas = "http://atlas.localhost:8080"
+atlas_engine = "http://atlas.localhost:8080/engine"
+conduct = "http://localhost:8080/conduct"
+
+[services]
+# other SuperConductor programs, listed (with whether they're up) on the objects page's Services tab
+midi_player_url = "http://localhost:8475"   # superconductor_client/midi/, `make player`
+atlas_url = "http://localhost:8764"         # SuperConductor Atlas (started by the entrypoint)
+atlas_engine_url = "http://localhost:8765"  # its audio engine (control API)
+conduct_url = "http://127.0.0.1:8480"       # MediaPipe conducting (started by the entrypoint)
+
+[mapping]
+reference = [0.5, 0.5]        # normalized, as displayed (mirrored); click in the window to move
+max_distance = 0.6            # distance (fraction of frame) at which influence reaches 0
+smoothing = 0.3
+hold_seconds = 1.5            # keep value while an object is occluded, then fade out
+# release_after = 30.0        # free an object's parameter after this long unseen (default: never)
+
+# Instruments, triggers (near / held / visible) and combos are set per object on
+# the objects page (http://localhost:8467/objects) and saved in /data/client/library. An object
+# without an instrument is silent until the describe server suggests one.
+#
+# Calibration mode only ("touch the ..."): add [[parameters]] (name, kind, prompt)
+# and [assign] (label = "<parameter name>"); the app asks you to touch each label.

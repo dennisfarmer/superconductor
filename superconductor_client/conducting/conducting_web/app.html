@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperConductor — Conducting</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #deded8;
+    --accent: #2f6fdb; --live: #1f9d55; --danger: #c2412d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --card: #20201e; --text: #ececea; --muted: #9a9a94; --line: #34342f;
+      --accent: #6c9cf0; --live: #4cc47f; --danger: #ef7a62;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { padding: 20px 16px 8px; max-width: 1300px; margin: 0 auto;
+           display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  nav { display: flex; gap: 14px; flex-wrap: wrap; font-size: 14px; }
+  a { color: var(--accent); }
+  main { max-width: 1300px; margin: 0 auto; padding: 8px 16px 40px; }
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  button, select { font: inherit; padding: 6px 12px; border-radius: 7px; border: 1px solid var(--line);
+                   background: var(--card); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px;
+           overflow: hidden; }
+  /* the camera shown mirrored, like a mirror; the overlay flips its x to match */
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #status { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .ok { color: var(--live); } .bad { color: var(--danger); }
+  .hint { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SuperConductor — Conducting</h1>
+  <nav id="links"></nav>
+</header>
+<main>
+  <div class="controls">
+    <button id="start" class="primary">Start camera</button>
+    <select id="camera" title="camera" hidden></select>
+    <select id="size" title="camera resolution">
+      <option value="640x360">640 × 360</option>
+      <option value="960x540" selected>960 × 540</option>
+      <option value="1280x720">1280 × 720</option>
+    </select>
+    <span class="hint">Conduct a repeating 4/4 pattern. Keys: F release · R resume. The music plays on the camera page.</span>
+  </div>
+  <div id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div id="status">Press Start: the browser asks for the camera, then your hand movement sets the music's tempo.</div>
+</main>
+
+<script type="module">
+// The browser is the camera and the screen; the conducting process (server.py) turns hand
+// movement into a tempo for the MRT2 server. MediaPipe finds the hands in a Worker
+// (hands.js) reading frames straight from the camera track, which sends each frame's
+// landmarks up /ws/hands itself, so conducting goes on while this tab is hidden. This
+// page only draws: the hands and trail as soon as they are found, the status lines from
+// the process's answers.
+import { startHands, backgroundCapable } from "./web/hands.js";
+import { drawConducting } from "./web/overlay.js";
+
+const STALE_MS = 1000, TRAIL_MS = 1000;
+const $ = id => document.getElementById(id);
+const wsUrl = path => new URL(path, location.href.replace(/^http/, "ws")).href;
+const stats = { results: 0, fps: 0, delay: 0, detectMs: 0, sent: 0, answered: 0, socket: false,
+                delegate: null, lastReplyAt: 0 };
+window.scStats = stats;  // for checking from outside the tab (e.g. that it runs while hidden)
+let config = {}, stream = null, hands = null, handsState = "off";  // "starting" | "ready" | "unavailable: ..."
+let frame = null, reply = null, replyAt = 0, busy = false;
+const trail = [];  // {t, x, y}: the middle fingertip (landmark 12) of the first hand
+
+config = await fetch(new URL("api/web", location.href)).then(r => r.json()).catch(() => ({}));
+if (config.server_url) {
+  const a = document.createElement("a");
+  a.href = config.server_url.replace(/\/$/, "") + "/tempo";
+  a.target = "_blank"; a.rel = "noopener"; a.textContent = "Music server (tempo)";
+  $("links").append(a);
+}
+
+// ---------- hands ----------
+
+async function initHands() {
+  handsState = "starting";
+  hands = startHands(config, wsUrl("ws/hands"));
+  hands.onSocket = open => { stats.socket = open; };
+  hands.onResult = r => {
+    frame = r;
+    stats.results++;
+    Object.assign(stats, r.stats);
+    const hand = r.hands[0];
+    if (hand) trail.push({ t: r.t_ms, x: hand[12].x, y: hand[12].y });
+    else trail.length = 0;
+    while (trail.length && r.t_ms - trail[0].t > TRAIL_MS) trail.shift();
+  };
+  hands.onReply = r => {
+    Object.assign(stats, r.stats);
+    if (r.reply.type !== "conduct") return;
+    reply = r.reply;
+    replyAt = stats.lastReplyAt = performance.now();
+  };
+  const { ok, reason, delegate } = await hands.ready;
+  handsState = ok ? "ready" : `unavailable: ${reason}`;
+  stats.delegate = delegate;
+  if (ok) hands.setTrack(stream.getVideoTracks()[0]);
+}
+
+// ---------- camera ----------
+
+async function openCamera() {
+  const [w, h] = $("size").value.split("x").map(Number);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const deviceId = $("camera").value;
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: w }, height: { ideal: h }, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) },
+    audio: false });
+  $("video").srcObject = stream;
+  await $("video").play();
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  const current = stream.getVideoTracks()[0].getSettings().deviceId;
+  $("camera").innerHTML = cams.map((d, i) =>
+    `<option value="${d.deviceId}" ${d.deviceId === current ? "selected" : ""}>${d.label || "camera " + (i + 1)}</option>`).join("");
+  $("camera").hidden = cams.length < 2;
+  if (handsState === "ready") hands.setTrack(stream.getVideoTracks()[0]);
+}
+
+function cameraError(e) {
+  // NotReadableError: another program holds the camera for itself (some Linux / Windows setups)
+  const busy = e.name === "NotReadableError" ? " (the camera is in use by another program: pick another camera)" : "";
+  $("status").innerHTML = `<span class="bad">camera: ${e.name}: ${e.message}${busy}</span> ` +
+    (window.isSecureContext ? "" : "(the camera needs http://localhost: open this page through the forwarded port)");
+  $("camera").hidden = $("camera").options.length < 2;
+}
+
+// ---------- drawing (and, without MediaStreamTrackProcessor, the frames) ----------
+
+function frameLoop() {
+  // fallback: the page hands the worker the video, one frame at a time (stops while hidden)
+  if (!backgroundCapable && handsState === "ready" && !busy && $("video").videoWidth) {
+    busy = true;
+    createImageBitmap($("video")).then(b => hands.detectBitmap(b)).catch(e => console.warn(e))
+      .finally(() => { busy = false; });
+  }
+  draw();
+  requestAnimationFrame(frameLoop);
+}
+
+function draw() {
+  const c = $("overlay"), r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) {
+    c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+  }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawConducting(g, r.width, r.height, frame, trail, reply, { stale: reply && performance.now() - replyAt > STALE_MS });
+}
+
+document.addEventListener("keydown", e => {
+  if (e.target.closest("select, input, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
+  const key = e.key.toLowerCase();
+  if (["f", "r"].includes(key) && handsState === "ready") {
+    hands.key(key);
+    if (key === "r") trail.length = 0;
+  }
+});
+
+// ---------- start ----------
+
+$("start").onclick = async () => {
+  $("start").disabled = true;
+  try {
+    await openCamera();
+  } catch (e) {
+    cameraError(e);
+    $("start").disabled = false;
+    return;
+  }
+  $("start").hidden = true;
+  initHands();
+  requestAnimationFrame(frameLoop);
+};
+$("camera").onchange = $("size").onchange = () => { if (stream) openCamera().catch(cameraError); };
+
+// the status line, once a second; numbers smoothed like the camera page's
+const ms = v => v == null ? "–" : `${v.toFixed(0)} ms`;
+let lastResults = 0, lastTick = performance.now();
+setInterval(() => {
+  const now = performance.now();
+  stats.fps = 0.5 * stats.fps + 0.5 * (stats.results - lastResults) / ((now - lastTick) / 1000);
+  lastResults = stats.results; lastTick = now;
+  if (!stream) return;
+  const settings = stream.getVideoTracks()[0].getSettings();
+  const conn = stats.socket ? '<span class="ok">● conductor</span>' : '<span class="bad">○ conductor</span>';
+  const where = handsState === "ready" ? `hands here (${stats.delegate}, ${stats.detectMs.toFixed(0)} ms)`
+    : handsState.startsWith("unavailable") ? `<span class="bad">hands ${handsState}</span>` : "hands starting…";
+  const step = reply?.step_ms != null ? ` · conductor ${reply.step_ms.toFixed(1)} ms` : "";
+  let line2 = '<span class="bad">○ server (no answer yet)</span>';
+  if (reply) {
+    const s = reply.server || {};
+    const srv = reply.error ? `<span class="bad">○ server: ${reply.error}</span>` : '<span class="ok">● server</span>';
+    const target = s.target_bpm != null ? `target ${s.target_bpm.toFixed(0)} BPM` : `${s.mode || "?"}`;
+    const heard = s.heard_bpm != null ? ` → heard ${s.heard_bpm.toFixed(0)} BPM` : "";
+    const speed = s.speed != null ? ` (${s.speed.toFixed(2)}x, speed eases ~1.5 s)` : "";
+    const calibrating = s.model_bpm == null ? " · server calibrating (~4 s of music first)" : "";
+    const warmup = reply.warmup > 0 ? ` · tempo estimate in ${reply.warmup.toFixed(0)} s` : "";
+    line2 = `${srv} POST ${ms(reply.post_ms)}, frame→server ${ms(reply.to_server_ms)} · ${target}${heard}${speed}` +
+      `${calibrating}${warmup}`;
+  }
+  const hidden = backgroundCapable ? "" : '<br><span class="bad">this browser pauses tracking while this tab is hidden</span>';
+  $("status").innerHTML = `${conn} ${stats.fps.toFixed(0)} fps (${settings.width}×${settings.height}), ` +
+    `delay ${stats.delay.toFixed(0)} ms · ${where}${step}<br>${line2}${hidden}`;
+}, 1000);
+</script>
+</body>
+</html>

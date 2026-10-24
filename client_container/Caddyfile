@@ -1,0 +1,53 @@
+# The gateway: the one port the browser uses. It only forwards requests (and
+# websockets) to the services, which run on their own ports on 127.0.0.1; which
+# one is chosen by the hostname. Chrome, Edge and Firefox send *.localhost to
+# 127.0.0.1, so these work through `docker run -p 8080:8080` or an SSH tunnel.
+# Placeholders {$...} come from entrypoint.sh.
+{
+	auto_https off
+	admin off
+	default_bind {$SC_GATEWAY_BIND}
+}
+
+# the client: camera page (/), objects page (/objects); /audio is client_midi's player socket
+http://localhost:{$SC_GATEWAY_PORT}, http://127.0.0.1:{$SC_GATEWAY_PORT} {
+	handle /audio {
+		reverse_proxy 127.0.0.1:8470
+	}
+	# MediaPipe conducting. On localhost (not a *.localhost name) so the camera works.
+	# /conduct/ keeps the page's relative URLs; the process itself still serves them at /.
+	handle /conduct {
+		redir /conduct/ 308
+	}
+	handle_path /conduct/* {
+		reverse_proxy 127.0.0.1:8480
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8467
+	}
+}
+
+http://midi.localhost:{$SC_GATEWAY_PORT} {
+	reverse_proxy 127.0.0.1:8475
+}
+
+# SuperConductor Atlas: the app (8764); the page talks to its engine (8765) at /engine
+http://atlas.localhost:{$SC_GATEWAY_PORT} {
+	handle_path /engine/* {
+		reverse_proxy 127.0.0.1:8765
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8764
+	}
+}
+
+http://describe.localhost:{$SC_GATEWAY_PORT} {
+	reverse_proxy 127.0.0.1:9200
+}
+
+# the MRT2 server (not in the container): its /tempo and /conduct pages
+http://server.localhost:{$SC_GATEWAY_PORT} {
+	reverse_proxy {$SC_SERVER_HTTP} {
+		header_up Host {upstream_hostport}
+	}
+}

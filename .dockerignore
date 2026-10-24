@@ -1,0 +1,18 @@
+# build context: superconductor_client/, client_container/
+.git
+**/__pycache__
+*.egg-info
+library
+var
+media
+*.pt
+*.ts
+*.mlxfn
+*.onnx
+*.engine
+*.safetensors
+*.ckpt
+*.npz
+*.mp4
+*.mov
+*.avi

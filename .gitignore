@@ -3,17 +3,15 @@ hand_landmarker.task
 
 # gesture recognition training examples
 *.pt
-superconductor/gesture_recognition/palm_hold_release/palm_hold
-superconductor/gesture_recognition/palm_hold_release/palm_release
-superconductor/gesture_recognition/palm_hold_release/0_palm_hold_records.csv
-superconductor/gesture_recognition/palm_hold_release/1_palm_release_records.csv
-superconductor/gesture_recognition/palm_hold_release_processed
+superconductor_client/gesture_recognition/palm_hold_release/palm_hold
+superconductor_client/gesture_recognition/palm_hold_release/palm_release
+superconductor_client/gesture_recognition/palm_hold_release/0_palm_hold_records.csv
+superconductor_client/gesture_recognition/palm_hold_release/1_palm_release_records.csv
+superconductor_client/gesture_recognition/palm_hold_release_processed
 
 magenta_client_withqueue.py
 superconductor_server.py
 
-var
-var/log
 superconductor.log
 
 superconductor.egg-info
@@ -31,10 +29,17 @@ superconductor.egg-info
 *.ckpt
 *.npz
 
-# recordings (scripts/simulate_tracking.py writes var/sim/sim.mp4)
+# recordings
 *.mp4
 *.mov
 *.avi
 
 # object library (views, embeddings, object.json, backups, .trash, combos/settings)
-library/
+superconductor_client/tracking/library/
+
+# browser detector (ort/, models/) and other generated tracking files
+superconductor_client/tracking/var
+
+# the browser detector: generated parity fixtures, node packages
+vision_js/test/fixtures/
+node_modules/

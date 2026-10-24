@@ -9,7 +9,7 @@ version = "0.1.0"
 dependencies = [
       "absl-py==2.4.0",
       "aiohttp",  # mrt2_server.py (make server)
-      "mido",  # ../superconductor_midi (make midi)
+      "mido",  # midi/ (make midi)
       "attrs==25.4.0",
       "cffi==2.0.0",
       "click==8.3.1",
@@ -23,7 +23,7 @@ dependencies = [
       "joblib==1.5.3",
       "kiwisolver==1.5.0",
       "lap==0.5.13",
-      # installed with --no-deps (see scripts/setup_env.sh / environment.yml)
+      # installed with --no-deps (see setup_env.sh / environment.yml)
       "magenta-rt[mlx]==2.0.3",
       "mlx==0.31.2",
       "mlx-metal==0.31.2",
@@ -62,12 +62,12 @@ dependencies = [
 exclude = ["media", "bin"]
 
 [tool.setuptools.package-data]
-superconductor = ["collab.toml", "object_tracking/*.yaml"]
+"superconductor_client.tracking" = ["collab.toml", "collab.container.toml"]
+"superconductor_client.tracking.object_tracking" = ["*.yaml"]
 
 [project.scripts]
-sc-collab = "superconductor.collab:main"
-sc-laptop = "superconductor.laptop:main"
-sc-server = "superconductor.mock_local_server:main"
-sc-update = "superconductor.laptop:update_superconductor"
-sc-audio-device = "superconductor.laptop:audio_device"
-superconductor = "superconductor.laptop:main"
+sc-client = "superconductor_client.client:main"
+sc-tracking = "superconductor_client.tracking.collab:main"
+sc-describe = "superconductor_client.describe.describe_server:main"
+sc-midi = "superconductor_client.midi.midi_player:main"
+sc-conduct = "superconductor_client.conducting.conducting_web.server:main"

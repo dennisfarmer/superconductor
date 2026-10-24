@@ -11,9 +11,9 @@ import numpy as np
 
 import cv2
 
-from superconductor.object_tracking import (Combo, IdentityRegistry, ObjectLibrary, Parameter, ParameterMapper,
-                                            TrackedObject)
-from superconductor.object_tracking.identity import H_BINS, S_BINS
+from superconductor_client.tracking.object_tracking import (Combo, IdentityRegistry, ObjectLibrary, Parameter, ParameterMapper,
+                                              TrackedObject)
+from superconductor_client.tracking.object_tracking.identity import H_BINS, S_BINS
 
 W, H = 1000, 1000
 rng = np.random.default_rng(0)

@@ -24,7 +24,7 @@ dependencies:
       # --- core / vision ---
       - absl-py==2.4.0
       - aiohttp # mrt2_server.py (make server)
-      - mido # ../superconductor_midi (make midi)
+      - mido # midi/ (make midi)
       - attrs==25.4.0
       - cffi==2.0.0
       - click==8.3.1
@@ -69,7 +69,7 @@ dependencies:
       - websockets
       # --- magenta-rt 2 (MRT2, MLX backend) dependencies ---
       # magenta-rt itself + recurrentgemma are installed with --no-deps by
-      # scripts/setup_env.sh: recurrentgemma pins absl-py<2 (only uses
+      # setup_env.sh: recurrentgemma pins absl-py<2 (only uses
       # absl.logging) which conflicts with mediapipe>=0.10.30 (absl-py~=2.3),
       # and mediapipe<0.10.30 requires numpy<2 which conflicts with jax.
       - ai-edge-litert==2.2.0
