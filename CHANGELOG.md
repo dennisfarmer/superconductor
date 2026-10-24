@@ -9,6 +9,8 @@ The release list keeps every version's commits. GHCR keeps those two images and 
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-24
+
 - Playback and input are two websockets. The client container connects to the server on `/stream/input`.
 - Where the music server is lives in `superconductor_client/addresses.toml`: this computer, the SSH tunnel, the cluster, and Docker. `make client` asks which, or take `--where`. Playback and TouchDesigner use the same names.
 - Describe stays off unless `make describe` or `DESCRIBE=1`. On the container gateway the conducting page is `/conduct/`.

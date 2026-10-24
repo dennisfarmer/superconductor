@@ -256,6 +256,11 @@ jobs:
     needs: [prepare, client-image, server-image]
     runs-on: ubuntu-latest
     steps:
+      # gh release create runs git. Without a checkout this job fails after the images exist.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.client_sha }}
+          fetch-depth: 1
       - uses: actions/download-artifact@v4
         with:
           name: release-meta
