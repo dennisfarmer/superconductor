@@ -6,9 +6,13 @@ How to get a visualizer running: building the plugin, starting the services, ope
 
 From the `superconductor_touchdesigner` folder (after building the plugin once, below):
 ```bash
-make visualize                                # overlay_example_1
+make visualize                                # asks where the client is, then where the music server is
+make visualize-local                          # client and music server on this computer
+make visualize-remote                         # client on this computer, server through the tunnel (port 9000)
+make visualize-cluster                        # both on the cluster; pages are on localhost:8080
 make visualize VISUALIZER=<name>              # visualizers/<name>/<name>.toe
 ```
+`make visualize-remote` does not start the music server. The tunnel (`ssh -N -L 9000:lh2300:9100`) has to be open, and the plugin's stream address has to be `ws://localhost:9000/stream/playback`. `make visualize-cluster` expects the container and `ssh -N -L 8080:lh2300:8080`, and the plugin stream `ws://server.localhost:8080/stream/playback`. The addresses are `touchdesigner/addresses.toml`. The two sockets inside TouchDesigner follow them after `superconductor_inputs.tox` is rebuilt once (`build_inputs.py`). Until that rebuild, they stay on localhost:8467 and localhost:8480, which is right unless the client is the container.
 It:
 1. starts the MRT2 server, the client and the conducting server (any that aren't already running);
 2. starts the **SuperConductor Playback VST3 Plugin app** (`playback` branch), which plays the music on your Mac's current sound output (speakers or headphones) and sets the pace;
