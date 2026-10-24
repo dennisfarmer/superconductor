@@ -17,6 +17,10 @@
 // client's /prompts, which adds it to the recipe its tracking sends (sink only). With
 // "link" on, the master knob sets cfg_scales.drums (-1..7) and drum_prompt (0..1)
 // together; the knobs it moves can still be turned on their own, which doesn't move it.
+//
+// "to client → drums" (the controls row) releases this page: the engine resets the
+// DRUMS lane, cfg_scales.drums and the drums prompt to the model defaults, then stops
+// sending them. The grid stays editable here so taking control back restores it.
 
 import { useEffect, useRef, useState } from "react";
 import { getState, setDrums } from "../api";
@@ -150,11 +154,13 @@ function value_class(v: number): string {
 export interface DrumsPageProps {
   settings: any; // the engine's /status settings, or null while it is offline
   sink: boolean;
+  sendHarmony: boolean; // false: harmony was released; cfg_scales.notes is not sent
+  sendDrums: boolean; // false: this page was released; its lane, cfg and prompt are not sent
   onSend: (body: Record<string, unknown>) => void;
 }
 
 /** The drum-control levers: cfg_scales knobs, the "drums" prompt weight, the master knob. */
-function DrumControl({ settings, sink, onSend }: DrumsPageProps) {
+function DrumControl({ settings, sink, sendHarmony, sendDrums, onSend }: DrumsPageProps) {
   const [linked, setLinked] = useState(false);
   const [master, setMaster] = useState(0.0);
   const [prompt_drag, setPromptDrag] = useState<number | null>(null);
@@ -169,15 +175,18 @@ function DrumControl({ settings, sink, onSend }: DrumsPageProps) {
   }
 
   const off = settings == null;
+  const released = sink && !sendDrums;
   const engine_prompt = value_of(settings, "drum_prompt");
   const prompt_v = prompt_drag != null ? prompt_drag : engine_prompt == null ? 0.0 : engine_prompt;
   const cfg_drums = value_of(settings, "cfg_scales.drums");
   return (
-    <section className="drums-control">
+    <section className={"drums-control" + (released ? " released" : "")}>
       <div className="drums-frames-head">
         <span className="drums-label">Drum control</span>
         <span className="drums-num">
-          {"cfg_scales.drums " + (cfg_drums == null ? "–" : String(cfg_drums)) + " · prompt \"drums\" " + prompt_v.toFixed(2)}
+          {released
+            ? "released from the client — the model default, until this is turned back on"
+            : "cfg_scales.drums " + (cfg_drums == null ? "–" : String(cfg_drums)) + " · prompt \"drums\" " + prompt_v.toFixed(2)}
         </span>
       </div>
       <div className="drums-control-row">
@@ -196,12 +205,12 @@ function DrumControl({ settings, sink, onSend }: DrumsPageProps) {
               size={44}
               color="#ff7a59"
               onChange={(k) => {
-                if (!linked || off) return;
+                if (!linked || off || released) return;
                 setMaster(k);
                 throttled(master_body(k));
               }}
               onCommit={() => {
-                if (linked && !off) onSend(master_body(master));
+                if (linked && !off && !released) onSend(master_body(master));
               }}
             />
             <span className="drums-num">{master.toFixed(2)}</span>
@@ -209,14 +218,23 @@ function DrumControl({ settings, sink, onSend }: DrumsPageProps) {
         </div>
         <div className="drums-control-knobs">
           {CFG_KEYS.map((key) => (
-            <ControlKnob key={key} spec={spec_of(key)} settings={settings} onSend={onSend} size={34} />
+            <ControlKnob
+              key={key}
+              spec={spec_of(key)}
+              settings={settings}
+              onSend={onSend}
+              size={34}
+              held={(key === "cfg_scales.notes" && sink && !sendHarmony) || (key === "cfg_scales.drums" && released)}
+            />
           ))}
           <div
-            className={"ctl drums-prompt" + (off || !sink ? " off" : "")}
+            className={"ctl drums-prompt" + (off || !sink || released ? " off" : "")}
             title={
-              sink
-                ? "drum_prompt: weight of the style prompt \"drums\" in the SuperConductor client's recipe (client_midi /prompts), next to its other prompts. 0 removes it."
-                : "drum_prompt: SuperConductor only (make run); the local engine doesn't use it"
+              released
+                ? "Released: Atlas removed the drums prompt and is not sending it. Turn drums back on under to client to send this weight again."
+                : sink
+                  ? "drum_prompt: weight of the style prompt \"drums\" in the SuperConductor client's recipe (client_midi /prompts), next to its other prompts. 0 removes it."
+                  : "drum_prompt: SuperConductor only (make run); the local engine doesn't use it"
             }
           >
             <span className="ctl-name">prompt "drums"</span>
@@ -225,19 +243,20 @@ function DrumControl({ settings, sink, onSend }: DrumsPageProps) {
               min="0"
               max="1"
               step="0.01"
-              disabled={off || !sink}
+              disabled={off || !sink || released}
               value={prompt_v}
               onChange={(e) => {
+                if (released) return;
                 const v = parseFloat(e.target.value);
                 setPromptDrag(v);
                 throttled({ drum_prompt: v });
               }}
               onPointerUp={() => {
-                if (prompt_drag != null) onSend({ drum_prompt: prompt_drag });
+                if (!released && prompt_drag != null) onSend({ drum_prompt: prompt_drag });
                 setPromptDrag(null);
               }}
               onKeyUp={() => {
-                if (prompt_drag != null) onSend({ drum_prompt: prompt_drag });
+                if (!released && prompt_drag != null) onSend({ drum_prompt: prompt_drag });
                 setPromptDrag(null);
               }}
             />
@@ -249,7 +268,7 @@ function DrumControl({ settings, sink, onSend }: DrumsPageProps) {
   );
 }
 
-export function DrumsPage({ settings, sink, onSend }: DrumsPageProps) {
+export function DrumsPage({ settings, sink, sendHarmony, sendDrums, onSend }: DrumsPageProps) {
   const [grid, setGrid] = useState<Grid>(default_grid());
   const [loaded, setLoaded] = useState(false);
   const [bpm, setBpm] = useState(84.0);
@@ -316,7 +335,11 @@ export function DrumsPage({ settings, sink, onSend }: DrumsPageProps) {
       <header className="drums-head">
         <div>
           <h1>Drums</h1>
-          <p className="drums-sub">When hits happen. The model picks the drum sounds and plays them over the harmony from the main page.</p>
+          <p className="drums-sub">
+            {sink && !sendDrums
+              ? "Released. The client was reset to the model default and this page is not sending drums, so another program can play them, or they stay at that default. Turn drums back on under \"to client\" to take control again. The grid here is kept."
+              : "When hits happen. The model picks the drum sounds and plays them over the harmony from the main page."}
+          </p>
         </div>
       </header>
 
@@ -407,7 +430,7 @@ export function DrumsPage({ settings, sink, onSend }: DrumsPageProps) {
         </button>
       </section>
 
-      <DrumControl settings={settings} sink={sink} onSend={onSend} />
+      <DrumControl settings={settings} sink={sink} sendHarmony={sendHarmony} sendDrums={sendDrums} onSend={onSend} />
 
       <section className="drums-frames">
         <div className="drums-frames-head">

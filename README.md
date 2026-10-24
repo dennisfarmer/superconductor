@@ -11,7 +11,7 @@ sounds like**.
 
 ```bash
 bash setup_env.sh          # once: creates the conda env sc_env_atlas
-make run                   # SuperConductor mode (default), app on http://localhost:8000
+make run                   # SuperConductor mode (default), app on http://localhost:8764
 make run-local             # standalone: local Magenta RT 2, no SuperConductor needed
 make dev                   # development: API reloads on change, client hot-reloads
 ```
@@ -112,5 +112,5 @@ The model picks the drum sounds; the lane only says when hits happen.
   to `data/session.json` (`ATLAS_DATA` sets the folder).
 - `server/narrate.py`: the optional LLM description of a path (Ollama, `LLM_MODEL`).
 - `client/src/`: the React + TypeScript page. `api-types.ts` is generated from the
-  server's OpenAPI schema with `npm --prefix client run gen-types` (API on :8001).
+  server's OpenAPI schema with `npm --prefix client run gen-types` (API on :8763).
 - `tests/`: `pytest tests/` checks that the session file saves and loads.

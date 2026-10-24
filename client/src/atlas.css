@@ -468,6 +468,19 @@ a.unit.bpm-link.on { color: var(--ink); cursor: default; }
 }
 .controls-row > * { flex: none; }
 .controls-label { font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); }
+.client-send {
+  display: flex; align-items: center; gap: 10px; padding-right: var(--s-3); margin-right: 2px;
+  border-right: 1px solid var(--line);
+}
+.send-toggle {
+  display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-s); color: var(--ink-2);
+  cursor: pointer; user-select: none; white-space: nowrap;
+}
+.send-toggle.off { color: var(--faint); }
+.send-toggle input { margin: 0; accent-color: var(--accent); }
+.send-toggle input:disabled { cursor: default; }
+.drums-control.released .drums-master,
+.drums-control.released .drums-prompt { opacity: 0.45; }
 .ctl { display: flex; align-items: center; gap: 5px; }
 .ctl.off { opacity: 0.45; }
 .ctl-name { font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }

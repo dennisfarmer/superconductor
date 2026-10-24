@@ -134,6 +134,8 @@ export function App() {
   const [page, setPage] = useState(page_of(window.location.hash));
   // the engine's last /status (the BPM page reads it)
   const [engine_status, setEngineStatus] = useState<any>(null);
+  // the to-client switches, ahead of the status poll for a moment after a click
+  const [output_hold, setOutputHold] = useState<{ at: number; harmony?: boolean; drums?: boolean } | null>(null);
 
   useEffect(() => {
     load();
@@ -696,6 +698,30 @@ export function App() {
     if (resp.ok) setEngineStatus(await resp.json());
   }
 
+  /** Release or take back harmony or drums on the SuperConductor client (engine POST /output).
+   * Releasing sends one reset to the model defaults, then Atlas stops sending that part. */
+  async function set_output(body: { harmony?: boolean; drums?: boolean }) {
+    if (!_engine_url) return;
+    setOutputHold((prev) => {
+      const fresh: { harmony?: boolean; drums?: boolean } = prev != null && Date.now() - prev.at < 1200 ? prev : {};
+      return { at: Date.now(), harmony: fresh.harmony, drums: fresh.drums, ...body };
+    });
+    try {
+      const resp = await engine_post("/output", body);
+      const data = await resp.json();
+      if (!resp.ok) {
+        setOutputHold(null);
+        setError(String(data.error || "could not change what is sent to the client"));
+        return;
+      }
+      setEngineStatus(data);
+      setError("");
+    } catch (e) {
+      setOutputHold(null);
+      setError("could not change what is sent to the client: " + String(e));
+    }
+  }
+
   async function toggle_mute() {
     if (!_engine_url) return;
     _vol_at = Date.now();
@@ -897,6 +923,20 @@ export function App() {
     );
   }
 
+  // what Atlas is sending to the SuperConductor client (both on until a switch says otherwise)
+  const from_output = engine_status && engine_status.output ? engine_status.output : { harmony: true, drums: true };
+  const output = {
+    harmony:
+      output_hold != null && Date.now() - output_hold.at < 1200 && output_hold.harmony != null
+        ? output_hold.harmony
+        : from_output.harmony !== false,
+    drums:
+      output_hold != null && Date.now() - output_hold.at < 1200 && output_hold.drums != null
+        ? output_hold.drums
+        : from_output.drums !== false,
+  };
+  const sink = Boolean(engine_status && engine_status.sink);
+
   // the top bar, and under it the controls row (MRT2's sampling controls)
   const header = (
     <div className="top-rows">
@@ -924,8 +964,10 @@ export function App() {
       />
       <ControlsBar
         settings={engine_ok && engine_status ? engine_status.settings : null}
-        sink={Boolean(engine_status && engine_status.sink)}
+        sink={sink}
+        output={output}
         onSend={set_controls}
+        onOutput={set_output}
       />
     </div>
   );
@@ -937,7 +979,9 @@ export function App() {
         {header}
         <DrumsPage
           settings={engine_ok && engine_status ? engine_status.settings : null}
-          sink={Boolean(engine_status && engine_status.sink)}
+          sink={sink}
+          sendHarmony={output.harmony}
+          sendDrums={output.drums}
           onSend={set_controls}
         />
         <Tooltip />
@@ -998,6 +1042,11 @@ export function App() {
         <div className="stage-top">
           <div className="stage-status">
             <b>Graph view</b>
+            {sink && !output.harmony && (
+              <span title="Harmony was reset on the client and Atlas is not sending chords. Turn harmony back on under to client.">
+                harmony released from the client
+              </span>
+            )}
             <span>
               {anim >= 0
                 ? "walkers on layer " + String(anim) + "…"

@@ -28,9 +28,16 @@
 
 ENV_PREFIX ?= $(shell conda info --base 2>/dev/null)/envs/sc_env_atlas
 PY         := $(ENV_PREFIX)/bin/python
-PORT       ?= 8000
-DEV_API_PORT := 8001
-ENGINE_PORT?= 8765
+# The page. 8765 is the engine; 8000 is left free (often taken locally).
+# A comment on the assignment line would become part of the value (Make keeps the
+# spaces before '#'), and then the health check URL never matches.
+PORT ?= 8764
+# make dev: the reloading API. Vite on PORT proxies to it.
+DEV_API_PORT := 8763
+ENGINE_PORT ?= 8765
+PORT := $(strip $(PORT))
+DEV_API_PORT := $(strip $(DEV_API_PORT))
+ENGINE_PORT := $(strip $(ENGINE_PORT))
 PRESET     ?= warm_piano
 LOGS       := logs
 RUN        := .run
@@ -60,28 +67,32 @@ define RUN_FG
 	@stop_engine() { $(STOP_ENGINE); }; \
 	trap 'stop_engine; exit 130' INT TERM; trap stop_engine EXIT; \
 	$(PY) $(1) > $(LOGS)/engine.log 2>&1 & E=$$!; \
-	echo "$(2) starting (log: $(LOGS)/engine.log); app on http://localhost:$(PORT)"; \
+	echo "$(2) starting (log: $(LOGS)/engine.log)"; \
 	$(PY) -m server.app --port $(PORT) $(3)
 endef
 
 # Background: start the engine with $(1) unless one is already up, wait until it answers.
 define START_ENGINE
 	@mkdir -p $(LOGS) $(RUN)
-	@if curl -s -o /dev/null http://127.0.0.1:$(ENGINE_PORT)/status; then \
+	@if curl -sf -m 1 -o /dev/null "http://127.0.0.1:$(ENGINE_PORT)/status"; then \
 		echo "audio engine already running"; \
 	else \
 		echo "starting $(2)..."; \
 		nohup $(PY) $(1) > $(LOGS)/engine.log 2>&1 & echo $$! > $(RUN)/engine.pid; \
-		for i in $$(seq 1 60); do curl -s -o /dev/null http://127.0.0.1:$(ENGINE_PORT)/status && break; sleep 0.5; done; \
-		curl -s -o /dev/null http://127.0.0.1:$(ENGINE_PORT)/status || { echo "engine failed to start; see $(LOGS)/engine.log"; exit 1; }; \
+		ok=; \
+		for i in $$(seq 1 60); do \
+			if curl -sf -m 1 -o /dev/null "http://127.0.0.1:$(ENGINE_PORT)/status"; then ok=1; break; fi; \
+			kill -0 $$(cat $(RUN)/engine.pid) 2>/dev/null || break; \
+			sleep 0.5; \
+		done; \
+		[ -n "$$ok" ] || { echo "engine failed to start; see $(LOGS)/engine.log"; exit 1; }; \
 	fi
 endef
 
+# Printed once the page answers, the same way the other services announce their panel.
+# $(1) is what the engine is (sink or local Magenta).
 define STARTED
-	@echo ""
-	@echo "  SuperConductor Atlas is running on http://localhost:$(PORT)"
-	@echo "  ($(1) on http://127.0.0.1:$(ENGINE_PORT); stop with: make stop)"
-	@echo ""
+	@echo "Atlas at http://127.0.0.1:$(PORT)  ($(1) on http://127.0.0.1:$(ENGINE_PORT); stop with: make stop)"
 endef
 
 
@@ -123,20 +134,25 @@ start-local:
 
 app: client-build
 	@mkdir -p $(LOGS) $(RUN)
-	@if curl -s -o /dev/null http://localhost:$(PORT)/healthz; then \
+	@if curl -sf -m 1 -o /dev/null "http://127.0.0.1:$(PORT)/healthz"; then \
 		echo "app already running"; \
 	else \
 		echo "starting the app..."; \
-		nohup $(PY) -m server.app --port $(PORT) $(APP_ARGS) < /dev/null > $(LOGS)/app.log 2>&1 & echo $$! > $(RUN)/app.pid; \
-		for i in $$(seq 1 120); do curl -s -o /dev/null http://localhost:$(PORT)/healthz && break; sleep 1; done; \
-		curl -s -o /dev/null http://localhost:$(PORT)/healthz || { echo "app failed to start; see $(LOGS)/app.log"; exit 1; }; \
+		nohup $(PY) -m server.app --port "$(PORT)" $(APP_ARGS) < /dev/null > $(LOGS)/app.log 2>&1 & echo $$! > $(RUN)/app.pid; \
+		ok=; \
+		for i in $$(seq 1 60); do \
+			if curl -sf -m 1 -o /dev/null "http://127.0.0.1:$(PORT)/healthz"; then ok=1; break; fi; \
+			kill -0 $$(cat $(RUN)/app.pid) 2>/dev/null || break; \
+			sleep 0.5; \
+		done; \
+		[ -n "$$ok" ] || { echo "app failed to start; see $(LOGS)/app.log"; exit 1; }; \
 	fi
 
 stop:
-	@if curl -s -o /dev/null http://localhost:$(PORT)/healthz; then \
+	@if curl -sf -m 1 -o /dev/null "http://127.0.0.1:$(PORT)/healthz"; then \
 		echo "asking the app to quit..."; \
-		curl -s -m 30 -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:$(PORT)/function/shutdown_app; \
-		for i in $$(seq 1 50); do curl -s -m 1 -o /dev/null http://localhost:$(PORT)/healthz || break; sleep 0.2; done; \
+		curl -s -m 30 -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "http://127.0.0.1:$(PORT)/function/shutdown_app"; \
+		for i in $$(seq 1 50); do curl -sf -m 1 -o /dev/null "http://127.0.0.1:$(PORT)/healthz" || break; sleep 0.2; done; \
 	fi
 	@$(STOP_ENGINE)
 	@rm -f $(RUN)/app.pid
@@ -160,12 +176,13 @@ dev: check-client
 	@stop_engine() { $(STOP_ENGINE); }; \
 	trap 'kill $$A 2>/dev/null; stop_engine; exit 130' INT TERM; trap 'kill $$A 2>/dev/null; stop_engine' EXIT; \
 	$(PY) $(SC_ENGINE) > $(LOGS)/engine.log 2>&1 & \
-	$(PY) -m uvicorn server.app:app --reload --reload-dir server --port $(DEV_API_PORT) > $(LOGS)/app.log 2>&1 & A=$$!; \
-	echo "engine log: $(LOGS)/engine.log, API log: $(LOGS)/app.log; app on http://localhost:$(PORT)"; \
+	$(PY) -m uvicorn server.app:app --reload --reload-dir server --port "$(DEV_API_PORT)" > $(LOGS)/app.log 2>&1 & A=$$!; \
+	echo "engine log: $(LOGS)/engine.log, API log: $(LOGS)/app.log"; \
+	echo "Atlas at http://127.0.0.1:$(PORT)"; \
 	npm --prefix client run dev
 
 status:
-	@curl -s -o /dev/null http://localhost:$(PORT)/healthz && echo "app:    up   http://localhost:$(PORT)" || echo "app:    down"
+	@curl -sf -m 1 -o /dev/null "http://127.0.0.1:$(PORT)/healthz" && echo "app:    up   http://127.0.0.1:$(PORT)" || echo "app:    down"
 	@curl -s http://127.0.0.1:$(ENGINE_PORT)/status 2>/dev/null | $(PY) -c "import json,sys; d=json.load(sys.stdin); print(f\"engine: up   {d['model']} · {d['ms_per_frame']} ms/frame · {d['underruns']} underruns · {d['style']}\")" 2>/dev/null || echo "engine: down"
 
 logs:

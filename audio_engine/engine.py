@@ -56,6 +56,10 @@ HTTP API (JSON, CORS open, default port 8765):
   POST /mix {"volume": 0..1.5, "muted": bool}   output level, applied at the speaker (no buffer delay)
   POST /shutdown {}   finish the current chunk, close the audio stream and the HTTP server, exit
   POST /sync {"on": bool}   sink only: follow the SuperConductor server's tempo and beat one
+  POST /output {"harmony": bool?, "drums": bool?}   sink only: whether Atlas sends that
+                 page to the client. false resets it to the model default (NOTES or DRUMS
+                 lane cleared, its cfg_scales key removed, and for drums the "drums" prompt
+                 removed) and then leaves it alone, so another program can take it
 
 Run:  python audio_engine/engine.py [--model mrt2_small] [--port 8765] [--record out.wav]
       python audio_engine/engine.py --sink superconductor [--client-midi http://localhost:8470] [--sc-server http://localhost:9100]
@@ -628,6 +632,70 @@ def to_pattern(frames: list, loop: bool, settings: Settings, pattern_id: str) ->
     }
 
 
+def gate_pattern(pattern: dict | None, send_harmony: bool, send_drums: bool,
+                 reset_harmony: bool, reset_drums: bool) -> dict | None:
+    """The Pattern to POST to client_midi.
+
+    A lane Atlas is still sending is copied through. A lane that was just released is
+    set to null (the server clears it: every frame -1, MRT2's default, as with no
+    Pattern). After that reset has been delivered, the lane is left out, so a later
+    pattern doesn't put Atlas's values back and another program can set the lane.
+    None means there is nothing to send (both lanes released, resets already delivered).
+    """
+    body: dict = {}
+    if pattern:
+        if pattern.get("id"):
+            body["id"] = pattern["id"]
+        if "notes" in pattern:
+            body["notes"] = pattern["notes"]
+        if "drums" in pattern:
+            body["drums"] = pattern["drums"]
+    if reset_harmony:
+        body["notes"] = None
+    elif not send_harmony:
+        body.pop("notes", None)
+    if reset_drums:
+        body["drums"] = None
+    elif not send_drums:
+        body.pop("drums", None)
+    if "notes" not in body and "drums" not in body:
+        return None
+    if reset_harmony or reset_drums:
+        released = [name for name, on in (("harmony", reset_harmony), ("drums", reset_drums)) if on]
+        body["id"] = "atlas release " + "+".join(released)
+    return body
+
+
+def controls_body(settings: Settings, send_harmony: bool, send_drums: bool,
+                  reset_harmony: bool = False, reset_drums: bool = False) -> dict:
+    """UpdateControls for the client. A released lane's cfg_scales key is left out
+    (a reset sets it to null, which the server drops back to MRT2's default).
+    musiccoca, temperature and top_k are the shared generate() controls and always go."""
+    body = settings.controls()
+    scales = dict(body["cfg_scales"])
+    if reset_harmony:
+        scales["notes"] = None
+    elif not send_harmony:
+        scales.pop("notes", None)
+    if reset_drums:
+        scales["drums"] = None
+    elif not send_drums:
+        scales.pop("drums", None)
+    body["cfg_scales"] = scales
+    return body
+
+
+def merge_control_posts(old: dict, new: dict) -> dict:
+    """Two unsent /controls bodies. A key in `new` wins, including null; a key only
+    in `old` is kept, so a release's null isn't dropped by a later partial update."""
+    scales = dict(old.get("cfg_scales") or {})
+    scales.update(new.get("cfg_scales") or {})
+    merged = {**old, **new}
+    if "cfg_scales" in old or "cfg_scales" in new:
+        merged["cfg_scales"] = scales
+    return merged
+
+
 class SinkEngine:
     """The engine without a model: the conductor runs on a 40 ms clock, and each
     timeline it enters (or a settings change) is rendered into a Pattern and sent
@@ -665,6 +733,16 @@ class SinkEngine:
         # client_midi path -> body still to POST (/controls, /prompts); the latest per path wins
         self.posts: dict = {}
         self.posts_cv = threading.Condition()
+        # harmony = the NOTES lane and cfg_scales.notes; drums = the DRUMS lane,
+        # cfg_scales.drums and the "drums" prompt. Off: reset once, then stop sending.
+        self._gate = threading.Lock()
+        self.send_harmony = True
+        self.send_drums = True
+        self._harmony_reset_pending = False  # the next pattern must set notes to null
+        self._drums_reset_pending = False
+        self._harmony_cfg_pending = False  # the next /controls must set cfg_scales.notes to null
+        self._drums_cfg_pending = False
+        self._drums_prompt_pending = False  # the next /prompts must remove "drums"
         self.connected = False
         self.remote_model = None
         self.last_error = ""
@@ -684,18 +762,122 @@ class SinkEngine:
         self.style_prompt = " + ".join(str(t) for t, _ in layers)
 
     def settings_changed(self):
-        self.dirty = True
+        with self._gate:
+            self.dirty = True
 
     def _post_latest(self, path: str, body: dict):
         with self.posts_cv:
-            self.posts[path] = body  # replaces an unsent older body
+            if path == "/controls" and path in self.posts:
+                body = merge_control_posts(self.posts[path], body)
+            self.posts[path] = body  # replaces an unsent older body (controls: merged)
             self.posts_cv.notify()
 
+    def _controls_body(self) -> dict:
+        return controls_body(
+            self.settings, self.send_harmony, self.send_drums,
+            self._harmony_cfg_pending, self._drums_cfg_pending,
+        )
+
     def controls_changed(self):
-        self._post_latest("/controls", self.settings.controls())
+        with self._gate:
+            body = self._controls_body()
+        self._post_latest("/controls", body)
 
     def prompts_changed(self):
-        self._post_latest("/prompts", self.settings.prompts())
+        """The drums prompt. While drums are released this either finishes the reset
+        (weight 0, which removes it) or sends nothing, so a knob move can't put it back."""
+        with self._gate:
+            if not self.send_drums:
+                if not self._drums_prompt_pending:
+                    return
+                body = {DRUM_PROMPT: 0.0}
+            else:
+                body = self.settings.prompts()
+        self._post_latest("/prompts", body)
+
+    def set_output(self, harmony: bool | None = None, drums: bool | None = None):
+        """Turn sending harmony or drums to the client on or off.
+
+        Turning one off asks for a single reset (lane null, its cfg_scales key null,
+        and for drums the prompt removed) and then leaves that lane out of later
+        messages. Turning it on sends Atlas's current values again. The page's own
+        state (the grid, the knobs) is kept, so taking control back restores it.
+        """
+        if harmony is None and drums is None:
+            return
+        post_prompts = False
+        changed = False
+        with self._gate:
+            if harmony is not None and bool(harmony) != self.send_harmony:
+                changed = True
+                self.send_harmony = bool(harmony)
+                self.dirty = True
+                if self.send_harmony:
+                    self._harmony_reset_pending = False
+                    self._harmony_cfg_pending = False
+                else:
+                    self._harmony_reset_pending = True
+                    self._harmony_cfg_pending = True
+            if drums is not None and bool(drums) != self.send_drums:
+                changed = True
+                self.send_drums = bool(drums)
+                self.dirty = True
+                post_prompts = True
+                if self.send_drums:
+                    self._drums_reset_pending = False
+                    self._drums_cfg_pending = False
+                    self._drums_prompt_pending = False
+                else:
+                    self._drums_reset_pending = True
+                    self._drums_cfg_pending = True
+                    self._drums_prompt_pending = True
+            body = self._controls_body() if changed else None
+        if not changed or body is None:
+            return
+        self._post_latest("/controls", body)
+        if post_prompts:
+            self.prompts_changed()
+        log.info(
+            "client output: harmony %s, drums %s",
+            "sending" if self.send_harmony else "released",
+            "sending" if self.send_drums else "released",
+        )
+
+    def _ack_pattern(self, pattern: dict):
+        with self._gate:
+            if "notes" in pattern and pattern["notes"] is None:
+                self._harmony_reset_pending = False
+            if "drums" in pattern and pattern["drums"] is None:
+                self._drums_reset_pending = False
+
+    def _ack_post(self, path: str, body: dict):
+        with self._gate:
+            if path == "/controls":
+                scales = body.get("cfg_scales") or {}
+                if "notes" in scales and scales["notes"] is None:
+                    self._harmony_cfg_pending = False
+                if "drums" in scales and scales["drums"] is None:
+                    self._drums_cfg_pending = False
+            elif path == "/prompts" and not self.send_drums and body.get(DRUM_PROMPT, 1) == 0:
+                self._drums_prompt_pending = False
+
+    def _retry_post(self, path: str, body: dict):
+        """Put a failed reset back unless a newer body for that path is already waiting."""
+        with self._gate:
+            scales = body.get("cfg_scales") or {}
+            retry = (
+                path == "/controls" and (
+                    (self._harmony_cfg_pending and "notes" in scales and scales["notes"] is None)
+                    or (self._drums_cfg_pending and "drums" in scales and scales["drums"] is None)
+                )
+            ) or (path == "/prompts" and self._drums_prompt_pending and not self.send_drums)
+        if not retry:
+            return
+        with self.posts_cv:
+            if path not in self.posts:
+                self.posts[path] = body
+                self.posts_cv.notify()
+        time.sleep(1.0)
 
     # --- client_midi ---
     def _http(self, method: str, path: str, body=None) -> dict:
@@ -717,6 +899,7 @@ class SinkEngine:
             try:
                 if pattern is not None:
                     self._http("POST", "/pattern", pattern)
+                    self._ack_pattern(pattern)
                     self.last_error = ""
                     continue
                 st = self._http("GET", "/status")
@@ -725,7 +908,8 @@ class SinkEngine:
                 self.remote_model = st.get("model")
                 if self.connected and not was:
                     log.info("SuperConductor client connected (%s)", self.remote_model)
-                    self.dirty = True
+                    with self._gate:
+                        self.dirty = True
                     self.controls_changed()
                     self.prompts_changed()
             except Exception as e:  # client not running, or not connected to its server (503)
@@ -733,6 +917,16 @@ class SinkEngine:
                     log.info("client_midi at %s: %s", self.client_midi, e)
                 self.connected = False
                 self.last_error = str(e)
+                if pattern is not None:
+                    # a release that didn't land has to go again; a new session starts at
+                    # the defaults, and a session that still has Atlas's lane needs the null
+                    retry = False
+                    with self._gate:
+                        if self._harmony_reset_pending or self._drums_reset_pending:
+                            self.dirty = True
+                            retry = True
+                    if retry:
+                        time.sleep(1.0)
 
     def _controls_sender(self):
         """POSTs the sampling controls to client_midi's /controls (the client relays them
@@ -745,8 +939,10 @@ class SinkEngine:
             for path, body in posts.items():
                 try:
                     self._http("POST", path, body)
-                except Exception as e:  # not connected: sent again when the client comes back
+                    self._ack_post(path, body)
+                except Exception as e:  # not connected: a pending reset is tried again
                     log.info("client_midi %s: %s", path, e)
+                    self._retry_post(path, body)
 
     def _render(self, tokens: list, meta: FrameMeta) -> dict:
         """The timeline the conductor is in, from the frame it just made: one full
@@ -768,6 +964,13 @@ class SinkEngine:
             loop = True
         return to_pattern(frames, loop, self.settings, f"atlas {meta.role} #{self.conductor.entries}")
 
+    def _enqueue(self, pattern: dict):
+        try:
+            self.outbox.get_nowait()  # drop an unsent older pattern
+        except queue.Empty:
+            pass
+        self.outbox.put(pattern)
+
     def run(self):
         """The conductor clock: one frame every 40 ms of wall time."""
         period = 1.0 / FRAME_RATE
@@ -775,14 +978,17 @@ class SinkEngine:
         entries = -1
         while self.running:
             tokens, meta = self.conductor.next_frame()
-            if self.conductor.entries != entries or self.dirty:
-                entries, self.dirty = self.conductor.entries, False
-                pattern = self._render(tokens, meta)
-                try:
-                    self.outbox.get_nowait()  # drop an unsent older pattern
-                except queue.Empty:
-                    pass
-                self.outbox.put(pattern)
+            with self._gate:
+                changed = self.conductor.entries != entries or self.dirty
+                if changed:
+                    entries = self.conductor.entries
+                    self.dirty = False
+                    send_h, send_d = self.send_harmony, self.send_drums
+                    reset_h, reset_d = self._harmony_reset_pending, self._drums_reset_pending
+            if changed:
+                pattern = gate_pattern(self._render(tokens, meta), send_h, send_d, reset_h, reset_d)
+                if pattern is not None:
+                    self._enqueue(pattern)
             self.history.append((time.time(), meta))
             if self._pin_wanted:
                 self._maybe_pin()
@@ -816,6 +1022,7 @@ class SinkEngine:
         return {
             "ok": True,
             "sink": "superconductor",
+            "output": {"harmony": self.send_harmony, "drums": self.send_drums},
             "sync": {"on": self.sync_on, "server_url": self.sc_server, "lead_ms": round(self.lead_s * 1000), **self.sync_state},
             "connected": self.connected,
             "client_midi": self.client_midi,
@@ -1029,6 +1236,15 @@ def make_handler(engine: Engine):
                     if not hasattr(engine, "set_sync"):
                         raise ValueError("tempo sync needs the SuperConductor sink (make run)")
                     engine.set_sync(bool(body.get("on", True)))
+                elif self.path == "/output":
+                    if not hasattr(engine, "set_output"):
+                        raise ValueError("releasing harmony or drums needs the SuperConductor sink (make run)")
+                    if "harmony" not in body and "drums" not in body:
+                        raise ValueError("say harmony, drums, or both (true sends, false releases)")
+                    for key in ("harmony", "drums"):
+                        if key in body and not isinstance(body[key], bool):
+                            raise ValueError(f"{key} must be true or false")
+                    engine.set_output(harmony=body.get("harmony"), drums=body.get("drums"))
                 elif self.path == "/release":
                     engine.conductor.release()
                 elif self.path == "/style":

@@ -132,15 +132,17 @@ export interface ControlKnobProps {
   settings: any; // the engine's /status settings, or null while it is offline
   onSend: (body: Record<string, unknown>) => void;
   size?: number;
+  held?: boolean; // released: shown, but not sent to the client
 }
 
 /** One knob of the controls row: knob, number field and reset to MRT2's default. */
-export function ControlKnob({ spec: sp, settings, onSend, size = 26 }: ControlKnobProps) {
+export function ControlKnob({ spec: sp, settings, onSend, size = 26, held = false }: ControlKnobProps) {
   // the value while the knob is being turned (it wins over the engine's until committed)
   const [drag, setDrag] = useState<number | null>(null);
   const last_sent = useRef(0);
 
   function turn(v: number) {
+    if (held) return;
     setDrag(v);
     const now = Date.now();
     if (now - last_sent.current >= SEND_EVERY_MS) {
@@ -150,17 +152,18 @@ export function ControlKnob({ spec: sp, settings, onSend, size = 26 }: ControlKn
   }
 
   function commit() {
-    if (drag == null) return;
+    if (held || drag == null) return;
     onSend(body_of(sp.key, drag));
     setDrag(null);
   }
 
-  const off = settings == null;
+  const off = settings == null || held;
   const engine_v = value_of(settings, sp.key);
   const v = drag != null ? drag : engine_v;
   const shown = v == null ? sp.model_default : v;
+  const held_note = held ? " Released: Atlas is not sending this to the client." : "";
   return (
-    <div className={"ctl" + (off ? " off" : "")} title={sp.hint}>
+    <div className={"ctl" + (off ? " off" : "")} title={sp.hint + held_note}>
       <span className="ctl-name">{sp.key}</span>
       <Knob
         value={to_knob(sp, shown)}
@@ -181,7 +184,7 @@ export function ControlKnob({ spec: sp, settings, onSend, size = 26 }: ControlKn
         key={sp.key + String(shown)}
         defaultValue={shown.toFixed(digits(sp))}
         onBlur={(e) => {
-          if (e.target.value === "") return;
+          if (held || e.target.value === "") return;
           const nv = snap(sp, parseFloat(e.target.value));
           if (nv !== engine_v) onSend(body_of(sp.key, nv));
         }}
@@ -191,7 +194,7 @@ export function ControlKnob({ spec: sp, settings, onSend, size = 26 }: ControlKn
       />
       <button
         className="ctl-reset"
-        disabled={off || shown === sp.model_default}
+        disabled={off || held || shown === sp.model_default}
         title={"Back to MRT2's default, " + sp.model_default.toFixed(digits(sp))}
         onClick={() => onSend(body_of(sp.key, sp.model_default))}
       >
@@ -201,25 +204,78 @@ export function ControlKnob({ spec: sp, settings, onSend, size = 26 }: ControlKn
   );
 }
 
+export interface OutputSend {
+  harmony: boolean;
+  drums: boolean;
+}
+
 export interface ControlsBarProps {
   settings: any; // the engine's /status settings, or null while it is offline
   sink: boolean;
+  output: OutputSend; // which pages are sending to the SuperConductor client
   onSend: (body: Record<string, unknown>) => void;
+  onOutput: (body: { harmony?: boolean; drums?: boolean }) => void;
 }
 
-export function ControlsBar({ settings, sink, onSend }: ControlsBarProps) {
+const HARMONY_TITLE =
+  "Harmony control. On: Atlas sends the NOTES lane (the chords on this page) and cfg_scales.notes to the SuperConductor client. Off: Atlas resets both to the model default — the NOTES lane cleared, cfg_scales.notes back to MRT2's default — and then stops sending them, so another program can take harmony, or it stays at that default.";
+
+const DRUMS_TITLE =
+  "Drum control. On: the Drums page sends the DRUMS lane, cfg_scales.drums and the style prompt \"drums\" to the SuperConductor client. Off: Atlas resets those to the defaults — the DRUMS lane cleared, cfg_scales.drums back to MRT2's default, the drums prompt removed — and then stops sending them.";
+
+/** One page's send toggle. Checked: Atlas controls that part of the client. */
+function SendToggle({
+  name,
+  on,
+  disabled,
+  title,
+  onChange,
+}: {
+  name: string;
+  on: boolean;
+  disabled: boolean;
+  title: string;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <label className={"send-toggle" + (on ? "" : " off")} title={title}>
+      <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      {on ? name : name + " released"}
+    </label>
+  );
+}
+
+/** Which of Atlas's pages are allowed to send to the SuperConductor client. */
+export function ClientToggles({ output, disabled, onOutput }: { output: OutputSend; disabled: boolean; onOutput: ControlsBarProps["onOutput"] }) {
+  return (
+    <div className="client-send">
+      <span className="controls-label">to client</span>
+      <SendToggle name="harmony" on={output.harmony} disabled={disabled} title={HARMONY_TITLE} onChange={(v) => onOutput({ harmony: v })} />
+      <SendToggle name="drums" on={output.drums} disabled={disabled} title={DRUMS_TITLE} onChange={(v) => onOutput({ drums: v })} />
+    </div>
+  );
+}
+
+function held_key(key: string, output: OutputSend): boolean {
+  if (key === "cfg_scales.notes") return !output.harmony;
+  if (key === "cfg_scales.drums") return !output.drums;
+  return false;
+}
+
+export function ControlsBar({ settings, sink, output, onSend, onOutput }: ControlsBarProps) {
   return (
     <div
       className="controls-row"
       title={
         sink
-          ? "MRT2's sampling controls, sent to SuperConductor's server as UpdateControls (via client_midi /controls); heard after the client's lead"
+          ? "MRT2's sampling controls, sent to SuperConductor's server as UpdateControls (via client_midi /controls); heard after the client's lead. The switches at the left release harmony or drums."
           : "MRT2's sampling controls, passed to the local engine's generate() from the next frame"
       }
     >
+      {sink && <ClientToggles output={output} disabled={settings == null} onOutput={onOutput} />}
       <span className="controls-label">generate()</span>
       {SPECS.map((sp) => (
-        <ControlKnob key={sp.key} spec={sp} settings={settings} onSend={onSend} />
+        <ControlKnob key={sp.key} spec={sp} settings={settings} onSend={onSend} held={sink && held_key(sp.key, output)} />
       ))}
     </div>
   );

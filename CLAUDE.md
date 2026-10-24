@@ -11,10 +11,10 @@ Ollama is installed with qwen3:4b-instruct, so the path descriptions (server/nar
   (`data/session.json`), `narrate.py` the LLM call, `engine_client.py` the audio engine's API.
 - `client/`: React + TypeScript (Vite, strict). `src/App.tsx` owns the page state;
   `src/components/` are the sections. `src/api-types.ts` is generated from the server's
-  OpenAPI schema: `npm --prefix client run gen-types` with the API on :8001.
+  OpenAPI schema: `npm --prefix client run gen-types` with the API on :8763.
 - `audio_engine/`: the Magenta / SuperConductor-sink engine (separate process).
 - Conda env `sc_env_atlas`. `make run` / `make start` build the client when needed;
-  `make dev` runs the API with reload on :8001 and Vite on :8000.
+  `make dev` runs the API with reload on :8763 and Vite on :8764.
 - `pytest tests/` checks that the session file saves and loads.
 
 

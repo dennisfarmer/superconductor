@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "gen-types": "openapi-typescript http://localhost:8001/openapi.json -o src/api-types.ts"
+    "gen-types": "openapi-typescript http://localhost:8763/openapi.json -o src/api-types.ts"
   },
   "dependencies": {
     "@react-three/drei": "9.122.0",
