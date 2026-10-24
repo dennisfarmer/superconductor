@@ -41,9 +41,9 @@ These are the four images. Pushing a branch does not build one.
 
 | Image | GHCR tag | Who publishes it | Pull on lh2300 |
 |---|---|---|---|
-| Client release | `ghcr.io/dennisfarmer/superconductor:client` | **Actions** → **release** → **Run workflow** | `make sif` |
+| Client release | `ghcr.io/dennisfarmer/superconductor_client:client` | **Actions** → **release** → **Run workflow** | `make sif` |
 | Server release | `ghcr.io/dennisfarmer/superconductor_server:server` | the same button | `make sif` in the server checkout |
-| Client dev | `ghcr.io/dennisfarmer/superconductor:client-dev` | `make image-push` on a laptop | `make sif-dev` |
+| Client dev | `ghcr.io/dennisfarmer/superconductor_client:client-dev` | `make image-push` on a laptop | `make sif-dev` |
 | Server dev | `ghcr.io/dennisfarmer/superconductor_server:server-dev` | `make image-push` in the server checkout | `make sif-dev` in the server checkout |
 
 **Release.** The workflow GitHub shows is the one on the `client` branch. It takes the current `client`, `server`, and `atlas` commits, builds both release images, and opens a GitHub Release. The tag points at the client commit. The notes and the `release.json` asset name the server commit and the atlas commit in the client image. Before pressing the button, add bullets under `## [Unreleased]` in `CHANGELOG.md` on both branches; those sections are the release notes. The version defaults to the next patch (`v0.1.0` the first time). The build takes about 10–20 minutes. On lh2300, `make sif` in each checkout pulls the new release tags.

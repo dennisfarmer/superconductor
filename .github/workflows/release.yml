@@ -9,9 +9,9 @@
 # version's commits.
 #
 # GHCR keeps four tags, and a new release moves the two release tags:
-#   ghcr.io/dennisfarmer/superconductor:client                  this workflow
+#   ghcr.io/dennisfarmer/superconductor_client:client                  this workflow
 #   ghcr.io/dennisfarmer/superconductor_server:server           this workflow
-#   ghcr.io/dennisfarmer/superconductor:client-dev              make image-push
+#   ghcr.io/dennisfarmer/superconductor_client:client-dev              make image-push
 #   ghcr.io/dennisfarmer/superconductor_server:server-dev       make image-push
 # Provenance and SBOM are off so each tag is one manifest. Untagged versions
 # are deleted; the four tags stay. `make sif` pulls a release tag, `make sif-dev`
@@ -128,7 +128,7 @@ jobs:
               else:
                   raise SystemExit(f"unknown bump {bump!r}")
 
-          client_image = "ghcr.io/dennisfarmer/superconductor:client"
+          client_image = "ghcr.io/dennisfarmer/superconductor_client:client"
           server_image = "ghcr.io/dennisfarmer/superconductor_server:server"
           # Every line stays indented. A line at column 0 would end the YAML block.
           notes = "\n".join([
@@ -206,14 +206,14 @@ jobs:
           build-contexts: |
             atlas=atlas
           push: true
-          tags: ghcr.io/dennisfarmer/superconductor:client
+          tags: ghcr.io/dennisfarmer/superconductor_client:client
           provenance: false
           sbom: false
           cache-from: type=gha,scope=client
           cache-to: type=gha,mode=max,scope=client
       - uses: actions/delete-package-versions@v5
         with:
-          package-name: superconductor
+          package-name: superconductor_client
           package-type: container
           min-versions-to-keep: 0
           delete-only-untagged-versions: 'true'

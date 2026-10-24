@@ -85,8 +85,8 @@ PLAYBACK_DIR := ../superconductor_playback
 TOUCHDESIGNER_DIR := ../superconductor_touchdesigner
 # Release tags move when someone runs Actions → release. Dev tags move on
 # `make image-push` from a laptop. `make sif` / `make sif-dev` pull those.
-IMAGE_RELEASE ?= ghcr.io/dennisfarmer/superconductor:client
-IMAGE_DEV ?= ghcr.io/dennisfarmer/superconductor:client-dev
+IMAGE_RELEASE ?= ghcr.io/dennisfarmer/superconductor_client:client
+IMAGE_DEV ?= ghcr.io/dennisfarmer/superconductor_client:client-dev
 SIF ?= superconductor_client.sif
 SIF_DEV ?= superconductor_client-dev.sif
 # Which entry in superconductor_client/addresses.toml. Empty means cluster
