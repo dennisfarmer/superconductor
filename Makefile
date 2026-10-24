@@ -51,7 +51,10 @@
 # Container (camera, view and sound in the browser; see client_container/README.md):
 #   make image        build the linux/amd64 dev image from this checkout and the atlas
 #                     worktree; make image-push sends it to :client-dev
-#   make sif          on lh2300: pull the release image again (:client)
+#   make sif          on lh2300: pull the release image again (:client).
+#                     This, and the singularity targets below, source
+#                     /scratch/aimusic_project_root/aimusic_project/shared_data/.singularity/singularity-setup.sh
+#                     first. The copy in this checkout is only a reference.
 #   make sif-dev      on lh2300: pull the dev image again (:client-dev)
 #   make client-singularity       run the release .sif, pulling it if the file is absent.
 #                     DESCRIBE=1 also starts Ollama and the describe server.
@@ -96,8 +99,8 @@ OLLAMA_URL ?=
 # Docker Desktop on a Mac has no GPU to give the container. Used by client-docker, below.
 # GPUS ?= $(if $(filter Darwin,$(shell uname -s)),,--gpus all)
 SC_DATA ?= /scratch/aimusic_project_root/aimusic_project/shared_data/sc_data_$(USER)
-# `singularity pull` cache. The default is ~/.singularity, on the home quota.
-SINGULARITY_CACHEDIR ?= /scratch/aimusic_project_root/aimusic_project/shared_data/.singularity_cache
+# Loads Singularity, sets the cache and ghcr.io login, then returns.
+SINGULARITY_SETUP := /scratch/aimusic_project_root/aimusic_project/shared_data/.singularity/singularity-setup.sh
 
 .PHONY: setup setup-stamp ensure-setup worktrees server describe midi atlas conduct conduct-remote playback touchdesigner client client-local client-remote vision test check-env audio audio-local audio-remote web-deps web-model \
 	image image-push sif sif-dev client-singularity client-singularity-dev
@@ -262,12 +265,10 @@ image-push:
 # 	docker stop sc-client
 
 sif:
-	mkdir -p $(SINGULARITY_CACHEDIR)
-	SINGULARITY_CACHEDIR=$(SINGULARITY_CACHEDIR) singularity pull --force $(SIF) docker://$(IMAGE_RELEASE)
+	bash -c 'source $(SINGULARITY_SETUP) && singularity pull --force $(SIF) docker://$(IMAGE_RELEASE)'
 
 sif-dev:
-	mkdir -p $(SINGULARITY_CACHEDIR)
-	SINGULARITY_CACHEDIR=$(SINGULARITY_CACHEDIR) singularity pull --force $(SIF_DEV) docker://$(IMAGE_DEV)
+	bash -c 'source $(SINGULARITY_SETUP) && singularity pull --force $(SIF_DEV) docker://$(IMAGE_DEV)'
 
 # The file rule pulls only when the .sif is absent. `make sif` still pulls --force.
 $(SIF):
@@ -278,17 +279,11 @@ $(SIF_DEV):
 
 client-singularity: $(SIF)
 	mkdir -p $(SC_DATA)
-	singularity run --nv --bind $(SC_DATA):/data \
-		--env SC_WHERE=$(if $(SC_WHERE),$(SC_WHERE),cluster) \
-		--env SC_SERVICES="$(SC_SERVICES)" \
-		$(SIF)
+	bash -c 'source $(SINGULARITY_SETUP) && singularity run --nv --bind $(SC_DATA):/data --env SC_WHERE=$(if $(SC_WHERE),$(SC_WHERE),cluster) --env SC_SERVICES="$(SC_SERVICES)" $(SIF)'
 
 client-singularity-dev: $(SIF_DEV)
 	mkdir -p $(SC_DATA)
-	singularity run --nv --bind $(SC_DATA):/data \
-		--env SC_WHERE=$(if $(SC_WHERE),$(SC_WHERE),cluster) \
-		--env SC_SERVICES="$(SC_SERVICES)" \
-		$(SIF_DEV)
+	bash -c 'source $(SINGULARITY_SETUP) && singularity run --nv --bind $(SC_DATA):/data --env SC_WHERE=$(if $(SC_WHERE),$(SC_WHERE),cluster) --env SC_SERVICES="$(SC_SERVICES)" $(SIF_DEV)'
 
 check-env:
 ifeq ($(shell uname -s),Darwin)

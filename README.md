@@ -152,9 +152,6 @@ ssh -N -L 8467:localhost:8467 YOUR_UNIQNAME@lh2300
 
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
-module load singularity
-export SINGULARITY_CACHEDIR=/scratch/aimusic_project_root/aimusic_project/shared_data/.singularity_cache
-
 git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
 
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
@@ -165,14 +162,14 @@ git clone -b client --single-branch https://github.com/dennisfarmer/superconduct
 
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
-module load singularity && make server-singularity
+make server-singularity
 ```
 
 Wait until it prints `Serving mrt2_base (jax) on port 9100`. Then start the client image in another terminal on lh2300:
 
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
-module load singularity && make client-singularity
+make client-singularity
 ```
 
 On the Macbook Pro, open a tunnel and leave it open:

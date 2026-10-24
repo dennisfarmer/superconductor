@@ -44,3 +44,6 @@ superconductor_client/tracking/var
 # the browser detector: generated parity fixtures, node packages
 vision_js/test/fixtures/
 node_modules/
+
+# GitHub token for ghcr.io. The real file is shared_data/.singularity/ghcr.token.
+ghcr.token

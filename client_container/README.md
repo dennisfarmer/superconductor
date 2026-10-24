@@ -52,13 +52,7 @@ The release list keeps every version's commits. A new release moves the two rele
 
 **Dev.** On a machine with Docker, `make image` builds `:client-dev` and `make image-push` sends it (log in first: `docker login ghcr.io`, with a token that has `write:packages`). On lh2300, `make sif-dev` pulls that tag into `superconductor_client-dev.sif`, and `make client-singularity-dev` runs it. The server checkout has the same pair: `make image-push`, then `make sif-dev` and `make server-singularity-dev`.
 
-If the package is private, log in once on lh2300:
-
-```bash
-singularity remote login --username dennisfarmer docker://ghcr.io
-```
-
-Use a GitHub token with `read:packages`.
+On lh2300, `make sif` and `make client-singularity` source `/scratch/aimusic_project_root/aimusic_project/shared_data/.singularity/singularity-setup.sh`. That loads Singularity, reads `ghcr.token` in that directory, and logs in to ghcr.io as `dennisfarmer`. The copy of the script at the top of this checkout is only a reference.
 
 ## Run it on lh2300
 
@@ -66,9 +60,6 @@ Use a GitHub token with `read:packages`.
 
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
-module load singularity
-export SINGULARITY_CACHEDIR=/scratch/aimusic_project_root/aimusic_project/shared_data/.singularity_cache
-
 git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
 
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
@@ -80,12 +71,12 @@ git clone -b client --single-branch https://github.com/dennisfarmer/superconduct
 1. On lh2300, start the server image and wait for `Serving mrt2_base (jax) on port 9100`:
    ```bash
    cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
-   module load singularity && make server-singularity
+   make server-singularity
    ```
 2. On lh2300, start the client image:
    ```bash
    cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
-   module load singularity && make client-singularity
+   make client-singularity
    ```
 3. On the laptop: `ssh -N -L 8080:lh2300:8080 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
 4. Open http://localhost:8080 and press **Start**.
