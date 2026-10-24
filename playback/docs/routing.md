@@ -1,16 +1,19 @@
 # Getting the sound where you want it
 
-The plugin connects to the client's `ws://localhost:8470/audio` itself (`../../AUDIO_PROTOCOL.md`), so any program that can load a VST3 (or AU, or LV2) plugin gets the sound directly, with no virtual audio device.
+The plugin connects to the server's playback websocket (`../../AUDIO_PROTOCOL.md`).
+
+- Local server: `ws://localhost:9100/stream/playback`
+- SSH tunnel (`ssh -N -L 9000:lh2300:9100`): `ws://localhost:9000/stream/playback`
+
+One player at a time. The camera page's Start sound, `make audio`, and this plugin each open that socket. A second connection is closed with "Session already active".
 
 Set the DAW (and TouchDesigner) to **48 kHz**: the stream is 48 kHz, so the plugin then passes it through unchanged. Other rates work too; the plugin converts them.
 
-## Clock or monitor
+## The player
 
-Exactly one player paces the server: the **clock**. It tells the client each time it has played a block, and that's what lets the server generate the next one. Every other player is a **monitor**: it gets the same audio and plays along, adjusting its speed by a few hundredths of a percent to stay in step.
+This copy is the player. On connect it sends `Credits` (a lead of 3 blocks). After each block it finishes, it sends `ReceivedChunk`, which lets the server generate the next one. There is no separate monitor connection: the server sends the audio to this socket only.
 
-- The newest player that asked to be the clock is the clock. The camera page asks too, so it goes quiet while the plugin is the clock and plays again when the plugin closes.
-- The plugin starts as the clock in a DAW and in the app, and as a monitor in TouchDesigner. So with a copy in each, the DAW's copy paces the server and TouchDesigner's plays along, with no switching needed. Each copy remembers its setting in its project.
-- Only one copy should send OSC. The plugin sends it by default inside TouchDesigner, where it's used, and not elsewhere; change it with **Send OSC** in the plugin's window.
+Only one copy should send OSC. The plugin sends it by default inside TouchDesigner, where it's used, and not elsewhere; change it with **Send OSC** in the plugin's window.
 
 ## In a DAW
 
@@ -18,7 +21,7 @@ Put **SuperConductor Playback VST3 Plugin** on an instrument track. It plays as 
 
 ## In TouchDesigner
 
-**Audio VST CHOP** → Plugin: `~/Library/Audio/Plug-Ins/VST3/SuperConductor Playback VST3 Plugin.vst3` (Mac) or `C:\Program Files\Common Files\VST3\SuperConductor Playback VST3 Plugin.vst3` (Windows). Its output is the stereo stream as CHOP channels. Open the plugin's window from the CHOP to set Clock/Monitor and OSC.
+**Audio VST CHOP** → Plugin: `~/Library/Audio/Plug-Ins/VST3/SuperConductor Playback VST3 Plugin.vst3` (Mac) or `C:\Program Files\Common Files\VST3\SuperConductor Playback VST3 Plugin.vst3` (Windows). Its output is the stereo stream as CHOP channels. Open the plugin's window from the CHOP to set the stream URL and OSC.
 
 ## Without a DAW: the app
 

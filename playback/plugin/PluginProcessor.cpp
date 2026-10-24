@@ -2,8 +2,21 @@
 
 #include "PluginEditor.h"
 
+#include <cstdlib>
+
 namespace
 {
+// `make playback` sets these. They win over the address saved with the project,
+// so playback-remote and playback-cluster actually open that server.
+void applyLaunchAddress (SCPlaybackProcessor::Settings& settings)
+{
+    if (const char* url = std::getenv ("SC_PLAYBACK_URL"); url != nullptr && url[0] != '\0')
+        settings.url = juce::String (url).trim();
+    if (const char* http = std::getenv ("SC_SERVER_HTTP"); http != nullptr && http[0] != '\0')
+        settings.osc.serverUrl = juce::String (http).trim().toStdString();
+}
+
+
 // JUCE doesn't recognise TouchDesigner as a host; its executable name does
 juce::String hostName()
 {
@@ -18,12 +31,10 @@ juce::String hostName()
 SCPlaybackProcessor::SCPlaybackProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
-    // in TouchDesigner the plugin usually plays along with the DAW's copy, so it starts
-    // as a monitor there; anywhere else it starts as the clock. TouchDesigner is also
-    // where the OSC is used, so that copy sends it unless told otherwise.
+    // OSC is used inside TouchDesigner, so that copy sends it unless told otherwise.
     const bool inTouchDesigner = wrapperType != wrapperType_Standalone && hostName() == "TouchDesigner";
-    settings.clock = ! inTouchDesigner;
     settings.osc.enabled = inTouchDesigner;
+    applyLaunchAddress (settings);
     setSettings (settings);
 }
 
@@ -34,7 +45,7 @@ SCPlaybackProcessor::~SCPlaybackProcessor()
 
 juce::String SCPlaybackProcessor::playerName() const
 {
-    // how the client's other players see this one ("sound plays in ...")
+    // shown in this window's status line
     if (wrapperType == wrapperType_Standalone)
         return "SuperConductor Playback VST3 Plugin";
     return "SuperConductor Playback VST3 Plugin in " + hostName();
@@ -49,10 +60,10 @@ SCPlaybackProcessor::Settings SCPlaybackProcessor::getSettings() const
 void SCPlaybackProcessor::setSettings (const Settings& s)
 {
     std::lock_guard<std::mutex> l (settingsLock);
-    const bool reconnect = s.url != settings.url || s.clock != settings.clock || ! playerStatus().connected;
+    const bool reconnect = s.url != settings.url || ! playerStatus().connected;
     settings = s;
     if (reconnect)
-        player.connect (s.url.toStdString(), s.clock, playerName().toStdString());
+        player.connect (s.url.toStdString(), playerName().toStdString());
     osc.apply (s.osc);
 }
 
@@ -104,7 +115,6 @@ void SCPlaybackProcessor::getStateInformation (juce::MemoryBlock& destData)
     const auto s = getSettings();
     juce::ValueTree state ("SCPlayback");
     state.setProperty ("url", s.url, nullptr);
-    state.setProperty ("clock", s.clock, nullptr);
     state.setProperty ("oscEnabled", s.osc.enabled, nullptr);
     state.setProperty ("oscHost", juce::String (s.osc.host), nullptr);
     state.setProperty ("oscPort", s.osc.port, nullptr);
@@ -125,13 +135,13 @@ void SCPlaybackProcessor::setStateInformation (const void* data, int sizeInBytes
         return;
     Settings s;
     s.url = state.getProperty ("url", s.url).toString();
-    s.clock = state.getProperty ("clock", s.clock);
     s.osc.enabled = state.getProperty ("oscEnabled", s.osc.enabled);
     s.osc.host = state.getProperty ("oscHost", juce::String (s.osc.host)).toString().toStdString();
     s.osc.port = state.getProperty ("oscPort", s.osc.port);
     s.osc.bands = state.getProperty ("bands", s.osc.bands);
     s.osc.rate = state.getProperty ("oscRate", s.osc.rate);
     s.osc.serverUrl = state.getProperty ("serverUrl", juce::String (s.osc.serverUrl)).toString().toStdString();
+    applyLaunchAddress (s);
     setSettings (s);
 }
 

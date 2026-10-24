@@ -1,16 +1,18 @@
 #pragma once
 
-// The connection to the client's WS /audio (AUDIO_PROTOCOL.md).
+// The connection to the server's GET /stream/playback.
 //
 //   in:  binary [uint32 LE seq][float32 LE interleaved stereo, 48 kHz]   -> AudioQueue
-//        {"type": "role", "role": "clock" | "monitor", "clock": name}
-//        {"type": "pause"}
-//   out: {"type": "ack"}       (clock only) one per block the audio thread finished
-//        {"type": "underrun"}  (clock only) once per stretch of silence
+//        {"type": "Ready"|"Stats"|"Error", ...}
+//   out: {"type": "Credits", "body": {"credits": N}}   once, on connect
+//        {"type": "ReceivedChunk", "body": null}       one per block played
+//
+// Local server: ws://localhost:9100/stream/playback
+// SSH tunnel:   ws://localhost:9000/stream/playback
 //
 // IXWebSocket runs the socket on its own thread and reconnects by itself; a small
-// sender thread turns the audio thread's counters into acks, so the audio thread
-// never touches the network.
+// sender thread turns the audio thread's counters into ReceivedChunk, so the audio
+// thread never touches the network.
 
 #include <atomic>
 #include <mutex>
@@ -29,8 +31,8 @@ public:
     explicit StreamClient (AudioQueue& queue);
     ~StreamClient();
 
-    // (re)connects; `wantsClock` asks for role=clock, otherwise role=monitor
-    void connect (const std::string& url, bool wantsClock, const std::string& name);
+    // (re)connects to the playback websocket. This connection is the player.
+    void connect (const std::string& url, const std::string& name);
     void disconnect();
 
     // audio thread

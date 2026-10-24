@@ -1,8 +1,7 @@
 #pragma once
 
 // Reads the 48 kHz stream out of an AudioQueue at the host's rate. `ratio` is the
-// number of stream samples per output sample: 48000 / host rate, times a small drift
-// correction when this player is a monitor (see Player).
+// number of stream samples per output sample: 48000 / host rate.
 
 #include <juce_audio_basics/juce_audio_basics.h>
 

@@ -15,13 +15,6 @@ SCPlaybackEditor::SCPlaybackEditor (SCPlaybackProcessor& p) : AudioProcessorEdit
     addField (serverLabel, "MRT2 server", server);
     port.setInputRestrictions (5, "0123456789");
 
-    roleLabel.setText ("Role", juce::dontSendNotification);
-    addAndMakeVisible (roleLabel);
-    role.addItem ("Clock: this copy sets the pace", 1);
-    role.addItem ("Monitor: plays along", 2);
-    role.onChange = [this] { apply(); };
-    addAndMakeVisible (role);
-
     oscLabel.setText ("OSC", juce::dontSendNotification);
     addAndMakeVisible (oscLabel);
     oscEnabled.onClick = [this] { apply(); };
@@ -46,7 +39,7 @@ SCPlaybackEditor::SCPlaybackEditor (SCPlaybackProcessor& p) : AudioProcessorEdit
     addAndMakeVisible (status);
 
     load();
-    setSize (520, 410);
+    setSize (520, 374);
     startTimerHz (10);
 }
 
@@ -63,7 +56,6 @@ void SCPlaybackEditor::load()
 {
     const auto s = processor.getSettings();
     url.setText (s.url, false);
-    role.setSelectedId (s.clock ? 1 : 2, juce::dontSendNotification);
     oscEnabled.setToggleState (s.osc.enabled, juce::dontSendNotification);
     host.setText (s.osc.host, false);
     port.setText (juce::String (s.osc.port), false);
@@ -76,7 +68,6 @@ void SCPlaybackEditor::apply()
 {
     auto s = processor.getSettings();
     s.url = url.getText().trim();
-    s.clock = role.getSelectedId() != 2;
     s.osc.enabled = oscEnabled.getToggleState();
     s.osc.host = host.getText().trim().toStdString();
     s.osc.port = juce::jlimit (1, 65535, port.getText().getIntValue());
@@ -92,15 +83,10 @@ void SCPlaybackEditor::timerCallback()
     juce::String text;
     if (! st.connected)
         text << "Not connected" << (st.error.empty() ? juce::String() : ": " + juce::String (st.error)) << "\n";
-    else if (st.clock)
-        text << "Connected: this copy is the clock\n";
     else
-        text << "Connected: monitoring (the clock is "
-             << (st.clockName.empty() ? juce::String ("nobody") : juce::String (st.clockName)) << ")\n";
+        text << "Connected\n";
     text << (st.playing ? "Playing" : "Waiting for audio")
          << "   buffered " << juce::String (st.bufferedMs, 0) << " ms";
-    if (! st.clock && st.connected)
-        text << "   speed " << (st.driftPercent >= 0 ? "+" : "") << juce::String (st.driftPercent, 3) << " %";
     text << "\nBlocks " << juce::String (st.blocks) << "   underruns " << juce::String (st.underruns)
          << "\nOSC " << (processor.oscSending() ? "sending" : "off")
          << "   as " << processor.playerName();
@@ -131,8 +117,6 @@ void SCPlaybackEditor::resized()
     };
 
     place (row(), urlLabel, url);
-    place (row(), roleLabel, role);
-    area.removeFromTop (gap);
     place (row(), oscLabel, oscEnabled);
     place (row(), hostLabel, host);
     place (row(), portLabel, port);

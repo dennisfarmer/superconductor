@@ -20,9 +20,9 @@ private:
 
     SCPlaybackProcessor& processor;
 
-    juce::Label urlLabel, roleLabel, oscLabel, hostLabel, portLabel, bandsLabel, rateLabel, serverLabel;
+    juce::Label urlLabel, oscLabel, hostLabel, portLabel, bandsLabel, rateLabel, serverLabel;
     juce::TextEditor url, host, port, server;
-    juce::ComboBox role, bands, rate;
+    juce::ComboBox bands, rate;
     juce::ToggleButton oscEnabled { "Send OSC (only one copy should)" };
     juce::Label status;
     float meter = 0.0f;

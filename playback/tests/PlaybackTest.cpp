@@ -2,11 +2,11 @@
 //
 //   SCPlaybackTest unit
 //       the queue (acks, flush) and the resampler, offline
-//   SCPlaybackTest live [--url ws://localhost:8470/audio] [--monitor] [--seconds 20]
+//   SCPlaybackTest live [--url ws://localhost:9100/stream/playback] [--seconds 20]
 //                       [--osc-port 7000] [--server http://localhost:9100]
-//       a Player against the real client, its "sound card" a thread that pulls 512
+//       a Player against the real server, its "sound card" a thread that pulls 512
 //       samples at a time at 48 kHz in real time (nothing is played). Prints the status
-//       once a second; exits 1 if it never played or had underruns while the clock.
+//       once a second; exits 1 if it never played or had underruns.
 
 #include <chrono>
 #include <cmath>
@@ -107,13 +107,12 @@ int liveTest (const juce::StringArray& args)
         const auto i = args.indexOf (name);
         return i >= 0 && i + 1 < args.size() ? args[i + 1] : fallback;
     };
-    const auto url = option ("--url", "ws://localhost:8470/audio").toStdString();
-    const bool clock = ! args.contains ("--monitor");
+    const auto url = option ("--url", "ws://localhost:9100/stream/playback").toStdString();
     const auto seconds = option ("--seconds", "20").getIntValue();
 
     sc::Player player;
     player.prepare (48000.0, 512);
-    player.connect (url, clock, clock ? "SCPlaybackTest (clock)" : "SCPlaybackTest (monitor)");
+    player.connect (url, "SCPlaybackTest");
 
     sc::OscSender osc (player.featureTap());
     sc::OscSender::Settings oscSettings;
@@ -149,8 +148,7 @@ int liveTest (const juce::StringArray& args)
         everPlayed = everPlayed || st.playing;
         if (st.playing && underrunsAtStart < 0)
             underrunsAtStart = st.underruns;
-        std::cout << s << "s  " << (st.connected ? (st.clock ? "clock  " : "monitor") : "offline")
-                  << "  clock=" << (st.clockName.empty() ? "-" : st.clockName)
+        std::cout << s << "s  " << (st.connected ? "player " : "offline")
                   << "  playing=" << st.playing << "  blocks=" << st.blocks
                   << "  buffered=" << juce::String (st.bufferedMs, 0) << "ms"
                   << "  speed=" << juce::String (st.driftPercent, 3) << "%"
@@ -165,7 +163,7 @@ int liveTest (const juce::StringArray& args)
     const auto st = player.status();
     const auto underruns = underrunsAtStart < 0 ? 0 : st.underruns - underrunsAtStart;
     std::cout << (everPlayed ? "played" : "never played") << ", " << underruns << " underruns while playing\n";
-    return everPlayed && (! clock || underruns == 0) ? 0 : 1;
+    return everPlayed && underruns == 0 ? 0 : 1;
 }
 } // namespace
 
@@ -178,6 +176,6 @@ int main (int argc, char** argv)
         return unitTests();
     if (args[0] == "live")
         return liveTest (args);
-    std::cerr << "usage: SCPlaybackTest unit | live [--url URL] [--monitor] [--seconds N] [--osc-port P] [--server URL]\n";
+    std::cerr << "usage: SCPlaybackTest unit | live [--url URL] [--seconds N] [--osc-port P] [--server URL]\n";
     return 2;
 }

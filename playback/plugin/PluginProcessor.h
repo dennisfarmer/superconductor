@@ -7,15 +7,15 @@
 #include "OscSender.h"
 #include "Player.h"
 
-// The plugin: plays the stream on its output bus. Its settings (stream URL, clock or
-// monitor, OSC) are saved with the host's project; they are not automatable parameters.
+// The plugin: plays the server's /stream/playback on its output bus. Its settings
+// (stream URL, OSC) are saved with the host's project; they are not automatable
+// parameters. A saved "clock" property from an older project is ignored.
 class SCPlaybackProcessor final : public juce::AudioProcessor
 {
 public:
     struct Settings
     {
-        juce::String url = "ws://localhost:8470/audio";
-        bool clock = true;
+        juce::String url = "ws://localhost:9100/stream/playback";
         sc::OscSender::Settings osc;
     };
 

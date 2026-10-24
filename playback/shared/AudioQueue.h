@@ -5,7 +5,8 @@
 // "has this block finished playing" is a plain comparison.
 //
 // The queue also remembers where each block ends: a block counts as played once the
-// reader is past its end, which is what the clock acks to the client (AUDIO_PROTOCOL.md).
+// reader is past its end, which is what this player answers with ReceivedChunk
+// (AUDIO_PROTOCOL.md).
 
 #include <atomic>
 #include <cstdint>
@@ -21,7 +22,7 @@ public:
     // network thread -------------------------------------------------------------
     // one block of interleaved stereo; false if it didn't fit (the reader stalled)
     bool push (const float* interleaved, int frames);
-    // drop everything queued so far: a new clock gets the unacked blocks sent again
+    // drop everything queued so far. A new connection does not replay blocks already sent.
     void flush();
 
     // audio thread ---------------------------------------------------------------

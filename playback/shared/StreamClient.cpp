@@ -25,12 +25,11 @@ StreamClient::~StreamClient()
     socket.stop();
 }
 
-void StreamClient::connect (const std::string& url, bool wantsClock, const std::string& name)
+void StreamClient::connect (const std::string& url, const std::string&)
 {
     socket.stop();
-    const auto sep = url.find ('?') == std::string::npos ? "?" : "&";
-    const auto encodedName = juce::URL::addEscapeChars (juce::String (name), true).toStdString();
-    socket.setUrl (url + sep + "role=" + (wantsClock ? "clock" : "monitor") + "&name=" + encodedName);
+    clock = true;  // this socket is the one player, local or through the tunnel
+    socket.setUrl (url);
     socket.enableAutomaticReconnection();
     socket.start();
 }
@@ -62,8 +61,11 @@ void StreamClient::onMessage (const ix::WebSocketMessagePtr& msg)
         {
             queue.flush();  // whatever is left from an earlier connection
             connected = true;
+            clock = true;
+            resyncAcks = true;
             std::lock_guard<std::mutex> lock (textLock);
             errorText.clear();
+            socket.sendText (R"({"type":"Credits","body":{"credits":3}})");
             break;
         }
         case ix::WebSocketMessageType::Close:
@@ -103,22 +105,11 @@ void StreamClient::onText (const std::string& text)
 {
     const auto json = juce::JSON::parse (juce::String (text));
     const auto type = json["type"].toString();
-    if (type == "role")
+    if (type == "Error")
     {
-        const bool nowClock = json["role"].toString() == "clock";
-        if (nowClock && ! clock.load())
-        {
-            // the blocks not acked yet come again: start from an empty queue
-            queue.flush();
-            resyncAcks = true;
-        }
-        clock = nowClock;
         std::lock_guard<std::mutex> lock (textLock);
-        clockNameText = json["clock"].isString() ? json["clock"].toString().toStdString() : std::string();
-    }
-    else if (type == "pause")
-    {
-        paused = true;  // the silence that follows isn't an underrun
+        const auto body = json["body"];
+        errorText = body.isObject() ? body["error"].toString().toStdString() : std::string();
     }
 }
 
@@ -139,12 +130,8 @@ void StreamClient::senderLoop()
             continue;
         }
         for (; acked < played; ++acked)
-            socket.sendText (R"({"type": "ack"})");
-        if (under > underrunsSent)
-        {
-            socket.sendText (R"({"type": "underrun"})");
-            underrunsSent = under;
-        }
+            socket.sendText (R"({"type":"ReceivedChunk","body":null})");
+        underrunsSent = under;
     }
 }
 } // namespace sc
