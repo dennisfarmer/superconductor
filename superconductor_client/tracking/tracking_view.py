@@ -4,12 +4,13 @@ e.g. /conduct, go here too):
     http://localhost:8467/          the camera page (app.html): the browser's camera,
                                     its detector (vision_js + tracker_js), the view
                                     with the overlay drawn on it, and the audio
-    http://localhost:8467/objects   the objects page
+    http://localhost:8467/objects   the prompts page
 
-The objects page shows every
-object the app knows, with its picture, id, name, description, instrument and
-trigger, plus the combos (objects that play something else together). All of
-it is edited there; changes apply immediately and are saved to the library.
+The prompts page shows parameters (knobs added there, and prompts other
+services send, such as Atlas drums) and every object the app knows, with its
+picture, id, name, description, instrument and trigger, plus the combos
+(objects that play something else together). All of it is edited there;
+changes apply immediately and are saved to the library.
 
 Runs in a daemon thread. The camera loop owns all object state: it publishes a
 snapshot with `publish()`, and edits from the page are queued in `actions` and
@@ -69,7 +70,7 @@ class TrackingView:
         self.page_config = page_config or {}
         self.web_dir = Path(web_dir) if web_dir else None
         self.actions = queue.Queue()  # (kind, id, body) for the camera loop
-        self._state = {"objects": [], "combos": []}  # replaced by publish()
+        self._state = {"objects": [], "combos": [], "parameters": []}  # replaced by publish()
         self._views = {}  # id -> [jpeg bytes per view], newest last
         self._lock = threading.Lock()
         self._frame = None  # (seq, jpeg bytes, header or None): the newest frame from the browser
@@ -148,6 +149,10 @@ class TrackingView:
         app.router.add_post("/api/combos", self._combo_add)
         app.router.add_post("/api/combos/{id}", self._combo_edit)
         app.router.add_delete("/api/combos/{id}", self._combo_delete)
+        app.router.add_post("/api/parameters", self._param_add)
+        app.router.add_post("/api/parameters/{id}", self._param_edit)
+        app.router.add_post("/api/parameters/{id}/icon", self._param_icon)
+        app.router.add_delete("/api/parameters/{id}", self._param_delete)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
@@ -236,6 +241,15 @@ class TrackingView:
         self.actions.put((kind, int(request.match_info.get("id", -1)), body or {}))
         return web.json_response({"ok": True}, status=202)
 
+    def _put(self, kind, key, body=None):
+        self.actions.put((kind, key, body or {}))
+        return web.json_response({"ok": True}, status=202)
+
+    @staticmethod
+    def _key(request):
+        raw = request.match_info["id"]
+        return int(raw) if raw.isdigit() else raw
+
     async def _edit(self, request):
         body = await request.json()
         return self._queue("edit", request, {k: body[k] for k in ("name", "instrument", "trigger", "color", "frozen")
@@ -280,3 +294,15 @@ class TrackingView:
 
     async def _combo_delete(self, request):
         return self._queue("combo_delete", request)
+
+    async def _param_add(self, request):
+        return self._put("param_add", -1)
+
+    async def _param_edit(self, request):
+        return self._put("param_edit", self._key(request), await request.json())
+
+    async def _param_icon(self, request):
+        return self._put("param_icon", self._key(request))
+
+    async def _param_delete(self, request):
+        return self._put("param_delete", self._key(request))

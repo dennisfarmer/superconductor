@@ -65,7 +65,9 @@ learn_threshold = 0.65        # ...and at least this similar to the closest one 
 
 [describe]
 # describe server (superconductor_client/describe/, `make describe`): a Qwen VLM writes a
-# one-time description of each new object and suggests an instrument from it
+# one-time description of each new object and suggests an instrument from it.
+# POST /svg draws an icon for a parameter prompt (SVGen: mlx-lm on macOS, transformers
+# on the cluster; the weights load on the first icon).
 server_url = "http://localhost:9200"
 
 [web]

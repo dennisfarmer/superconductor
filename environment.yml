@@ -87,6 +87,15 @@ dependencies:
       - orbax-checkpoint==0.12.5
       - resampy==0.4.3
       - safetensors==0.8.0
+      # parameter icons: mlx-lm on this Mac (pinned to the mlx above; 0.32 breaks
+      # magenta-rt's .mlxfn files). transformers 5.12.1, not 5.13+, which breaks
+      # this mlx-lm's tokenizer registration. The cluster image uses transformers only.
+      - mlx-lm==0.31.2
+      - transformers==5.12.1
+      - tokenizers==0.22.2
+      - tqdm==4.70.1
+      - pyyaml==6.0.3
+      - typer==0.27.3
       - simple-term-menu==1.6.6
       - soundfile==0.13.1
       - typeguard==2.13.3

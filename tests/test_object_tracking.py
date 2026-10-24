@@ -13,6 +13,7 @@ import cv2
 
 from superconductor_client.tracking.object_tracking import (Combo, IdentityRegistry, ObjectLibrary, Parameter, ParameterMapper,
                                               TrackedObject)
+from superconductor_client.tracking.object_tracking.library import service_cards
 from superconductor_client.tracking.object_tracking.identity import H_BINS, S_BINS
 
 W, H = 1000, 1000
@@ -401,6 +402,30 @@ def test_library_keeps_ids_names_and_instruments_across_sessions():
         assert not (root / str(p.id)).exists() and len(list((root / ".trash").iterdir())) == 1
         run(reg2, [[(7, "chimchar", 500, 500)]] * 10)
         assert max(i.id for i in reg2.identities) == p.id + 1
+
+
+def test_parameter_knobs_and_service_icons_survive_restart():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "library"
+        lib = ObjectLibrary(root, "fake")
+        knobs = [{"id": 1, "name": "soft", "prompt": "soft drums", "trigger": "near",
+                  "color": "#112233", "svg": "<svg></svg>", "svg_rev": 2}]
+        lib.save_parameters(knobs)
+        lib.save_icons({"drums": "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"})
+        again = ObjectLibrary(root, "fake")
+        assert again.load_parameters() == knobs
+        assert again.load_icons()["drums"].startswith("<svg")
+
+
+def test_service_cards_include_atlas_drums_and_skip_zero_weights():
+    cards = service_cards({"drums": 0.4, "quiet": 0, "": 1, "pad": "0.2"},
+                          icons={"drums": "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"})
+    by = {c["prompt"]: c for c in cards}
+    assert set(by) == {"drums", "pad"}
+    assert by["drums"]["service"] == "Atlas" and by["drums"]["editable"] is False
+    assert by["drums"]["id"] == "svc:drums" and by["drums"]["value"] == 0.4
+    assert by["drums"]["svg"].startswith("<svg") and by["drums"]["svg_rev"]
+    assert by["pad"]["service"] == "external" and by["pad"]["svg"] is None
 
 
 def test_old_library_layout_is_converted():

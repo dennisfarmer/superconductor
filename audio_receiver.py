@@ -108,12 +108,13 @@ async def play(url, role, device):
 @click.option("--role", default="clock", type=click.Choice(["clock", "monitor"]),
               help="clock: play and pace the server (the camera page goes quiet); monitor: only play along.")
 @click.option("--device", default=None, help="Output device (name or index; see --list-devices).")
-@click.option("--list-devices", is_flag=True, help="List the sound devices and exit.")
+@click.option("--list-devices", is_flag=True, help="List output devices and exit.")
 def main(url, role, device, list_devices):
     if list_devices:
         import sounddevice as sd
 
-        print(sd.query_devices())
+        devices = sd.query_devices()
+        print(sd.DeviceList(d for d in devices if d["max_output_channels"] > 0))
         return
     if device is not None and device.isdigit():
         device = int(device)

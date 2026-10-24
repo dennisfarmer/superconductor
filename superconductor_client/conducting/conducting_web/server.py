@@ -46,7 +46,7 @@ WEB_DIR = ROOT / "var" / "web"  # make web-deps: mediapipe/ and models/
 
 
 def smooth(old, new):
-    """the camera page's smoothing of its status numbers (client-web app.html)"""
+    """the camera page's smoothing of its status numbers (tracking/app.html)"""
     return new if old is None else 0.7 * old + 0.3 * new
 
 

@@ -1,5 +1,5 @@
 # Client dependencies for the container (linux/amd64): pyproject.toml's, minus the
-# MLX / magenta-rt ones (Mac only; the client doesn't import them, the MRT2 server
+# MLX / magenta-rt ones (the laptop only; the client doesn't import them, the MRT2 server
 # runs elsewhere). torch / torchvision come from PyTorch's CUDA 12.6 index: PyPI's are
 # built for CUDA 13, which dropped the V100 (sm_70) on lh2300. They run on the CPU too.
 --extra-index-url https://download.pytorch.org/whl/cu126
@@ -56,3 +56,13 @@ regex==2026.9.10
 # exporting the camera page's detector to ONNX (superconductor_client/tracking/web_model.py)
 onnx==1.23.2
 onnxslim==0.1.98
+# parameter icons (describe POST /svg): SVGen's Qwen2.5-3B via transformers.
+# mlx-lm is macOS only and lives in environment.yml. 5.12.1 stays below 5.13,
+# which breaks mlx-lm 0.31's tokenizer registration on the laptop.
+transformers==5.12.1
+huggingface-hub==1.16.1
+tokenizers==0.22.2
+safetensors==0.8.0
+tqdm==4.70.1
+PyYAML==6.0.3
+typer==0.27.3

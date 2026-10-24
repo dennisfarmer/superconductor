@@ -6,14 +6,19 @@ instrument prompt that fits that description. Everything about the VLM (model,
 prompts, backend) lives in this folder, so the server can run on the laptop
 or on a cluster GPU node behind an SSH tunnel; only the client's URL changes.
 
-The VLM runs in Ollama (https://ollama.com), called over its HTTP API, so this
-process only needs aiohttp. Requests are handled one at a time.
+The VLM runs in Ollama (https://ollama.com), called over its HTTP API, so the
+description endpoints only need aiohttp. Requests are handled one at a time.
 
 HTTP API:
   POST /describe    {"image": "<base64 jpeg>"}  -> {"description": "..."}
   POST /instrument  {"description": "..."}      -> {"instrument": "fiery thundering taiko drums"}
   POST /name        {"description": "..."}      -> {"name": "green plush dinosaur"}
-  GET  /health                                  -> {"model": ..., "backend": "ollama", "host": ...}
+  POST /svg         {"prompt": "..."}           -> {"svg": "<svg ...>...</svg>"}
+  GET  /health                                  -> {"model": ..., "backend": "ollama", "host": ...,
+                                                    "svg_model": ..., "svg_backend": ..., "svg_ready": ...}
+
+/svg is a local text model (SVGen, a Qwen2.5-3B fine-tune), not Ollama: mlx-lm
+on macOS, transformers on the cluster. Its weights load on the first request.
 """
 import argparse
 import asyncio
@@ -22,6 +27,12 @@ import time
 
 import aiohttp
 from aiohttp import web
+
+if __package__:
+    from .svg_model import SVG_MODEL, SvgError, SvgModel
+else:
+    # `python describe_server.py` from this folder (make describe)
+    from svg_model import SVG_MODEL, SvgError, SvgModel
 
 DESCRIBE_PROMPT = (
     "Describe this object in detail. Say what it is (name it if it is a known "
@@ -64,9 +75,12 @@ class DescribeServer:
         self._lock = asyncio.Lock()  # one VLM request at a time
         self._session = None
         self._app = web.Application(client_max_size=16 * 1024 * 1024)
+        self._svg = SvgModel()
+        self._svg_lock = asyncio.Lock()
         self._app.router.add_post("/describe", self._handle_describe)
         self._app.router.add_post("/instrument", self._handle_instrument)
         self._app.router.add_post("/name", self._handle_name)
+        self._app.router.add_post("/svg", self._handle_svg)
         self._app.router.add_get("/health", self._handle_health)
         self._app.on_startup.append(self._start)
         self._app.on_cleanup.append(self._stop)
@@ -84,6 +98,12 @@ class DescribeServer:
         if self._model not in names:
             raise SystemExit(f"model {self._model} not pulled in Ollama: run `make pull MODEL={self._model}`")
         print(f"Serving {self._model} (ollama) on port {self._port}", flush=True)
+        if self._svg.installed():
+            print(f"SVG icons: {self._svg.model_id} via {self._svg.backend} "
+                  "(loads on the first POST /svg)", flush=True)
+        else:
+            print(f"SVG icons: {self._svg.backend} is not installed, POST /svg will fail "
+                  f"until it is (model {self._svg.model_id})", flush=True)
 
     async def _stop(self, app):
         await self._session.close()
@@ -125,8 +145,31 @@ class DescribeServer:
         name = _clean_instrument(text).lower()
         return web.json_response({"name": " ".join(name.split()[:4])})
 
+    async def _handle_svg(self, request):
+        """{"prompt": "..."} -> {"svg": "<svg...>"} drawn by the local SVGen model"""
+        try:
+            data = await request.json()
+        except ValueError:
+            raise web.HTTPBadRequest(text="body must be JSON")
+        prompt = str((data or {}).get("prompt") or "").strip()
+        if not prompt:
+            raise web.HTTPBadRequest(text="missing 'prompt'")
+        async with self._svg_lock:
+            t0 = time.time()
+            try:
+                svg = await asyncio.to_thread(self._svg.generate, prompt)
+            except SvgError as e:
+                print(f"svg: {e}", flush=True)
+                return web.Response(status=e.status, text=str(e))
+        print(f"svg: {time.time() - t0:.1f}s", flush=True)
+        return web.json_response({"svg": svg})
+
     async def _handle_health(self, request):
-        return web.json_response({"model": self._model, "backend": "ollama", "host": socket.gethostname()})
+        return web.json_response({
+            "model": self._model, "backend": "ollama", "host": socket.gethostname(),
+            "svg_model": self._svg.model_id, "svg_backend": self._svg.backend,
+            "svg_ready": self._svg.ready, "svg_error": self._svg.error,
+        })
 
 
 def main():
@@ -138,8 +181,14 @@ def main():
     parser.add_argument("--keep_alive", default="10m",
                         help="how long Ollama keeps the model loaded after a request "
                              "(e.g. 0 to free the GPU right away, -1 forever)")
+    parser.add_argument("--svg-model", default=SVG_MODEL,
+                        help="local text-to-SVG model (mlx-lm on macOS, transformers on the cluster)")
+    parser.add_argument("--svg-backend", default=None, choices=["mlx", "transformers"],
+                        help="override the SVG backend (default: mlx on macOS, transformers elsewhere)")
     args = parser.parse_args()
-    DescribeServer(args.ollama_url, args.model, args.port, args.keep_alive).run()
+    server = DescribeServer(args.ollama_url, args.model, args.port, args.keep_alive)
+    server._svg = SvgModel(args.svg_model, args.svg_backend)
+    server.run()
 
 
 if __name__ == "__main__":

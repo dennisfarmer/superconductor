@@ -2,7 +2,7 @@
 
 ## Symptom
 
-On the Mac (setup 1, browser detection on WebGPU), objects in front of the camera often aren't **detected** at all: YOLOE in the browser doesn't return a box for them. The native Python client (YOLOE-11s-seg on the same scene) detects them.
+On the laptop (everything local, browser detection on WebGPU), objects in front of the camera often aren't **detected** at all: YOLOE in the browser doesn't return a box for them. The native Python client (YOLOE-11s-seg on the same scene) detects them.
 
 This is the **detection** stage: frame → YOLOE → boxes. It isn't tracking (BoT-SORT) or recognition (DINOv2 / identities).
 

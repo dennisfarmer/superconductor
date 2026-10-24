@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SuperConductor — Objects</title>
+<title>Superconductor - Prompts (MusicCoCa)</title>
 <style>
   :root {
     --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #deded8;
@@ -22,8 +22,11 @@
            display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   h1 { font-size: 20px; margin: 0; }
   #status { color: var(--muted); font-size: 13px; }
-  main { max-width: 1100px; margin: 0 auto; padding: 8px 16px 40px;
-         display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .grid { max-width: 1100px; margin: 0 auto; padding: 8px 16px 40px;
+          display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .grid[hidden] { display: none; }
+  #parameters { align-items: start; }
+  .thumb.icon { object-fit: contain; padding: 8px; background: var(--field); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
           display: grid; grid-template-columns: 96px 1fr; gap: 12px; }
   .card.away { opacity: .72; }
@@ -31,6 +34,7 @@
   .swatch { position: absolute; top: 10px; right: 10px; width: 22px; height: 22px; padding: 0;
             border-radius: 50%; border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--line); cursor: pointer; }
   .swatch:hover { box-shadow: 0 0 0 2px var(--accent); }
+  .swatch:disabled { cursor: default; pointer-events: none; }
   .swatch.none { background: transparent; border: 1px dashed var(--muted); box-shadow: none; }
   .picker { position: absolute; z-index: 20; width: 212px; padding: 12px; border-radius: 10px;
             background: var(--card); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(0, 0, 0, .25); }
@@ -104,6 +108,10 @@
            border: 1px solid var(--line); background: var(--field); color: var(--text); }
   button:hover { border-color: var(--accent); }
   button.danger { color: var(--danger); margin-left: auto; }
+  .add-tile { width: 100%; aspect-ratio: 1; align-self: start; padding: 0; font-size: 64px; font-weight: 300;
+              line-height: 1; color: var(--muted); background: var(--card);
+              border: 1px dashed var(--line); border-radius: 10px; }
+  .add-tile:hover { color: var(--accent); border-color: var(--accent); }
   .empty { color: var(--muted); grid-column: 1 / -1; padding: 40px 0; text-align: center; }
   select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
            background: var(--field); color: var(--text); }
@@ -128,6 +136,11 @@
   #services a, #api a { color: var(--accent); text-decoration: none; }
   #services a:hover, #api a:hover { text-decoration: underline; }
   section.combos { max-width: 1100px; margin: 0 auto; padding: 4px 16px 12px; }
+  section.tracked { max-width: 1100px; margin: 0 auto; padding: 4px 16px 0; }
+  .panel-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
+  .panel-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+                       padding: 6px 12px; color: var(--muted); }
+  .panel-tabs button[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
   h2 { font-size: 15px; margin: 8px 0; }
   .combo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
            display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
@@ -152,7 +165,7 @@
 </head>
 <body>
 <header>
-  <h1>SuperConductor — Objects</h1>
+  <h1>Superconductor - Prompts (MusicCoCa)</h1>
   <span id="status">connecting…</span>
   <button id="play" disabled title="pause / resume music generation on the server">Pause</button>
 </header>
@@ -178,7 +191,14 @@
     <button id="add-combo">Add combo</button>
   </div>
 </section>
-<main id="list"><p class="empty">No objects yet. Show something to the camera.</p></main>
+<section class="tracked">
+  <nav class="panel-tabs" role="tablist" aria-label="Prompts">
+    <button role="tab" data-panel="parameters" aria-selected="true">Parameters</button>
+    <button role="tab" data-panel="objects" aria-selected="false">Objects</button>
+  </nav>
+</section>
+<div id="parameters" class="grid"><button type="button" id="add-param" class="add-tile" title="New parameter">+</button></div>
+<main id="list" class="grid" hidden><p class="empty">No objects yet. Show something to the camera.</p></main>
 <script>
 const list = document.getElementById("list");
 const status = document.getElementById("status");
@@ -327,7 +347,7 @@ const picker = (() => {
   document.body.appendChild(el);
   return { el, wheel: el.querySelector(".wheel"), shade: el.querySelector(".shade"), dot: el.querySelector(".dot"),
            range: el.querySelector("input"), label: el.querySelector(".foot span"), card: null, id: null,
-           hsv: [0, 0, 1] };
+           kind: "object", hsv: [0, 0, 1] };
 })();
 
 function hsvToHex([h, s, v]) {
@@ -356,10 +376,11 @@ function showPicker() {
   swatch.classList.remove("none");
 }
 
-function openPicker(card, id) {
+function openPicker(card, id, kind = "object") {
   if (picker.card === card) { closePicker(); return; }
   picker.card = card;
   picker.id = id;
+  picker.kind = kind;
   picker.hsv = card.dataset.color ? hexToHsv(card.dataset.color) : [0, 0, 1];
   const box = card.querySelector(".swatch").getBoundingClientRect();
   picker.el.style.top = `${box.bottom + window.scrollY + 6}px`;
@@ -373,7 +394,8 @@ function closePicker() {
   picker.card = null;
 }
 
-const sendColor = () => post(`/api/objects/${picker.id}`, { color: hsvToHex(picker.hsv) });
+const pickerPath = () => picker.kind === "param" ? `/api/parameters/${picker.id}` : `/api/objects/${picker.id}`;
+const sendColor = () => post(pickerPath(), { color: hsvToHex(picker.hsv) });
 
 function pickAt(e) {
   const box = picker.wheel.getBoundingClientRect();
@@ -389,7 +411,7 @@ picker.wheel.addEventListener("pointerup", sendColor);
 picker.range.addEventListener("input", () => { picker.hsv[2] = picker.range.value / 100; showPicker(); });
 picker.range.addEventListener("change", sendColor);
 picker.el.querySelector("[data-act=auto]").onclick = () => {
-  post(`/api/objects/${picker.id}`, { color: null });
+  post(pickerPath(), { color: null });
   closePicker();
 };
 document.addEventListener("pointerdown", e => {
@@ -628,12 +650,159 @@ function renderApi(services) {
   }).join(""));
 }
 
+const paramGrid = document.getElementById("parameters");
+const paramCards = new Map();
+const iconRevs = new Map();
+let focusNewParam = false;
+let knobsAtAdd = 0;
+const EMPTY_ICON = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"></svg>');
+
+function makeParamCard(p) {
+  const card = document.createElement("article");
+  card.className = "card";
+  card.innerHTML = `
+    <button class="swatch" title="color: click to pick"></button>
+    <img class="thumb icon" alt="">
+    <div>
+      <div class="top"><span class="id"></span><span class="badge"></span></div>
+      <label>Name</label>
+      <input data-key="name">
+      <label>Prompt</label>
+      <textarea data-key="prompt" rows="1"></textarea>
+      <label>Plays when</label>
+      <select data-key="trigger"></select>
+      <div class="meter"><div></div></div>
+    </div>
+    <p class="desc"></p>
+    <div class="actions">
+      <button data-act="icon">Draw icon</button>
+      <button data-act="delete" class="danger">Delete</button>
+    </div>`;
+  const name = card.querySelector("[data-key=name]");
+  const prompt = card.querySelector("[data-key=prompt]");
+  const trigger = card.querySelector("[data-key=trigger]");
+  name.placeholder = "unnamed";
+  prompt.placeholder = "MusicCoCa prompt";
+  prompt.addEventListener("input", () => fit(prompt));
+  if (p.editable) {
+    trigger.innerHTML = TRIGGER_OPTIONS;
+    const save = (key, value) => post(`/api/parameters/${p.id}`, { [key]: value });
+    const bind = (input, key, trim) => {
+      const commit = () => {
+        if (input.value === input.dataset.saved) return;
+        input.dataset.saved = input.value;
+        save(key, trim ? input.value.trim() : input.value);
+      };
+      input.addEventListener("change", commit);
+      input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+    };
+    bind(name, "name", true);
+    bind(prompt, "prompt", true);
+    trigger.onchange = () => save("trigger", trigger.value);
+    card.querySelector(".swatch").onclick = e => { e.stopPropagation(); openPicker(card, p.id, "param"); };
+    card.querySelector("[data-act=delete]").onclick = () => {
+      const label = name.value.trim();
+      if (confirm(`Delete parameter #${p.id}${label ? " " + label : ""}?`))
+        post(`/api/parameters/${p.id}`, null, "DELETE");
+    };
+  } else {
+    trigger.innerHTML = `<option value="service">sent by ${p.service}</option>`;
+    trigger.value = "service";
+    name.disabled = prompt.disabled = trigger.disabled = true;
+    card.querySelector(".swatch").disabled = true;
+    card.querySelector("[data-act=delete]").remove();
+  }
+  card.querySelector("[data-act=icon]").onclick = () => {
+    const text = (prompt.value || name.value || "").trim();
+    if (!text) { alert("Type a prompt first."); return; }
+    post(`/api/parameters/${encodeURIComponent(p.id)}/icon`);
+  };
+  return card;
+}
+
+function renderParameters(params) {
+  const seen = new Set();
+  params.forEach((p, i) => {
+    const key = String(p.id);
+    seen.add(key);
+    let card = paramCards.get(key);
+    if (!card) { card = makeParamCard(p); paramCards.set(key, card); }
+    place(paramGrid, card, i + 1);  // the + button stays in the top-left cell
+    card.classList.toggle("away", p.origin === "knob" && !p.live);
+    card.querySelector(".id").textContent = p.origin === "service" ? p.service : `#${p.id}`;
+    const badge = card.querySelector(".badge");
+    badge.textContent = p.badge || "";
+    badge.classList.toggle("live", !!p.live);
+    setInput(card.querySelector("[data-key=name]"), p.name);
+    const prompt = card.querySelector("[data-key=prompt]");
+    setInput(prompt, p.prompt);
+    fit(prompt);
+    const trig = card.querySelector("[data-key=trigger]");
+    if (p.editable && document.activeElement !== trig) trig.value = p.trigger || "near";
+    const value = Number(p.value) || 0;
+    card.querySelector(".meter div").style.width = `${Math.round(100 * Math.max(0, Math.min(1, value)))}%`;
+    card.querySelector(".meter").title = p.origin === "service"
+      ? `${p.service} weight ${value.toFixed(2)}`
+      : (p.badge && p.badge !== "free" ? `${p.badge}: ${value.toFixed(2)}` : "not driven yet");
+    const desc = card.querySelector(".desc");
+    const note = p.drawing ? "drawing an icon…"
+      : p.error ? p.error
+      : p.origin === "service" ? `from ${p.service}`
+      : p.svg ? "" : "no icon yet";
+    desc.textContent = note;
+    desc.classList.toggle("pending", !!p.drawing || (!p.svg && !p.error));
+    const swatch = card.querySelector(".swatch");
+    card.dataset.color = p.color || "";
+    if (picker.card !== card) {
+      swatch.style.background = p.color || "";
+      swatch.classList.toggle("none", !p.color);
+    }
+    const icon = card.querySelector("[data-act=icon]");
+    icon.disabled = !!p.drawing;
+    icon.textContent = p.drawing ? "Drawing…" : "Draw icon";
+    const rev = String(p.svg_rev ?? "");
+    if (iconRevs.get(key) !== rev) {
+      iconRevs.set(key, rev);
+      card.querySelector(".thumb").src = p.svg
+        ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(p.svg) : EMPTY_ICON;
+    }
+  });
+  for (const [key, card] of paramCards) if (!seen.has(key)) {
+    card.remove(); paramCards.delete(key); iconRevs.delete(key);
+  }
+  const knobs = params.filter(p => p.editable);
+  if (focusNewParam && knobs.length > knobsAtAdd) {
+    const newest = knobs.sort((a, b) => b.id - a.id)[0];
+    const card = newest && paramCards.get(String(newest.id));
+    const input = card && card.querySelector("[data-key=name]");
+    if (input) input.focus();
+    focusNewParam = false;
+  }
+}
+
+document.getElementById("add-param").onclick = () => {
+  focusNewParam = true;
+  knobsAtAdd = paramGrid.querySelectorAll("article [data-act=delete]").length;
+  post("/api/parameters", {});
+};
+
+function showPanel(name) {
+  document.querySelectorAll(".panel-tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.panel === name));
+  document.getElementById("parameters").hidden = name !== "parameters";
+  document.getElementById("list").hidden = name !== "objects";
+  try { localStorage.setItem("prompts-panel", name); } catch {}
+}
+document.querySelectorAll(".panel-tabs button").forEach(b => b.onclick = () => showPanel(b.dataset.panel));
+try { if (localStorage.getItem("prompts-panel") === "objects") showPanel("objects"); } catch {}
+
 async function poll() {
   try {
     const state = await (await fetch("/api/objects")).json();
     const objects = state.objects;
     lastState = state;
     render(objects);
+    renderParameters(state.parameters || []);
     renderViews(state);
     renderCombos(state.combos, objects);
     renderMusic(state.music);
@@ -644,7 +813,8 @@ async function poll() {
       `<tr><td>${m.task}</td><td>${m.model}</td><td class="${m.where.startsWith("remote") ? "remote" : ""}">${m.where}</td></tr>`).join("");
     if (models.dataset.rows !== rows) { models.innerHTML = rows; models.dataset.rows = rows; }
     const live = objects.filter(o => o.in_view).length;
-    status.textContent = `${objects.length} objects, ${live} in view`;
+    const nParam = (state.parameters || []).length;
+    status.textContent = `${nParam} parameters, ${objects.length} objects, ${live} in view`;
   } catch {
     status.textContent = "not connected (is sc-tracking running?)";
   }

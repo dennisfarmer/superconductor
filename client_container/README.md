@@ -27,26 +27,26 @@ Each service listens on 127.0.0.1. Caddy on 8080 forwards by hostname. `client_c
 | Service | Port |
 |---|---|
 | Client (camera page, objects, client_midi, `/audio`) | 8467, 8470 |
-| Describe server, and Ollama | 9200, 11434 |
+| Describe server, Ollama, and the SVGen icon model | 9200, 11434 |
 | MIDI player | 8475 |
 | Atlas app, Atlas engine | 8764, 8765 |
 | Conducting | 8480 |
 | Gateway | 8080 |
 
-Writable files go under `/data`: the object library (`/data/client/library`), Ollama's models, uploaded MIDI files, Atlas's session, and logs in `/data/run`. The image itself is read-only.
+Writable files go under `/data`: the object library (`/data/client/library`), uploaded MIDI files, Atlas's session, and logs in `/data/run`. The image itself is read-only. It already contains the vision weights (`qwen2.5vl:3b` under `/opt/models/ollama`) and the parameter-icon weights (SVGen's Qwen2.5-3B under `/opt/models/svgen`). A `/data/ollama` that already has models is used instead of the copy in the image. Descriptions ask Ollama to drop the vision model when they finish (`--keep_alive 0`), so an icon can use the same GPU.
 
 ## Build a new image
 
-GitHub builds `ghcr.io/dennisfarmer/superconductor:client-web`. Pushing a branch does not rebuild it.
+GitHub builds `ghcr.io/dennisfarmer/superconductor:client`. Pushing a branch does not rebuild it.
 
-1. On GitHub: **Actions** → **client-web image** → **Run workflow**. The workflow on the `client` branch is the one GitHub shows. It checks out `client-web` and `atlas`. The build takes about 10–20 minutes.
+1. On GitHub: **Actions** → **client image** → **Run workflow**. The workflow on the `client` branch is the one GitHub shows. It checks out `client` and `atlas`. The build takes about 10–20 minutes.
 2. On lh2300, in this checkout: `git pull && make sif`. That pull is:
 
    ```bash
-   singularity pull --force superconductor_client-web.sif docker://ghcr.io/dennisfarmer/superconductor:client-web
+   singularity pull --force superconductor_client.sif docker://ghcr.io/dennisfarmer/superconductor:client
    ```
 
-The registry keeps the current image. Each build moves the `client-web` tag and deletes the previous one.
+The registry keeps the current image. Each build moves the `client` tag and deletes the previous one.
 
 If the package is private, log in once on lh2300:
 
@@ -63,15 +63,13 @@ Use a GitHub token with `read:packages`.
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
 git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
-cd superconductor_server && python3.12 -m venv .venv && source .venv/bin/activate
-pip install "magenta-rt[jax]==2.0.3" "jax[cuda12]" aiohttp
-make models
+cd superconductor_server && make setup
 
 cd /scratch/aimusic_project_root/aimusic_project/shared_data
-git clone -b client-web --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_client_web
+git clone -b client --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_client
 module load singularity
 export SINGULARITY_CACHEDIR=/scratch/aimusic_project_root/aimusic_project/$USER/.singularity
-cd superconductor_client_web && make sif
+cd superconductor_client && make sif
 ```
 
 **Each time:**
@@ -79,11 +77,11 @@ cd superconductor_client_web && make sif
 1. On lh2300, start the music server and wait for `Serving mrt2_base (jax) on port 9100`:
    ```bash
    cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
-   source .venv/bin/activate && make server
+   make server
    ```
 2. On lh2300, start the client:
    ```bash
-   cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client_web
+   cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
    module load singularity && make client-singularity
    ```
 3. On the laptop: `ssh -N -L 8080:lh2300:8080 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
@@ -102,7 +100,7 @@ To play the music on the laptop's speakers instead of the browser, from a checko
 | `SC_SERVER_URL` | `ws://host.docker.internal:9000/stream` | Music server websocket. `make client-singularity` uses `ws://localhost:9100/stream` when this default is still set. |
 | `SC_SERVICES` | `client describe midi atlas conduct` | Which services to start |
 | `OLLAMA_URL` | the Ollama in the image | Another Ollama, for example `http://host.docker.internal:11434` |
-| `DESCRIBE_MODEL` | `qwen2.5vl:3b` | Describe server's vision model |
+| `DESCRIBE_MODEL` | `qwen2.5vl:3b` | Describe server's vision model. The image already has this one. A different name is pulled into `/data/ollama` on a machine that has internet. |
 | `SC_OLLAMA_PORT` | `11434` | Port of the Ollama in the image |
 | `SC_GATEWAY_PORT` | `8080` | Gateway port, and the links on the pages |
 
@@ -110,14 +108,14 @@ With Singularity, pass them as `--env NAME=value` or `SINGULARITYENV_NAME=value`
 
 ## Docker, as a build step
 
-Docker produces the `linux/amd64` image that Singularity pulls. The cluster has no Docker. GitHub Actions is the build we use. `make image` does the same build on a machine that has Docker (`make image-push` also sends it to ghcr.io). On an Apple Silicon Mac that build runs under emulation and is slow.
+Docker produces the `linux/amd64` image that Singularity pulls. The cluster has no Docker. GitHub Actions is the build we use. `make image` does the same build on a machine that has Docker (`make image-push` also sends it to ghcr.io). On a laptop that is not linux/amd64, that build runs under emulation and is slow.
 
 Running the app from that image with Docker is a way to look at it on a laptop, not how it runs on lh2300:
 
 ```bash
 make client-docker
-# music server on this Mac:
+# music server on the laptop:
 make client-docker SC_SERVER_URL=ws://host.docker.internal:9100/stream
 ```
 
-Then open http://localhost:8080. `make client-docker-stop` stops it. The image is `linux/amd64`, so Docker Desktop on an Apple Silicon Mac runs it under emulation and without a GPU. For day-to-day work on a Mac, run `make client` instead. That serves the camera page at http://localhost:8467/.
+Then open http://localhost:8080. `make client-docker-stop` stops it. The image is `linux/amd64`, so on a laptop that is not linux/amd64, Docker runs it under emulation and without a GPU. For day-to-day work on the laptop, run `make client` instead. That serves the camera page at http://localhost:8467/.

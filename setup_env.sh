@@ -1,5 +1,5 @@
 #!/bin/bash
-# Create / update the sc_env conda environment (macOS, Apple Silicon).
+# Create / update the sc_env conda environment on the laptop.
 #
 # magenta-rt (Magenta RealTime 2) and recurrentgemma are installed with
 # --no-deps because recurrentgemma pins absl-py<2 while mediapipe>=0.10.30
@@ -16,7 +16,5 @@ fi
 conda run -n sc_env python -m pip install --no-deps "magenta-rt[mlx]==2.0.3" "recurrentgemma==1.0.1"
 conda run -n sc_env python -m pip install --no-deps -e .
 
-# model weights (~2.5GB for mrt2_base, ~450MB for mrt2_small)
-conda run -n sc_env mrt models init
-conda run -n sc_env mrt models download mrt2_base
-conda run -n sc_env mrt models download mrt2_small
+# Music weights are downloaded by `make setup` in the server checkout.
+# Parameter-icon weights (SVGen) are downloaded by `make setup` in this checkout.

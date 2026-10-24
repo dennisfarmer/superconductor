@@ -53,7 +53,8 @@ from superconductor_client.tracking.object_tracking import (Calibration, Combo, 
                                               ParameterMapper)
 from superconductor_client.tracking.object_tracking.identity import box_gap
 from superconductor_client.tracking.object_tracking.tracker import TRACKER_CONFIG
-from superconductor_client.tracking.object_tracking.library import bgr_to_hex, hex_to_bgr
+from superconductor_client.tracking.object_tracking.library import bgr_to_hex, hex_to_bgr, service_cards
+from superconductor_client.tracking.object_tracking.mapper import PALETTE
 from superconductor_client.tracking.web_model import ensure_web_model
 from superconductor_client.tracking.tracking_view import TrackingView
 
@@ -149,6 +150,19 @@ class CollabFrontend:
             known = {i.id for i in registry.identities}
             self.combos = [c for c in self.library.load_combos() if set(c["objects"]) <= known]
             self._apply_combos()
+        # knobs added on the prompts page, plus icons for prompts other services send
+        self.knobs = []
+        self.service_icons = {}
+        self._icon_errors = {}
+        if self.library is not None:
+            self.knobs = [k for k in self.library.load_parameters()
+                          if isinstance(k, dict) and str(k.get("id", "")).isdigit()]
+            for knob in self.knobs:
+                knob["id"] = int(knob["id"])
+            icons = self.library.load_icons()
+            self.service_icons = icons if isinstance(icons, dict) else {}
+        for knob in self.knobs:
+            self._sync_knob(knob)
 
         # one-time descriptions of new objects (and of cached ones that never got one)
         self.describer = None
@@ -253,6 +267,140 @@ class CollabFrontend:
         if save and self.library is not None:
             self.library.save_combos(self.combos)
 
+    def _knob_param_name(self, knob):
+        base = (knob.get("name") or "").strip() or f"parameter {knob['id']}"
+        for param in self.mapper.parameters:
+            if param.knob != knob["id"] and param.name == base:
+                return f"{base} #{knob['id']}"
+        return base
+
+    def _sync_knob(self, knob):
+        """Keep the mapper parameter for this prompts-page knob in line with it.
+        It stays unowned, so an object without an instrument can drive it."""
+        color = hex_to_bgr(knob.get("color")) or PALETTE[(int(knob["id"]) - 1) % len(PALETTE)]
+        knob["color"] = bgr_to_hex(color)
+        trigger = knob.get("trigger") if knob.get("trigger") in ("near", "held", "visible") else "near"
+        knob["trigger"] = trigger
+        prompt = (knob.get("prompt") or "").strip() or None
+        param = next((p for p in self.mapper.parameters if p.knob == knob["id"]), None)
+        if param is None:
+            self.mapper.parameters.append(Parameter(
+                name=self._knob_param_name(knob), kind="prompt", prompt=prompt,
+                color=color, trigger=trigger, knob=knob["id"]))
+        else:
+            param.name = self._knob_param_name(knob)
+            param.prompt, param.trigger, param.color = prompt, trigger, color
+
+    def _save_knobs(self):
+        if self.library is not None:
+            self.library.save_parameters(self.knobs)
+
+    def _save_icons(self):
+        if self.library is not None:
+            self.library.save_icons(self.service_icons)
+
+    def _request_icon(self, key, text):
+        text = (text or "").strip()
+        if not text:
+            self._icon_errors[key] = "type a prompt first"
+            self.say("type a prompt first, then draw an icon")
+            return
+        if self.describer is None:
+            self._icon_errors[key] = "describe server is not running"
+            self.say("describe server is not running")
+            return
+        self._icon_errors.pop(key, None)
+        self.describer.icon(key, text)
+
+    def _store_icon(self, key, svg):
+        self._icon_errors.pop(key, None)
+        if key.startswith("knob:"):
+            kid = key.split(":", 1)[1]
+            knob = next((k for k in self.knobs if str(k["id"]) == kid), None)
+            if knob is None:
+                return
+            knob["svg"] = svg
+            knob["svg_rev"] = int(knob.get("svg_rev") or 0) + 1
+            self._save_knobs()
+            self.say(f"parameter #{kid}: icon ready", 2.0)
+        elif key.startswith("svc:"):
+            prompt = key[4:]
+            if not prompt:
+                return
+            self.service_icons[prompt] = svg
+            self._save_icons()
+            self.say(f"{prompt}: icon ready", 2.0)
+
+    def _param_action(self, kind, id, body):
+        if kind == "param_add":
+            new_id = max((int(k["id"]) for k in self.knobs), default=0) + 1
+            knob = {"id": new_id, "name": "", "prompt": "", "trigger": "near",
+                    "color": bgr_to_hex(PALETTE[(new_id - 1) % len(PALETTE)]),
+                    "svg": None, "svg_rev": 0}
+            self.knobs.append(knob)
+            self._sync_knob(knob)
+            self._save_knobs()
+            self.say(f"parameter #{new_id}", 2.0)
+            return
+        if isinstance(id, str) and id.startswith("svc:"):
+            if kind == "param_icon":
+                self._request_icon(id, id[4:])
+            return
+        if not isinstance(id, int):
+            return
+        knob = next((k for k in self.knobs if k["id"] == id), None)
+        if knob is None:
+            return
+        if kind == "param_delete":
+            self.knobs = [k for k in self.knobs if k["id"] != id]
+            self.mapper.parameters = [p for p in self.mapper.parameters if p.knob != id]
+            self._icon_errors.pop(f"knob:{id}", None)
+            self._save_knobs()
+            self.say(f"deleted parameter #{id}", 2.0)
+            return
+        if kind == "param_edit":
+            if "name" in body:
+                knob["name"] = body["name"] or ""
+            if "prompt" in body:
+                knob["prompt"] = body["prompt"] or ""
+            if body.get("trigger") in ("near", "held", "visible"):
+                knob["trigger"] = body["trigger"]
+            if "color" in body:
+                if body["color"] is None:
+                    knob["color"] = bgr_to_hex(PALETTE[(id - 1) % len(PALETTE)])
+                elif hex_to_bgr(body["color"]):
+                    knob["color"] = body["color"]
+            self._sync_knob(knob)
+            self._save_knobs()
+            return
+        if kind == "param_icon":
+            self._request_icon(f"knob:{id}", knob.get("prompt") or knob.get("name") or "")
+
+    def _parameter_cards(self, busy, in_view):
+        """prompts-page knobs, then prompts arriving from other services (Atlas drums, ...)"""
+        cards = []
+        for knob in self.knobs:
+            param = next((p for p in self.mapper.parameters if p.knob == knob["id"]), None)
+            if param is None:
+                self._sync_knob(knob)
+                param = next(p for p in self.mapper.parameters if p.knob == knob["id"])
+            ident = self.tracker.registry.get(param.identity) if isinstance(param.identity, int) else None
+            if ident is not None:
+                badge, live = (ident.user_label or f"#{ident.id}"), ident.id in in_view
+            else:
+                badge, live = "free", False
+            key = f"knob:{knob['id']}"
+            svg = knob.get("svg") if isinstance(knob.get("svg"), str) else None
+            cards.append({
+                "id": knob["id"], "name": knob.get("name") or "", "prompt": knob.get("prompt") or "",
+                "trigger": param.trigger, "color": bgr_to_hex(param.color), "value": param.value,
+                "origin": "knob", "editable": True, "badge": badge, "live": live,
+                "svg": svg, "svg_rev": knob.get("svg_rev") or 0,
+                "drawing": key in busy, "error": self._icon_errors.get(key),
+            })
+        cards += service_cards(self.atlas_prompts(), self.service_icons, busy, self._icon_errors)
+        return cards
+
     def _combo_name(self, combo):
         """"bulbasaur + #4" for a combo's objects"""
         names = []
@@ -280,6 +428,13 @@ class CollabFrontend:
     def apply_describe_results(self):
         while self.describer is not None and not self.describer.results.empty():
             kind, id, text = self.describer.results.get()
+            if isinstance(id, str) and (id.startswith("knob:") or id.startswith("svc:")):
+                if kind == "svg":
+                    self._store_icon(id, text)
+                elif kind == "error":
+                    self._icon_errors[id] = text
+                    self.say(text)
+                continue
             ident = self.tracker.registry.get(id)
             if kind == "error":
                 if not self._describe_error_shown:
@@ -310,6 +465,9 @@ class CollabFrontend:
             kind, id, body = self.panel.actions.get()
             if kind.startswith("combo"):
                 self._combo_action(kind, id, body)
+                continue
+            if kind.startswith("param"):
+                self._param_action(kind, id, body)
                 continue
             if kind == "click":  # camera page
                 self._click(body["x"], body["y"])
@@ -457,6 +615,12 @@ class CollabFrontend:
                          "model": f"{info['model']} via {info.get('backend', 'ollama')}" if info.get("model")
                          else f"describe server not reachable ({self.describer.server_url})",
                          "where": where(info) if info else "-"})
+            if info.get("svg_model"):
+                backend = info.get("svg_backend") or "unset"
+                state = "ready" if info.get("svg_ready") else (info.get("svg_error") or "loads on the first icon")
+                rows.append({"task": "Parameter icons",
+                             "model": f"{info['svg_model']} via {backend} ({state})",
+                             "where": where(info) if info else "-"})
         if self.magenta is None:
             music = {"model": "music off", "where": "-"}
         elif not self.magenta.connected:
@@ -540,7 +704,8 @@ class CollabFrontend:
                 [("GET", "/status"), ("GET", "/input"), ("POST", "/pattern")],
                 "note sources (Atlas, MIDI player) POST patterns here"),
             row("describe", "Describe server", "superconductor_client/describe/: make describe",
-                [("GET", "/health"), ("POST", "/describe"), ("POST", "/instrument"), ("POST", "/name")],
+                [("GET", "/health"), ("POST", "/describe"), ("POST", "/instrument"), ("POST", "/name"),
+                 ("POST", "/svg")],
                 where(urls["describe"], alive.get("describe"))),
             row("conduct", "Conducting page (MediaPipe hands)",
                 "superconductor_client/conducting/: make conduct",
@@ -598,6 +763,7 @@ class CollabFrontend:
         music = {"connected": bool(self.magenta and self.magenta.connected),
                  "paused": bool(self.magenta and self.magenta.paused)}
         self.panel.publish({"objects": objects, "combos": combos,
+                            "parameters": self._parameter_cards(busy, in_view),
                             "settings": dict(self.settings, test_beat_prompt=TEST_BEAT), "music": music,
                             "models": self.models(), "services": self.services(),
                             "learning": {k: getattr(registry, k) for k in registry.LEARNING}}, views)

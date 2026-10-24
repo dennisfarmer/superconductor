@@ -6,6 +6,7 @@ camera loop:
     ("description", id, text)
     ("instrument", id, text)   suggested from the description
     ("name", id, text)         default name, suggested from the description
+    ("svg", key, svg)          icon for a parameter prompt; key is "knob:<id>" or "svc:<prompt>"
     ("error", id, message)
 `info` is the server's /health answer (model, backend, host), {} until known.
 """
@@ -38,6 +39,11 @@ class DescribeClient:
         self.busy.add(id)
         self._jobs.put(("suggest", id, description, True, False))
 
+    def icon(self, key, prompt):
+        """Ask for an SVG of a parameter prompt. `key` is "knob:<id>" or "svc:<prompt>"."""
+        self.busy.add(key)
+        self._jobs.put(("svg", key, prompt, False, False))
+
     def _post(self, path, body):
         req = urllib.request.Request(f"{self.server_url}{path}", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
@@ -60,6 +66,9 @@ class DescribeClient:
                 self._health()  # notice the server starting or stopping
                 continue
             try:
+                if kind == "svg":
+                    self.results.put(("svg", id, self._post("/svg", {"prompt": data})["svg"]))
+                    continue
                 if kind == "describe":
                     description = self._post("/describe", {"image": base64.b64encode(data).decode()})["description"]
                     self.results.put(("description", id, description))

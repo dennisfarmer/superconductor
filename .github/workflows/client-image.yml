@@ -1,8 +1,8 @@
 # Builds the client container (client_container/Dockerfile, see client_container/README.md)
-# and pushes the linux/amd64 image to ghcr.io/dennisfarmer/superconductor:client-web.
+# and pushes the linux/amd64 image to ghcr.io/dennisfarmer/superconductor:client.
 # GitHub's runners are x86_64, so that build is native. lh2300 turns it into a
 # Singularity image:
-#   singularity pull docker://ghcr.io/dennisfarmer/superconductor:client-web
+#   singularity pull docker://ghcr.io/dennisfarmer/superconductor:client
 # (`make sif` does this.)
 #
 # The Docker context is the client branch. tracking, conducting, describe and
@@ -16,14 +16,14 @@
 # now untagged, is deleted. Provenance and SBOM are off so the tag is one plain
 # manifest; with them on, the tag points at untagged child manifests that the
 # cleanup would delete, breaking the image.
-name: client-web image
+name: client image
 
 on:
   workflow_dispatch:
 
 # one build at a time; a second press waits instead of racing the first
 concurrency:
-  group: client-web-image
+  group: client-image
   cancel-in-progress: false
 
 permissions:
@@ -62,7 +62,7 @@ jobs:
           build-contexts: |
             atlas=atlas
           push: true
-          tags: ghcr.io/dennisfarmer/superconductor:client-web
+          tags: ghcr.io/dennisfarmer/superconductor:client
           provenance: false
           sbom: false
           cache-from: type=gha

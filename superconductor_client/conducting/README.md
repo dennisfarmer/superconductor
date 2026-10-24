@@ -2,7 +2,7 @@
 
 ## Browser conducting (with the SuperConductor stack)
 
-`conducting_web/` runs the live conductor in the browser, next to client-web's camera page.
+`conducting_web/` runs the live conductor in the browser, next to the client's camera page.
 The browser owns the camera. MediaPipe's HandLandmarker runs in a Web Worker and sends each
 frame's hand landmarks to `conducting_web/server.py`. The server passes them through the
 unchanged `StopGestureDetector`, `CycleTempoEstimator` and `ServerTempoPlayer`, which sends
@@ -22,7 +22,7 @@ make client            # camera page http://localhost:8467 (the music plays ther
 make conduct           # conducting page http://localhost:8480 (make conduct-remote: via the :9000 tunnel)
 ```
 
-The client-web container starts this same process. Open it at http://localhost:8080/conduct/
+The client container starts this same process. Open it at http://localhost:8080/conduct/
 (the camera needs `http://localhost`). On the machine running the container it is also
 http://127.0.0.1:8480, and `ws://127.0.0.1:8480/ws/hands/monitor` is unchanged.
 

@@ -1,7 +1,7 @@
 Other branches and the web client
 =================================
 
-The web client (camera, view and sound in the browser; container in `client_container/`, see [client_container/README.md](../client_container/README.md)) is built only from the `client-web` branch. The other branches go into the image as they are: nothing on them was changed for it. This file lists the changes that *would* be needed or useful on those branches, and what the container does for now instead.
+The web client (camera, view and sound in the browser; container in `client_container/`, see [client_container/README.md](../client_container/README.md)) is built from the `client` branch. The other branches go into the image as they are: nothing on them was changed for it. This file lists the changes that *would* be needed or useful on those branches, and what the container does for now instead.
 
 ### `describe` (`describe_server.py`) and `midi_experiment_dennis` (`midi_player.py`)
 
@@ -21,7 +21,7 @@ Already as needed: the sink imports no MLX / magenta-rt / sounddevice; the engin
 
 ### `client`
 
-**Change:** merge the web mode back from `client-web`:
+**Change:** merge the web mode back from `client`:
 - `superconductor_client/tracking/collab.py`: `--web`, `run_web()`, `_click()`, `--device cuda`, and the `[web] public_urls` display URLs on the Services tab;
 - `superconductor_client/tracking/tracking_view.py`: the camera page, `/ws/camera` and `/api/web`;
 - `superconductor_client/client.py`: `output="browser"` and client_midi's `/audio`;
@@ -31,9 +31,9 @@ All of it is additive: without `--web` the client behaves as before (camera wind
 
 ### Default branch (GitHub)
 
-**Change:** add `.github/workflows/client-web-image.yml` there too, with a `workflow_dispatch:` trigger.
+**Change:** add `.github/workflows/client-image.yml` there too, with a `workflow_dispatch:` trigger.
 
-**Why:** GitHub only shows the "Run workflow" button for workflows on the default branch. Until then, rebuilding the image after `describe` or `midi_experiment_dennis` changes takes a push to `client-web` (an empty commit is enough).
+**Why:** GitHub only shows the "Run workflow" button for workflows on the default branch. Until then, rebuilding the image after `describe` or `midi_experiment_dennis` changes takes a push to `client` (an empty commit is enough).
 
 ### `server`
 

@@ -2,7 +2,7 @@
 // hands (MediaPipe's default hand style), the 1-second trail of the middle fingertip, the
 // handedness labels, and the three status lines. Landmarks are 0..1 in the camera's frame,
 // unmirrored; the video is shown mirrored, so x is flipped here. Text is never mirrored.
-// The label and frameMapping helpers are the camera page's (client-web tracking/overlay.js).
+// The label and frameMapping helpers are the camera page's (tracking/overlay.js).
 
 /** Where the frame (fw x fh) sits in a w x h element with object-fit: contain, mirrored. */
 export function frameMapping(fw, fh, w, h) {

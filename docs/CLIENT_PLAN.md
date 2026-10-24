@@ -9,7 +9,7 @@ Today, in web mode (`sc-tracking`), the browser page (`superconductor_client/tra
 - sends `UpdateRecipe` / `UpdateControls` to the MRT2 server
 - relays the server's audio, already tempo-stretched by the server's `tempo.py`, back to the page
 
-Because detection runs in the process, the process needs a GPU, and that is what made the container slow (Docker on a Mac) or broken (the V100 with the CUDA 13 torch).
+Because detection runs in the process, the process needs a GPU, and that is what made the container slow (Docker on the laptop) or broken (the V100 with the CUDA 13 torch).
 
 **Goal:** detection and tracking run in the browser by default.
 - **Tracking** (`tracker_js`) is plain JS on the CPU, at about 3 µs per frame.
@@ -23,7 +23,7 @@ The browser sends the client process the objects it found, as `TrackedObject`s. 
 
 **Visualization is always in the browser.** The client process no longer draws on frames or sends pictures back; that round trip made the view unresponsive. It sends what to show as JSON (boxes, names, colors, the prompt panel, …), and the page draws it over its own live video.
 
-**One client-web, three ways to run it.** Native (conda env on disk), Docker and Singularity run the same `sc-tracking` in web mode.
+**One client, three ways to run it.** Native (conda env on disk), Docker and Singularity run the same `sc-tracking` in web mode.
 - The camera and the view are always in the browser, so the OpenCV window mode is removed.
 - Sound plays in the browser by default. The sounddevice playback becomes a separate small receiver program (`sc-audio`) that the audio can be routed to instead.
 
@@ -113,7 +113,7 @@ This is one binary WS message per frame on `/ws/camera`:
     - `draw()`, `draw_hud()`, `_dashed_rect`
     - the `--web`, `--camera` and `--iphone` options
   - `superconductor_client/client.py` no longer opens a sound device itself. All playback goes through `/audio` sinks: the browser, or `sc-audio` (section 5).
-  - Makefile targets (`client`, `client-remote`, `vision`, `client-web`) all start web mode.
+  - Makefile targets (`client`, `client-remote`, `vision`) all start web mode.
 
 ### 3b. Visualization: the overlay message (client → browser)
 After each frame it handles, the process sends one JSON text message on `/ws/camera`. The data is what `draw()`/`draw_hud()` draw today, as data. Label text and colors are computed in Python, so the page only draws.
@@ -214,7 +214,7 @@ Note: the working tree has uncommitted edits in `collab.py`, `superconductor_cli
 - **JS:**
   - `node --test tracker_js/test/*.test.js` (exists).
   - `vision_js` parity against Ultralytics on recorded frames: boxes within 2 px, the same classes.
-- **End to end, on the real ports** (`make server`, then `make client-web`):
+- **End to end, on the real ports** (`make server`, then `make client`):
   - Open `http://localhost:8467/` in Chrome. Check that the status shows `webgpu` and a detector time.
   - Check that objects get identities and the recipe changes.
   - Check that the overlay draws over the live video: mirrored correctly, the delay shown, and "no data" when the client process is stopped.

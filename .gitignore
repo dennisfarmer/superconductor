@@ -17,6 +17,7 @@ superconductor.log
 superconductor.egg-info
 
 .venv
+.cache
 .DS_Store
 # model weights downloaded by ultralytics / YOLOE
 *.ts

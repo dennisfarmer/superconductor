@@ -47,6 +47,7 @@ class Parameter:
     color: tuple = (255, 255, 255)  # BGR, for drawing
     trigger: str = "near"  # "near" | "held" | "visible"
     owner: str = None  # object label / "#id" whose mapping created this parameter
+    knob: int = None  # id of a parameter created on the prompts page; None otherwise
 
     # runtime state
     identity: int = None  # object currently driving this parameter
@@ -309,7 +310,7 @@ class ParameterMapper:
         if base_prompt and base_weight > 0:
             recipe[base_prompt] = base_weight
         for param in self.parameters:
-            if param.kind == "prompt" and param.identity is not None and param.value > 0.01:
+            if param.kind == "prompt" and param.prompt and param.identity is not None and param.value > 0.01:
                 recipe[param.prompt] = recipe.get(param.prompt, 0.0) + param.output
         return recipe
 

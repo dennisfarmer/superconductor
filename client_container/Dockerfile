@@ -64,10 +64,11 @@ COPY --from=atlas audio_engine/presets /opt/superconductor/atlas/audio_engine/pr
 COPY --from=atlas walker.toml /opt/superconductor/atlas/
 COPY --from=atlas-client /client/dist /opt/superconductor/atlas/client/dist
 
-# The vision models, so nothing downloads at startup (the .sif is read-only, and a
+# The models, so nothing downloads at startup (the .sif is read-only, and a
 # compute node may have no internet): YOLOE-11s-seg and its text encoder land in
-# /opt/models (the client runs there), DINOv2 in TORCH_HOME. Ultralytics writes its
-# settings to YOLO_CONFIG_DIR, which is under /data at runtime.
+# /opt/models (the client runs there), DINOv2 in TORCH_HOME, the describe VLM in
+# /opt/models/ollama, and SVGen (parameter icons) in /opt/models/svgen.
+# Ultralytics writes its settings to YOLO_CONFIG_DIR, which is under /data at runtime.
 WORKDIR /opt/models
 RUN YOLO_CONFIG_DIR=/tmp/ultralytics python -c "\
 import tomllib; \
@@ -87,6 +88,19 @@ from superconductor_client.tracking.web_model import ensure_web_model; \
 t = tomllib.load(open('/opt/superconductor/client/superconductor_client/tracking/collab.container.toml', 'rb'))['tracking']; \
 sys.exit(not ensure_web_model(t['model'], t['classes'], '/opt/web'))" \
     && rm -rf /tmp/ultralytics
+
+# Describe: the vision model (Ollama) and SVGen's Qwen2.5-3B (transformers).
+# The entrypoint uses these when /data has not already got its own copy.
+RUN mkdir -p /opt/models/ollama /opt/models/svgen \
+    && OLLAMA_MODELS=/opt/models/ollama bash -c '\
+        set -euo pipefail; \
+        ollama serve >/tmp/ollama-build.log 2>&1 & pid=$!; \
+        for i in $(seq 1 60); do ollama list >/dev/null 2>&1 && break; sleep 1; done; \
+        ollama pull qwen2.5vl:3b; \
+        kill $pid || true; wait $pid || true' \
+    && python -c "\
+from huggingface_hub import snapshot_download; \
+snapshot_download('gitcat-404/SVGen-Qwen2.5-3B-Instruct', local_dir='/opt/models/svgen')"
 
 COPY client_container/entrypoint.sh client_container/Caddyfile /opt/superconductor/client_container/
 RUN chmod +x /opt/superconductor/client_container/entrypoint.sh

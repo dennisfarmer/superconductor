@@ -108,6 +108,15 @@ def test_overlay_has_what_the_page_draws():
         c.tracker.registry.save()
 
 
+def test_prompts_page_puts_parameters_first():
+    html = (Path(__file__).resolve().parents[1] / "superconductor_client" / "tracking" / "tracking_view.html").read_text()
+    assert "Superconductor - Prompts (MusicCoCa)" in html
+    assert html.index('data-panel="parameters"') < html.index('data-panel="objects"')
+    assert 'aria-selected="true">Parameters' in html
+    assert 'id="add-param"' in html
+    assert 'id="list"' in html
+
+
 def test_audio_sinks_one_clock_monitors_never_ack():
     from aiohttp import ClientSession, WSMsgType, web
 

@@ -13,6 +13,8 @@ names, descriptions and instruments survive restarts:
         hist.npy         color histogram (used only without an embedder)
       combos.json        [{"objects": [3, 5], "prompt": "...", "distance": 0.05, "trigger": "near"}]
       settings.json      {"test_beat": false}  (page-wide switches)
+      parameters.json    knobs added on the prompts page: [{id, name, prompt, trigger, color, svg}]
+      icons.json         {"drums": "<svg...>"} icons for prompts other services send
 
 Ids are permanent and never reused, even after an object is deleted (moved to
 superconductor_client/tracking/library/.trash). Folders from the old name-keyed layout (library/bulbasaur/)
@@ -22,6 +24,7 @@ from the views (`refresh`).
 import json
 import shutil
 import time
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -174,6 +177,30 @@ class ObjectLibrary:
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "settings.json").write_text(json.dumps(settings, indent=1))
 
+    def load_parameters(self):
+        """knobs added on the prompts page (parameters.json); [] if none"""
+        path = self.root / "parameters.json"
+        if not path.exists():
+            return []
+        data = json.loads(path.read_text())
+        return data if isinstance(data, list) else []
+
+    def save_parameters(self, parameters):
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / "parameters.json").write_text(json.dumps(parameters, indent=1))
+
+    def load_icons(self):
+        """prompt -> SVG, for prompts posted by other services (icons.json)"""
+        path = self.root / "icons.json"
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text())
+        return data if isinstance(data, dict) else {}
+
+    def save_icons(self, icons):
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / "icons.json").write_text(json.dumps(icons, indent=1))
+
     def delete(self, id):
         """Remove an object (moved to <library>/.trash, not deleted)."""
         entry = self.entries.pop(id, None)
@@ -206,6 +233,41 @@ class ObjectLibrary:
             (target / "object.json").write_text(json.dumps(new_meta, indent=1))
             print(f"library: {d.name}/ -> {new_id}/ (new layout)")
         self.entries = {}
+
+
+def service_cards(prompts, icons=None, busy=(), errors=None):
+    """One card per style prompt another program posted to client_midi POST /prompts.
+
+    Atlas's Drums page posts {"drums": weight}. A weight of 0 (or below) is not
+    a prompt in the recipe, so it is left out. `icons` maps a prompt to an SVG.
+    """
+    icons = icons or {}
+    errors = errors or {}
+    cards = []
+    items = prompts.items() if isinstance(prompts, dict) else []
+    for prompt, weight in sorted(items, key=lambda kv: str(kv[0])):
+        if not isinstance(prompt, str) or not prompt.strip():
+            continue
+        try:
+            weight = float(weight)
+        except (TypeError, ValueError):
+            continue
+        if weight <= 0:
+            continue
+        prompt = prompt.strip()
+        service = "Atlas" if prompt == "drums" else "external"
+        svg = icons.get(prompt)
+        svg = svg if isinstance(svg, str) and svg else None
+        key = "svc:" + prompt
+        cards.append({
+            "id": key, "name": prompt, "prompt": prompt, "trigger": "visible",
+            "color": "#e07a3d" if prompt == "drums" else "#6c9cf0",
+            "value": weight, "origin": "service", "service": service, "editable": False,
+            "badge": "live", "live": True, "svg": svg,
+            "svg_rev": zlib.adler32(svg.encode()) if svg else 0,
+            "drawing": key in busy, "error": errors.get(key),
+        })
+    return cards
 
 
 def bgr_to_hex(bgr):

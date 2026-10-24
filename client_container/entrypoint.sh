@@ -11,6 +11,8 @@
 #   SC_GATEWAY_BIND   gateway address (default 0.0.0.0)
 #   SC_GATEWAY_PORT   gateway port (default 8080)
 #   DESCRIBE_MODEL    describe server's vision model (default qwen2.5vl:3b)
+#   OLLAMA_MODELS     where Ollama keeps weights (default: the copy in the image,
+#                     or /data/ollama once that directory has its own models)
 #
 # Everything written goes under /data (a Docker volume, or a bind mount on the cluster).
 set -Eeuo pipefail
@@ -23,7 +25,7 @@ export SC_GATEWAY_PORT=${SC_GATEWAY_PORT:-8080}
 DESCRIBE_MODEL=${DESCRIBE_MODEL:-qwen2.5vl:3b}
 SC=/opt/superconductor
 
-if ! mkdir -p /data/client /data/midi/songs /data/ollama /data/ultralytics /data/run /data/atlas /data/web 2>/dev/null; then
+if ! mkdir -p /data/client /data/midi/songs /data/ollama /data/huggingface /data/ultralytics /data/run /data/atlas /data/web 2>/dev/null; then
     echo "/data is not writable: mount a volume (docker run -v sc-data:/data ...)" \
          "or bind a directory (singularity run --bind <dir>:/data ...)" >&2
     exit 1
@@ -60,16 +62,35 @@ wait_for() {  # url, name
 
 if has describe; then
     if [ -z "$OLLAMA_URL" ]; then
+        # The image already has qwen2.5vl:3b. Use that copy when /data/ollama
+        # has no models of its own. A different DESCRIBE_MODEL is pulled into
+        # /data/ollama, which is writable.
+        name=${DESCRIBE_MODEL%%:*}
+        tag=${DESCRIBE_MODEL#*:}
+        baked="/opt/models/ollama/manifests/registry.ollama.ai/library/${name}/${tag}"
+        if [ "${OLLAMA_MODELS:-/data/ollama}" = "/data/ollama" ] \
+                && [ ! -d /data/ollama/manifests ] && [ -f "$baked" ]; then
+            export OLLAMA_MODELS=/opt/models/ollama
+        fi
         OLLAMA_URL=http://127.0.0.1:$SC_OLLAMA_PORT
         OLLAMA_HOST=127.0.0.1:$SC_OLLAMA_PORT ollama serve > /data/run/ollama.log 2>&1 &
         pids+=($!); watched+=($!)
         wait_for "$OLLAMA_URL/api/tags" Ollama
         if ! OLLAMA_HOST=127.0.0.1:$SC_OLLAMA_PORT ollama show "$DESCRIBE_MODEL" > /dev/null 2>&1; then
-            echo "pulling $DESCRIBE_MODEL into /data/ollama (first run only)"
+            echo "pulling $DESCRIBE_MODEL into $OLLAMA_MODELS"
             OLLAMA_HOST=127.0.0.1:$SC_OLLAMA_PORT ollama pull "$DESCRIBE_MODEL"
         fi
     fi
-    python "$SC/client/superconductor_client/describe/describe_server.py" --model "$DESCRIBE_MODEL" --port 9200 --ollama_url "$OLLAMA_URL" &
+    # SVGen is baked at /opt/models/svgen. keep_alive 0 drops the VLM off the
+    # V100 once a description finishes, so the icon model can use that GPU.
+    svg_args=()
+    if [ -d /opt/models/svgen ]; then
+        svg_args=(--svg-model /opt/models/svgen --svg-backend transformers)
+    fi
+    HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HOME=/data/huggingface \
+        python "$SC/client/superconductor_client/describe/describe_server.py" \
+        --model "$DESCRIBE_MODEL" --port 9200 --ollama_url "$OLLAMA_URL" \
+        --keep_alive 0 "${svg_args[@]}" &
     pids+=($!); watched+=($!)
 fi
 
