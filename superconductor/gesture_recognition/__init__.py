@@ -1,1 +1,0 @@
-from superconductor.gesture_recognition.__main__ import GestureRecognition

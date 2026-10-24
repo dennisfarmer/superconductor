@@ -67,8 +67,3 @@ superconductor = ["collab.toml", "object_tracking/*.yaml"]
 [project.scripts]
 sc-collab = "superconductor.collab:main"
 sc-audio = "superconductor.audio_receiver:main"
-sc-laptop = "superconductor.laptop:main"
-sc-server = "superconductor.mock_local_server:main"
-sc-update = "superconductor.laptop:update_superconductor"
-sc-audio-device = "superconductor.laptop:audio_device"
-superconductor = "superconductor.laptop:main"
