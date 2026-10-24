@@ -14,10 +14,10 @@ from pathlib import Path
 
 import numpy as np
 
-from superconductor.collab import DEFAULT_CONFIG, CollabFrontend, load_config
-from superconductor.magenta_remote import AudioSinks
-from superconductor.object_tracking import ObjectTracker
-from superconductor.web_panel import parse_frame_message
+from superconductor_client.tracking.collab import DEFAULT_CONFIG, CollabFrontend, load_config
+from superconductor_client.client import AudioSinks
+from superconductor_client.tracking.object_tracking import ObjectTracker
+from superconductor_client.tracking.tracking_view import parse_frame_message
 
 W, H = 960, 540
 

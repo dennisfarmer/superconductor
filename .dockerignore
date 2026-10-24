@@ -1,4 +1,4 @@
-# build context for container/Dockerfile: only pyproject.toml, superconductor/ and container/ are used
+# build context: superconductor_client/, client_container/
 .git
 **/__pycache__
 *.egg-info
