@@ -12,7 +12,10 @@
 #   make server BACKEND=mlx MODEL=mrt2_base   override the defaults
 #   make server PORT=9000 ARGS="--frames_per_block 4"   other mrt2_server.py flags
 #   make image        build the linux/amd64 dev image; make image-push sends it to :server-dev
-#   make sif          on lh2300: pull the release image again (:server)
+#   make sif          on lh2300: pull the release image again (:server).
+#                     This, and the singularity targets below, source
+#                     /scratch/aimusic_project_root/aimusic_project/shared_data/.singularity/singularity-setup.sh
+#                     first. The copy in this checkout is only a reference.
 #   make sif-dev      on lh2300: pull the dev image again (:server-dev)
 #   make server-singularity       run the release image, pulling it if the .sif is absent
 #   make server-singularity-dev   run the dev image, pulling it if the .sif is absent
@@ -54,8 +57,8 @@ IMAGE_RELEASE ?= ghcr.io/dennisfarmer/superconductor_server:server
 IMAGE_DEV ?= ghcr.io/dennisfarmer/superconductor_server:server-dev
 SIF ?= superconductor_server.sif
 SIF_DEV ?= superconductor_server-dev.sif
-# `singularity pull` cache. The default is ~/.singularity, on the home quota.
-SINGULARITY_CACHEDIR ?= /scratch/aimusic_project_root/aimusic_project/shared_data/.singularity_cache
+# Loads Singularity, sets the cache and ghcr.io login, then returns.
+SINGULARITY_SETUP := /scratch/aimusic_project_root/aimusic_project/shared_data/.singularity/singularity-setup.sh
 
 .PHONY: server env setup setup-stamp ensure-setup setup-weights check-env image image-push sif sif-dev server-singularity server-singularity-dev
 
@@ -176,12 +179,10 @@ image-push:
 	$(IMAGE_BUILD) --push
 
 sif:
-	mkdir -p $(SINGULARITY_CACHEDIR)
-	SINGULARITY_CACHEDIR=$(SINGULARITY_CACHEDIR) singularity pull --force $(SIF) docker://$(IMAGE_RELEASE)
+	bash -c 'source $(SINGULARITY_SETUP) && singularity pull --force $(SIF) docker://$(IMAGE_RELEASE)'
 
 sif-dev:
-	mkdir -p $(SINGULARITY_CACHEDIR)
-	SINGULARITY_CACHEDIR=$(SINGULARITY_CACHEDIR) singularity pull --force $(SIF_DEV) docker://$(IMAGE_DEV)
+	bash -c 'source $(SINGULARITY_SETUP) && singularity pull --force $(SIF_DEV) docker://$(IMAGE_DEV)'
 
 # The file rule pulls only when the .sif is absent. `make sif` still pulls --force.
 $(SIF):
@@ -191,14 +192,10 @@ $(SIF_DEV):
 	$(MAKE) sif-dev
 
 server-singularity: $(SIF)
-	singularity run --nv --bind $(MAGENTA_HOME):$(MAGENTA_HOME) \
-		--env MAGENTA_HOME=$(MAGENTA_HOME) --env MODEL=$(MODEL) --env PORT=$(PORT) \
-		$(SIF)
+	bash -c 'source $(SINGULARITY_SETUP) && singularity run --nv --bind $(MAGENTA_HOME):$(MAGENTA_HOME) --env MAGENTA_HOME=$(MAGENTA_HOME) --env MODEL=$(MODEL) --env PORT=$(PORT) $(SIF)'
 
 server-singularity-dev: $(SIF_DEV)
-	singularity run --nv --bind $(MAGENTA_HOME):$(MAGENTA_HOME) \
-		--env MAGENTA_HOME=$(MAGENTA_HOME) --env MODEL=$(MODEL) --env PORT=$(PORT) \
-		$(SIF_DEV)
+	bash -c 'source $(SINGULARITY_SETUP) && singularity run --nv --bind $(MAGENTA_HOME):$(MAGENTA_HOME) --env MAGENTA_HOME=$(MAGENTA_HOME) --env MODEL=$(MODEL) --env PORT=$(PORT) $(SIF_DEV)'
 
 check-env:
 	@$(IN_ENV) python -c "import importlib.util as u, sys; sys.exit(not (u.find_spec('magenta_rt') and u.find_spec('aiohttp')))" || { \

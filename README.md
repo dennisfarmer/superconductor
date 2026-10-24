@@ -17,7 +17,7 @@ git pull && make server
 
 ### Image
 
-The release image is `ghcr.io/dennisfarmer/superconductor_server:server`. It is published with the client image by **Actions** → **release** on the `client` branch. On lh2300, `make server-singularity` runs it and pulls it when `superconductor_server.sif` is absent. `make sif` pulls again after a new release. Checkpoints stay on scratch (`MAGENTA_HOME`). The image run does not run `make setup`.
+The release image is `ghcr.io/dennisfarmer/superconductor_server:server`. It is published with the client image by **Actions** → **release** on the `client` branch. On lh2300, `make server-singularity` sources `/scratch/aimusic_project_root/aimusic_project/shared_data/.singularity/singularity-setup.sh` (Singularity and the ghcr.io login), then runs the image. It pulls when `superconductor_server.sif` is absent. The copy of the script at the top of this checkout is only a reference. `make sif` pulls again after a new release. Checkpoints stay on scratch (`MAGENTA_HOME`). The image run does not run `make setup`.
 
 `make image-push` on a laptop publishes the dev image, `:server-dev`. On lh2300, `make sif-dev` pulls it and `make server-singularity-dev` runs it. Notes for the next release go under `## [Unreleased]` in `CHANGELOG.md`.
 
