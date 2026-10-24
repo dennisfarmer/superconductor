@@ -34,17 +34,17 @@ model = "yoloe-11s-seg.pt"
 classes = ["stuffed toy", "toy", "hand"]   # "hand" detections: calibration and "held" triggers
 conf = 0.1                    # YOLOE's detection threshold; BoT-SORT starts tracks at new_track_thresh (botsort_superconductor.yaml)
 imgsz = 480
-device = "cpu"                # "cpu" leaves the GPU to MRT2; "mps" is faster for vision alone
+device = "cpu"                # "cpu" leaves the GPU to MRT2
 # identities (and a crop image of each) persist here across sessions; set "label"
 # in identities.json to name an object, then link the label to a parameter in [assign]
 identity_dir = "var/identities"   # superconductor_client/tracking/var/identities; calibration mode only
 # appearance model used to recognize each object when it first appears or comes
-# back (and to re-check it about once a second): DINOv2 ViT-S/14, ~5.5 ms per crop
-# on mps, at most embeds_per_frame crops per frame. "yolo11n-cls.pt" (embed_imgsz
-# 128) is the older, weaker option. Remove to use color histograms only.
+# back (and to re-check it about once a second): DINOv2 ViT-S/14, at most
+# embeds_per_frame crops per frame. Device is whichever this build has: cuda,
+# then mps, then cpu. "yolo11n-cls.pt" (embed_imgsz 128) is the older, weaker
+# option. Remove to use color histograms only.
 embedder = "dinov2_vits14"
 embed_imgsz = 224
-embed_device = "mps"
 embeds_per_frame = 2
 # every object seen: superconductor_client/tracking/library/<id>/ (object.json with name, description
 # and instrument; views/*.jpg; embeddings.npy). Edit them on the objects page.

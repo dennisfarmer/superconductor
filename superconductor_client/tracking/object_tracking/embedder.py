@@ -20,6 +20,35 @@ DINO_MEAN = np.array([0.485, 0.456, 0.406], np.float32)
 DINO_STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 
+def _backend_works(check):
+    try:
+        return bool(check())
+    except Exception:
+        return False
+
+
+def resolve_device(device=None):
+    """A device this PyTorch build can run.
+
+    cpu stays cpu. cuda and mps are kept only when that backend exists.
+    Anything else (including an mps pin on Linux) is cuda, then mps, then cpu.
+    """
+    mps = getattr(torch.backends, "mps", None)
+    has_mps = mps is not None and _backend_works(mps.is_available)
+    has_cuda = _backend_works(torch.cuda.is_available)
+    if device == "cpu":
+        return "cpu"
+    if device == "cuda" and has_cuda:
+        return "cuda"
+    if device == "mps" and has_mps:
+        return "mps"
+    if has_cuda:
+        return "cuda"
+    if has_mps:
+        return "mps"
+    return "cpu"
+
+
 class Embedder:
     def __init__(self, model="dinov2_vits14", imgsz=224, device=None, center=True,
                  background_crops=32, seed=0):
@@ -27,7 +56,7 @@ class Embedder:
         or an ultralytics classifier like "yolo11n-cls.pt". `imgsz`: crop size
         (a multiple of 14 for DINOv2). `center`: compare features centered on the
         scene mean (see module docstring)."""
-        self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
+        self.device = resolve_device(device)
         self.imgsz = imgsz
         self.name = f"{model}@{imgsz}"
         self.dino = model.startswith("dinov2")

@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from ultralytics import YOLO
 
-from superconductor_client.tracking.object_tracking.embedder import Embedder
+from superconductor_client.tracking.object_tracking.embedder import Embedder, resolve_device
 from superconductor_client.tracking.object_tracking.identity import IdentityRegistry, color_histogram, mean_color
 
 TRACKER_CONFIG = Path(__file__).parent / "botsort_superconductor.yaml"
@@ -60,12 +60,12 @@ class ObjectTracker:
             (used for "touch the ..." calibration and "held" triggers) instead
             of becoming identities
         `embedder`: appearance model for re-identification ("dinov2_vits14", or
-            "yolo11n-cls.pt"; None = color only), on `embed_device` (default mps
-            if available). At most `embeds_per_frame` crops are embedded per frame
-            (DINOv2: ~5.5 ms each on MPS): new objects first, then periodic checks.
+            "yolo11n-cls.pt"; None = color only), on `embed_device` (cuda, then
+            mps, then cpu). At most `embeds_per_frame` crops are embedded per frame:
+            new objects first, then periodic checks.
         `identity`: extra IdentityRegistry settings (thresholds, see identity.py)
         """
-        self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
+        self.device = resolve_device(device)
         if "cpu" in (self.device, embed_device):
             # NNPACK can't start on CPUs without AVX2 (e.g. the amd64 container emulated on
             # a Mac) and logs "Could not initialize NNPACK!" on every conv; torch's other
