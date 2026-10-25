@@ -13,7 +13,7 @@ cd superconductor_server
 git pull && make server
 ```
 
-`requirements_lighthouse.txt` installs `magenta-rt[jax]==2.0.3` with `jax[cuda12]`. CUDA 13 dropped Volta (V100). On a V100, watch `gen_ms_per_frame` in the `Stats` messages and check that it stays under 40 ms/frame.
+`requirements_lighthouse.txt` installs `magenta-rt[jax]==2.0.3` with `jax[cuda12]`. The lh2300 GPU is an L40S. Watch `gen_ms_per_frame` in the `Stats` messages and check that it stays under 40 ms/frame.
 
 ### Image
 

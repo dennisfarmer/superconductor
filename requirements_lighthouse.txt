@@ -1,4 +1,4 @@
-# Lighthouse GPU node (lh2300, V100). CUDA 13 dropped Volta, so this is jax[cuda12].
+# Lighthouse GPU node (lh2300, L40S). jax[cuda12] runs on it.
 # The laptop installs the client with ./setup_env.sh and environment.yml (MLX).
 magenta-rt[jax]==2.0.3
 jax[cuda12]
