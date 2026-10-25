@@ -35,6 +35,8 @@
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   #status { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  #gpu-note { margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
+              background: var(--card); color: var(--text); font-size: 14px; }
   .ok { color: var(--live); } .bad { color: var(--danger); }
   .hint { color: var(--muted); font-size: 13px; }
 </style>
@@ -58,6 +60,7 @@
       <input type="checkbox" id="compat"> compatibility mode</label>
     <span class="hint">Click the view to move the reference point. Keys: [ ] combo distance, c calibrate.</span>
   </div>
+  <p id="gpu-note" hidden></p>
   <div id="stage">
     <video id="video" playsinline muted></video>
     <canvas id="overlay"></canvas>
@@ -110,19 +113,48 @@ config = await fetch("/api/web").then(r => r.json()).catch(() => ({}));
   }
   if (config.detector?.mode === "container") $("compat").checked = true;
 }
+gpuNote();
 
 // ---------- detection ----------
 
 const useDetector = () => detectorState === "ready" && !$("compat").checked;
 
+// Why the browser detector is off, or null when it is a missing-file problem or
+// still starting. The fallback stays automatic: plain frames, and YOLOE + BoT-SORT
+// run in the client process.
+function webgpuFailure() {
+  if (config.detector?.mode === "container" || detectorState === "ready") return null;
+  const reason = detectorState.startsWith("unavailable: ") ? detectorState.slice("unavailable: ".length) : "";
+  if (/no detector model|no onnxruntime/i.test(reason)) return null;
+  if (!navigator.gpu || /no WebGPU|no GPU adapter/i.test(reason)) return "WebGPU is not detected.";
+  if (reason) return `WebGPU did not start (${reason}).`;
+  return null;
+}
+
+function gpuNote() {
+  const el = $("gpu-note");
+  const lead = webgpuFailure();
+  if (!lead) { el.hidden = true; return; }
+  const running = stream ? "are running" : "will run";
+  el.hidden = false;
+  el.textContent = `${lead} This browser cannot run the detector, so it only sends camera frames. ` +
+    `YOLOE and BoT-SORT ${running} in the client process instead of here.`;
+}
+
 async function initDetector() {
   const cfg = config.detector || {};
-  if (cfg.mode === "container") { detectorState = "unavailable: the client detects ([web] detection)"; return; }
+  if (cfg.mode === "container") {
+    detectorState = "unavailable: the client detects ([web] detection)";
+    gpuNote();
+    return;
+  }
   detectorState = "starting";
+  gpuNote();
   detector = startDetector(cfg);
   const { ok, reason } = await detector.ready;
   detectorState = ok ? "ready" : `unavailable: ${reason}`;
   if (!ok) { detector.stop(); detector = null; }
+  gpuNote();
 }
 
 // ---------- camera ----------
@@ -377,8 +409,14 @@ setInterval(() => {
   if (!stream) return;
   const cam = camWs && camWs.readyState === 1 ? '<span class="ok">● client</span>' : '<span class="bad">○ client</span>';
   const where = useDetector() ? `detecting here (WebGPU, ${stats.detectMs.toFixed(0)} ms)`
-    : `detecting in the client${detectorState.startsWith("unavailable") ? ` (${detectorState.slice(13)})`
-                                : $("compat").checked ? " (compatibility mode)" : ""}`;
+    : $("compat").checked && detectorState === "ready"
+      ? "compatibility mode: YOLOE + BoT-SORT in the client process"
+      : webgpuFailure()
+        ? "YOLOE + BoT-SORT in the client process"
+        : detectorState.startsWith("unavailable")
+          ? `detecting in the client (${detectorState.slice("unavailable: ".length)})`
+          : "detecting in the client";
+  gpuNote();
   const s = overlay?.status;
   const client = s ? ` · client ${s.vision_fps.toFixed(0)} fps, ${s.track_ms.toFixed(0)} ms · ${s.music}` : "";
   const snd = stats.audio !== "connected" ? `<span class="bad">○ sound (${stats.audio})</span>`

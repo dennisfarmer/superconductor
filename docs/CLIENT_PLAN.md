@@ -9,7 +9,7 @@ Today, in web mode (`sc-tracking`), the browser page (`superconductor_client/tra
 - sends `UpdateRecipe` / `UpdateControls` to the MRT2 server
 - relays the server's audio, already tempo-stretched by the server's `tempo.py`, back to the page
 
-Because detection runs in the process, the process needs a GPU, and that is what made the container slow (Docker on the laptop) or broken (the V100 with the CUDA 13 torch).
+Because detection runs in the process, the process needs a GPU, and that is what made the container slow (Docker on the laptop) or broken (lh2300's L40S when the process could not open it).
 
 **Goal:** detection and tracking run in the browser by default.
 - **Tracking** (`tracker_js`) is plain JS on the CPU, at about 3 µs per frame.
@@ -151,7 +151,7 @@ After each frame it handles, the process sends one JSON text message on `/ws/cam
 - **At client startup** (web + browser detection): if the model is missing or its stored classes differ from the config, run the export. In the container, it goes to `/data` (writable).
 - **`superconductor_client/tracking/fetch_ort.sh`** + `make web-deps`: get `onnxruntime-web@1.30.0`, check its sha256, and copy its 3 files into `superconductor_client/tracking/var/web/ort/`. The runtime is served by the client, not a CDN, and it isn't committed to git because it's 27 MB.
 - **`client_container/Dockerfile`**: run both steps at build time. The text encoder is already downloaded there by the `ObjectTracker` warm-up.
-- **Torch with CUDA 12.6** (`client_container/requirements.txt`, from PyTorch's cu126 index): the current PyPI torch is CUDA 13, which has no V100 (sm_70) support. DINO, and YOLOE in compatibility mode, could then use lh2300's GPU.
+- **Torch with CUDA 12.6** (`client_container/requirements.txt`, from PyTorch's cu126 index). The lh2300 GPU is an L40S (Ada, sm_89). DINO, and YOLOE in compatibility mode, can use it when the card is in Default compute mode. Exclusive_Process leaves them on CPU.
 - **Entrypoint GPU check** (`client_container/entrypoint.sh`): run a real CUDA operation instead of `torch.cuda.is_available()`, so an unsupported GPU falls back to CPU instead of crashing.
 
 ### 5. Audio set up for routing later

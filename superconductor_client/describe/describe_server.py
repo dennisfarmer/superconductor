@@ -13,17 +13,17 @@ HTTP API:
   POST /describe    {"image": "<base64 jpeg>"}  -> {"description": "..."}
   POST /instrument  {"description": "..."}      -> {"instrument": "fiery thundering taiko drums"}
   POST /name        {"description": "..."}      -> {"name": "green plush dinosaur"}
-  POST /svg         {"prompt": "..."}           -> {"svg": "<svg ...>...</svg>"}
+  POST /svg         {"prompt": "..."}           -> {"svg": "<svg ...>...</svg>"}  (default.svg, a wand)
   GET  /health                                  -> {"model": ..., "backend": "ollama", "host": ...,
                                                     "svg_model": ..., "svg_backend": ..., "svg_ready": ...}
 
-/svg is a local text model (SVGen, a Qwen2.5-3B fine-tune), not Ollama: mlx-lm
-on macOS, transformers on the cluster. Its weights load on the first request.
+/svg returns describe/default.svg. It does not load a model, so it does not take a GPU.
 """
 import argparse
 import asyncio
 import socket
 import time
+from pathlib import Path
 
 import aiohttp
 from aiohttp import web
@@ -98,12 +98,15 @@ class DescribeServer:
         if self._model not in names:
             raise SystemExit(f"model {self._model} not pulled in Ollama: run `make pull MODEL={self._model}`")
         print(f"Serving {self._model} (ollama) on port {self._port}", flush=True)
-        if self._svg.installed():
-            print(f"SVG icons: {self._svg.model_id} via {self._svg.backend} "
-                  "(loads on the first POST /svg)", flush=True)
-        else:
-            print(f"SVG icons: {self._svg.backend} is not installed, POST /svg will fail "
-                  f"until it is (model {self._svg.model_id})", flush=True)
+        if self._svg.backend == "transformers":
+            from superconductor_client.torch_device import DESCRIBE_NEEDS_GPU, cuda_state_detached
+            # "absent" means this machine has no CUDA device. "busy" means another
+            # process already holds the card (often Ollama, which is a separate
+            # process). Icons then fail on request. Descriptions still go to Ollama.
+            if cuda_state_detached() == "absent":
+                raise SystemExit(DESCRIBE_NEEDS_GPU)
+        icon = Path(__file__).parent / "default.svg"
+        print(f"SVG icons: {icon.name} (no model)", flush=True)
 
     async def _stop(self, app):
         await self._session.close()
@@ -146,7 +149,10 @@ class DescribeServer:
         return web.json_response({"name": " ".join(name.split()[:4])})
 
     async def _handle_svg(self, request):
-        """{"prompt": "..."} -> {"svg": "<svg...>"} drawn by the local SVGen model"""
+        """{"prompt": "..."} -> the wand in default.svg.
+
+        Icons do not load a model, so this request does not take a GPU.
+        """
         try:
             data = await request.json()
         except ValueError:
@@ -154,21 +160,22 @@ class DescribeServer:
         prompt = str((data or {}).get("prompt") or "").strip()
         if not prompt:
             raise web.HTTPBadRequest(text="missing 'prompt'")
-        async with self._svg_lock:
-            t0 = time.time()
-            try:
-                svg = await asyncio.to_thread(self._svg.generate, prompt)
-            except SvgError as e:
-                print(f"svg: {e}", flush=True)
-                return web.Response(status=e.status, text=str(e))
-        print(f"svg: {time.time() - t0:.1f}s", flush=True)
+        path = Path(__file__).parent / "default.svg"
+        try:
+            svg = path.read_text(encoding="utf-8").strip()
+        except OSError as e:
+            raise web.HTTPServiceUnavailable(text=f"default icon is missing: {e}")
+        if not svg.lower().lstrip().startswith("<svg"):
+            raise web.HTTPServiceUnavailable(text="default.svg is not an SVG")
         return web.json_response({"svg": svg})
 
     async def _handle_health(self, request):
+        icon = Path(__file__).parent / "default.svg"
+        ready = icon.is_file()
         return web.json_response({
             "model": self._model, "backend": "ollama", "host": socket.gethostname(),
-            "svg_model": self._svg.model_id, "svg_backend": self._svg.backend,
-            "svg_ready": self._svg.ready, "svg_error": self._svg.error,
+            "svg_model": icon.name, "svg_backend": "file",
+            "svg_ready": ready, "svg_error": None if ready else "default.svg is missing",
         })
 
 

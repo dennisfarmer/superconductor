@@ -69,7 +69,25 @@ wait_for() {  # url, name
     return 1
 }
 
+# Describe needs a CUDA device. Exclusive_Process counts as none available when
+# another process already holds the card. Skip it and keep the rest of the client.
+describe_ok=0
 if has describe; then
+    if [ -n "${SC_DESCRIBE_GPU:-}" ]; then
+        if CUDA_VISIBLE_DEVICES="$SC_DESCRIBE_GPU" \
+                python -c "import torch; torch.ones(1, device='cuda').add_(1).item()" \
+                >/dev/null 2>&1; then
+            describe_ok=1
+        fi
+    elif python -c "import torch; torch.ones(1, device='cuda').add_(1).item()" \
+            >/dev/null 2>&1; then
+        describe_ok=1
+    fi
+    if [ "$describe_ok" = 0 ]; then
+        echo "The describe server needs a GPU, and none is available. Continuing without it." >&2
+    fi
+fi
+if [ "$describe_ok" = 1 ]; then
     if [ -z "$OLLAMA_URL" ]; then
         # The image already has qwen2.5vl:3b. Use that copy when /data/ollama
         # has no models of its own. A different DESCRIBE_MODEL is pulled into
@@ -82,8 +100,13 @@ if has describe; then
             export OLLAMA_MODELS=/opt/models/ollama
         fi
         OLLAMA_URL=http://127.0.0.1:$SC_OLLAMA_PORT
+        # SC_DESCRIBE_GPU=1 puts Ollama on the second GPU. Exclusive_Process is per
+        # card, so this process can own that L40S while the music server owns the first.
+        # An empty CUDA_VISIBLE_DEVICES would hide every GPU, so set it only when asked.
+        if [ -n "${SC_DESCRIBE_GPU:-}" ]; then export CUDA_VISIBLE_DEVICES=$SC_DESCRIBE_GPU; fi
         OLLAMA_HOST=127.0.0.1:$SC_OLLAMA_PORT ollama serve > /data/run/ollama.log 2>&1 &
-        pids+=($!); watched+=($!)
+        unset CUDA_VISIBLE_DEVICES
+        pids+=($!)
         wait_for "$OLLAMA_URL/api/tags" Ollama
         if ! OLLAMA_HOST=127.0.0.1:$SC_OLLAMA_PORT ollama show "$DESCRIBE_MODEL" > /dev/null 2>&1; then
             echo "pulling $DESCRIBE_MODEL into $OLLAMA_MODELS"
@@ -91,16 +114,19 @@ if has describe; then
         fi
     fi
     # SVGen is baked at /opt/models/svgen. keep_alive 0 drops the VLM off the
-    # V100 once a description finishes, so the icon model can use that GPU.
+    # L40S once a description finishes, so the icon model can use that GPU.
     svg_args=()
     if [ -d /opt/models/svgen ]; then
         svg_args=(--svg-model /opt/models/svgen --svg-backend transformers)
     fi
+    # Same card as Ollama. Unset SC_DESCRIBE_GPU leaves both on the default GPU.
+    if [ -n "${SC_DESCRIBE_GPU:-}" ]; then export CUDA_VISIBLE_DEVICES=$SC_DESCRIBE_GPU; fi
     HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HOME=/data/huggingface \
         python "$SC/client/superconductor_client/describe/describe_server.py" \
         --model "$DESCRIBE_MODEL" --port 9200 --ollama_url "$OLLAMA_URL" \
         --keep_alive 0 "${svg_args[@]}" &
-    pids+=($!); watched+=($!)
+    unset CUDA_VISIBLE_DEVICES
+    pids+=($!)
 fi
 
 if has client; then

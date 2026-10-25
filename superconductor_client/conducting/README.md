@@ -2,7 +2,7 @@
 
 ## Browser conducting (with the SuperConductor stack)
 
-`conducting_web/` runs the live conductor in the browser, next to the client's camera page.
+`conducting_web/` runs the live conductor in the browser, next to Tracking.
 The browser owns the camera. MediaPipe's HandLandmarker runs in a Web Worker and sends each
 frame's hand landmarks to `conducting_web/server.py`. The server passes them through the
 unchanged `StopGestureDetector`, `CycleTempoEstimator` and `ServerTempoPlayer`, which sends
@@ -16,15 +16,12 @@ preview drew (hands, fingertip trail, status lines). Its status line shows each 
 - the server's target and heard BPM.
 
 ```bash
-# in superconductor_client_web
-make server            # MRT2 server, :9100
-make client            # camera page http://localhost:8467 (the music plays there)
-make conduct           # conducting page http://localhost:8480 (make conduct-remote: via the :9000 tunnel)
+make server
+make client
+make conduct           # make conduct-remote uses the port 9000 tunnel
 ```
 
-The client container starts this same process. Open it at http://localhost:8080/conduct/
-(the camera needs `http://localhost`). On the machine running the container it is also
-http://127.0.0.1:8480, and `ws://127.0.0.1:8480/ws/hands/monitor` is unchanged.
+Where to open Tracking and Conducting is the table in `superconductor_client/README.md`. The container serves the same Conducting process. The browser will only share the camera on `localhost`.
 
 Both pages can use the same webcam, or two different ones. Frames come straight from the
 camera track (`MediaStreamTrackProcessor`), so both pages keep running in background tabs.

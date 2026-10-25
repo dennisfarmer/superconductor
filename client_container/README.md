@@ -6,19 +6,22 @@ Singularity runs this image on lh2300. Docker builds the image. A note on runnin
 
 ## Open these
 
-The gateway is the only port the browser uses. Chrome, Edge, and Firefox resolve `*.localhost`. The camera needs `http://localhost`, so open the page through the forwarded port.
+The gateway is the only port the browser uses. Open these on the laptop, through the port 8080 tunnel. `server.localhost` is the gateway name for the music server, on that same port. `midi.localhost`, `atlas.localhost`, and `describe.localhost` are the same kind of name. Chrome, Edge, and Firefox send `*.localhost` to this machine. Tracking has to be opened as `localhost`, not a `*.localhost` name, because the browser will only share the camera with `localhost`.
 
-| Open | What it is |
+| Page | On the laptop |
 |---|---|
-| http://localhost:8080 | Camera page. Press **Start** and allow the camera. |
-| http://localhost:8080/conduct/ | Conducting. MediaPipe hands set the server's tempo. The music still plays on the camera page. |
-| http://localhost:8080/objects | Objects: names, instruments, combos, Services. |
-| http://midi.localhost:8080 | MIDI player |
-| http://atlas.localhost:8080 | Atlas. Its engine is at `/engine`. |
-| http://describe.localhost:8080/health | Describe server |
-| http://server.localhost:8080/tempo | The music server's tempo page, and `/conduct` |
-
-On the machine running the container, conducting is also at http://127.0.0.1:8480. TouchDesigner can listen at `ws://127.0.0.1:8480/ws/hands/monitor`, or through the laptop tunnel at `ws://localhost:8080/conduct/ws/hands/monitor`.
+| Tracking | http://localhost:8080 |
+| Prompts | http://localhost:8080/objects |
+| Conducting | http://localhost:8080/conduct/ |
+| MIDI player | http://midi.localhost:8080 |
+| Atlas | http://atlas.localhost:8080 |
+| Describe | http://describe.localhost:8080/health |
+| Tempo View | http://server.localhost:8080/tempo |
+| Conductor | http://server.localhost:8080/conduct |
+| Playback | ws://server.localhost:8080/stream/playback |
+| Conducting, on the container machine | http://127.0.0.1:8480 |
+| TouchDesigner, on the container machine | ws://127.0.0.1:8480/ws/hands/monitor |
+| TouchDesigner, through the laptop tunnel | ws://localhost:8080/conduct/ws/hands/monitor |
 
 ## What starts
 
@@ -26,7 +29,7 @@ Each service listens on 127.0.0.1. Caddy on 8080 forwards by hostname. `client_c
 
 | Service | Port |
 |---|---|
-| Client (camera page, objects, client_midi) | 8467, 8470 |
+| Client (Tracking, Prompts, client_midi) | 8467, 8470 |
 | Describe server, Ollama, and the SVGen icon model | 9200, 11434 |
 | MIDI player | 8475 |
 | Atlas app, Atlas engine | 8764, 8765 |
@@ -79,9 +82,9 @@ git clone -b client --single-branch https://github.com/dennisfarmer/superconduct
    make client-singularity
    ```
 3. On the laptop: `ssh -N -L 8080:lh2300:8080 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
-4. Open http://localhost:8080 and press **Start**.
+4. Open Tracking from the table above and press **Start**.
 
-`make client-singularity` uses the `cluster` entry in `superconductor_client/addresses.toml`. Programs in the container open `localhost:9100`. The browser opens `server.localhost:8080`. Singularity shares the node's network, so these ports belong to whoever starts the container. If another Ollama already has 11434, set `SINGULARITYENV_SC_OLLAMA_PORT=11435`.
+`make client-singularity` uses the `cluster` entry in `superconductor_client/addresses.toml`. Programs in the container open port 9100 on the node. The laptop browser uses the table above. Singularity shares the node's network, so these ports belong to whoever starts the container. If another Ollama already has 11434, set `SINGULARITYENV_SC_OLLAMA_PORT=11435`.
 
 After a new release is published: `make sif` in the server checkout and `make sif` in this checkout, then start them again. For a laptop dev image, `make sif-dev` and `make client-singularity-dev` (and `make server-singularity-dev` in the server checkout).
 

@@ -36,9 +36,9 @@ def test_chat_messages_are_the_prompt():
     assert messages[1] == {"role": "user", "content": "a small red drum"}
 
 
-def test_v100_uses_float16_and_ampere_uses_bfloat16():
-    assert inference_dtype(True, 7, False) == "float16"  # V100, sm_70
-    assert inference_dtype(True, 8, False) == "bfloat16"
+def test_older_cuda_uses_float16_and_later_uses_bfloat16():
+    assert inference_dtype(True, 7, False) == "float16"  # pre-Ampere, sm_70
+    assert inference_dtype(True, 8, False) == "bfloat16"  # L40S is sm_89, same path
     assert inference_dtype(False, 0, True) == "float16"
     assert inference_dtype(False, 0, False) == "float32"
 

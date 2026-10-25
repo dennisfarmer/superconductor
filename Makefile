@@ -20,6 +20,7 @@
 #   make audio        sc-audio. Asks where the music server is, same question as make client.
 #   make audio-local  same, without the question: --where local
 #   make audio-remote same, without the question: --where remote
+#   make audio-cluster  alias for make audio-remote
 #   make web-deps     onnxruntime-web for the page's detector (var/web/ort)
 #   make web-model    export the page's detector (YOLOE, [tracking] classes) to var/web/models
 #   make server MODEL=mrt2_base   other server options (MODEL, PORT, ARGS, ...) are
@@ -102,11 +103,11 @@ SC_DATA ?= /scratch/aimusic_project_root/aimusic_project/shared_data/sc_data_$(U
 # Loads Singularity, sets the cache and ghcr.io login, then returns.
 SINGULARITY_SETUP := /scratch/aimusic_project_root/aimusic_project/shared_data/.singularity/singularity-setup.sh
 
-.PHONY: setup setup-stamp ensure-setup worktrees server describe midi atlas conduct conduct-remote playback touchdesigner client client-local client-remote vision test check-env audio audio-local audio-remote web-deps web-model \
+.PHONY: setup setup-stamp ensure-setup worktrees server describe midi atlas conduct conduct-remote playback touchdesigner client client-local client-remote vision test check-env audio audio-local audio-remote audio-cluster web-deps web-model \
 	image image-push sif sif-dev client-singularity client-singularity-dev
 
 # macOS: sc_env from environment.yml, created if it is missing.
-# lh2300: .venv and the CUDA 12.6 client requirements (the V100). No Singularity.
+# lh2300: .venv and the CUDA 12.6 client requirements (the L40S). No Singularity.
 # `make setup DESCRIBE=1` also downloads the SVGen icon weights and pulls the
 # Ollama vision model. `make client` calls ensure-setup, which stops after a
 # few file tests when .cache/setup-stamp still matches.
@@ -229,7 +230,7 @@ audio: check-env
 audio-local: check-env
 	$(IN_ENV) python audio_receiver.py --where local $(ARGS)
 
-audio-remote: check-env
+audio-remote audio-cluster: check-env
 	$(IN_ENV) python audio_receiver.py --where remote $(ARGS)
 
 web-deps:

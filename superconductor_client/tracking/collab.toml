@@ -40,9 +40,10 @@ device = "cpu"                # "cpu" leaves the GPU to MRT2
 identity_dir = "var/identities"   # superconductor_client/tracking/var/identities; calibration mode only
 # appearance model used to recognize each object when it first appears or comes
 # back (and to re-check it about once a second): DINOv2 ViT-S/14, at most
-# embeds_per_frame crops per frame. Device is whichever this build has: cuda,
-# then mps, then cpu. "yolo11n-cls.pt" (embed_imgsz 128) is the older, weaker
-# option. Remove to use color histograms only.
+# embeds_per_frame crops per frame. On a Mac this uses MPS. On Linux the client
+# stays on CPU so it does not take the L40S from the music server.
+# "yolo11n-cls.pt" (embed_imgsz 128) is the older, weaker option. Remove to use
+# color histograms only.
 embedder = "dinov2_vits14"
 embed_imgsz = 224
 embeds_per_frame = 2

@@ -5,7 +5,7 @@ with ReID + a long track buffer, across short occlusions), which is what lets
 each object keep controlling the same music parameter.
 
 Two steps: `_detect` (YOLO + BoT-SORT, this process) and `track_detections`
-(TrackedObjects, hands, DINO crops, identities). The camera page usually does the
+(TrackedObjects, hands, DINO crops, identities). Tracking usually does the
 first step itself (vision_js + tracker_js, see CAMERA_PROTOCOL.md) and sends its
 detections; then only `track_detections` runs here and YOLO is never loaded.
 """
@@ -18,7 +18,8 @@ import numpy as np
 import torch
 from ultralytics import YOLO
 
-from superconductor_client.tracking.object_tracking.embedder import Embedder, resolve_device
+from superconductor_client.torch_device import cuda_unavailable, resolve_device, tell
+from superconductor_client.tracking.object_tracking.embedder import Embedder
 from superconductor_client.tracking.object_tracking.identity import IdentityRegistry, color_histogram, mean_color
 
 TRACKER_CONFIG = Path(__file__).parent / "botsort_superconductor.yaml"
@@ -65,7 +66,7 @@ class ObjectTracker:
             new objects first, then periodic checks.
         `identity`: extra IdentityRegistry settings (thresholds, see identity.py)
         """
-        self.device = resolve_device(device)
+        self.device = resolve_device(device, "Detection")
         if "cpu" in (self.device, embed_device):
             # NNPACK can't start on CPUs without AVX2 (e.g. the amd64 container emulated on
             # a Mac) and logs "Could not initialize NNPACK!" on every conv; torch's other
@@ -111,10 +112,18 @@ class ObjectTracker:
 
     def _detect(self, frame):
         """YOLO + BoT-SORT: [(track_id, class_name, confidence, (x1, y1, x2, y2), polygon or None)]"""
-        result = self.model.track(
-            frame, persist=True, tracker=self.tracker, classes=self.class_ids,
-            conf=self.conf, imgsz=self.imgsz, device=self.device, verbose=False,
-        )[0]
+        while True:
+            try:
+                result = self.model.track(
+                    frame, persist=True, tracker=self.tracker, classes=self.class_ids,
+                    conf=self.conf, imgsz=self.imgsz, device=self.device, verbose=False,
+                )[0]
+                break
+            except Exception as exc:
+                if self.device == "cpu" or not cuda_unavailable(exc):
+                    raise
+                tell("Detection")
+                self.device = "cpu"
         boxes = result.boxes
         if boxes is None or boxes.id is None:
             return []

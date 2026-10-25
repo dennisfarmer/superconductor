@@ -19,6 +19,17 @@ It runs as its own process so the VLM doesn't compete with the camera loop, and 
 
 Other flags: `make describe MODEL=qwen2.5vl:7b PORT=... ARGS="--keep_alive 0"` (`--keep_alive 0` frees the GPU right after each request, which helps when the VLM shares the laptop's GPU with MRT2), or `python describe_server.py --help`.
 
+A second GPU can be given to this server alone. `Exclusive_Process` is per card, and `CUDA_VISIBLE_DEVICES` is per process. The music server keeps the first L40S. Ollama and this process both have to see only the second, or one of them will take the music server's card:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 ollama serve
+CUDA_VISIBLE_DEVICES=1 make describe
+```
+
+The client stays on CPU and does not open either GPU. In the container image the same split is `SC_DESCRIBE_GPU=1`.
+
+`make client DESCRIBE=1` and `make client-singularity DESCRIBE=1` start this server only when a CUDA device can be opened. If the L40S is already taken, or there is no GPU, they print that the describe server needs a GPU and continue as `make client` or `make client-singularity`. Ollama is a separate process from this one. Under `Exclusive_Process` only one of them can hold a given card.
+
 ### HTTP API
 
 | Request | Body | Response |
@@ -27,15 +38,10 @@ Other flags: `make describe MODEL=qwen2.5vl:7b PORT=... ARGS="--keep_alive 0"` (
 | `POST /instrument` | `{"description": "..."}` | `{"instrument": "fiery thundering taiko drums"}` |
 | `POST /name` | `{"description": "..."}` | `{"name": "green plush dinosaur"}` (the default name on the objects page) |
 | `POST /svg` | `{"prompt": "..."}` | `{"svg": "<svg ...>...</svg>"}` (an icon for that prompt; optional, from the prompts page) |
-| `GET /health` | | `{"model": "qwen2.5vl:3b", "backend": "ollama", "host": "<hostname>", "svg_model": "...", "svg_backend": "mlx" or "transformers", "svg_ready": false}` |
+| `GET /health` | | `{"model": "qwen2.5vl:3b", "backend": "ollama", "host": "<hostname>", "svg_model": "default.svg", "svg_backend": "file", "svg_ready": true}` |
 
 Requests are handled one at a time. The prompt templates are at the top of `describe_server.py`.
 
 ### Icons (`POST /svg`)
 
-Parameter icons are not the VLM and not Ollama. They come from [SVGen](https://github.com/gitcat-404/SVGen)'s Qwen2.5-3B (`gitcat-404/SVGen-Qwen2.5-3B-Instruct`), a plain Qwen2 checkpoint fine-tuned to write SVG. The same weights run two ways, and setup installs the one that matches the machine:
-
-- **macOS:** [mlx-lm](https://github.com/ml-explore/mlx-lm) 0.31.2, pinned to the same MLX as magenta-rt. `make setup` installs it and downloads the weights.
-- **Cluster:** transformers, in the image and in the Linux `.venv` from `make setup`. The image loads `/opt/models/svgen` with `--svg-backend transformers`. On a V100 that is float16 (the card has no bfloat16). The weights load on the first `POST /svg` (`/health` reports `svg_ready`).
-
-`make pull-svg` downloads the same checkpoint into the Hugging Face cache. On lh2300, set `HF_HOME` to scratch first so it stays off your home quota. The published image has to be rebuilt (Actions → release, then `make sif`) before a running `.sif` includes these weights.
+Every prompt returns `default.svg` in this folder, a wand drawn once by SVGen. The request does not load a model and does not take a GPU. Descriptions still go to Ollama, which is the process that can hold the card.

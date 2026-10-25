@@ -25,7 +25,9 @@
   .grid { max-width: 1100px; margin: 0 auto; padding: 8px 16px 40px;
           display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
   .grid[hidden] { display: none; }
-  #parameters { align-items: start; }
+  /* every parameter block, including "Add new parameter", is the same size */
+  #parameters { grid-auto-rows: 312px; }
+  #parameters > .card, #parameters > .add-tile { height: 100%; min-width: 0; }
   .thumb.icon { object-fit: contain; padding: 8px; background: var(--field); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
           display: grid; grid-template-columns: 96px 1fr; gap: 12px; }
@@ -108,10 +110,27 @@
            border: 1px solid var(--line); background: var(--field); color: var(--text); }
   button:hover { border-color: var(--accent); }
   button.danger { color: var(--danger); margin-left: auto; }
-  .add-tile { width: 100%; aspect-ratio: 1; align-self: start; padding: 0; font-size: 64px; font-weight: 300;
-              line-height: 1; color: var(--muted); background: var(--card);
+  .add-tile { width: 100%; height: 100%; align-self: stretch; padding: 14px;
+              display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+              font-size: 14px; font-weight: 500; line-height: 1.3; color: var(--muted); background: var(--card);
               border: 1px dashed var(--line); border-radius: 10px; }
+  .add-tile .plus { font-size: 40px; font-weight: 300; line-height: 1; }
   .add-tile:hover { color: var(--accent); border-color: var(--accent); }
+  .card.param { grid-template-rows: minmax(0, 1fr) auto auto; }
+  .card.param > .thumb { align-self: start; }
+  .card.param > .body { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .card.param textarea { flex: 1 1 0; min-height: 48px; overflow: auto; }
+  .card.param .weight-block { margin-top: auto; }
+  .card.param .weight-label { display: flex; justify-content: space-between; align-items: baseline; }
+  .card.param .weight-label .now { color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .card.param .weight { display: flex; align-items: center; gap: 8px; }
+  .card.param .weight .bound { flex: 0 0 auto; font-size: 12px; color: var(--muted);
+                               font-variant-numeric: tabular-nums; }
+  .card.param .weight input[type=range] { flex: 1 1 auto; min-width: 0; width: auto; height: 22px;
+                                          margin: 0; padding: 0; border: 0; background: transparent;
+                                          accent-color: var(--accent); }
+  .card.param .weight input:disabled { opacity: .85; }
+  .card.param .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty { color: var(--muted); grid-column: 1 / -1; padding: 40px 0; text-align: center; }
   select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
            background: var(--field); color: var(--text); }
@@ -197,7 +216,7 @@
     <button role="tab" data-panel="objects" aria-selected="false">Objects</button>
   </nav>
 </section>
-<div id="parameters" class="grid"><button type="button" id="add-param" class="add-tile" title="New parameter">+</button></div>
+<div id="parameters" class="grid"><button type="button" id="add-param" class="add-tile"><span class="plus" aria-hidden="true">+</span>Add new parameter</button></div>
 <main id="list" class="grid" hidden><p class="empty">No objects yet. Show something to the camera.</p></main>
 <script>
 const list = document.getElementById("list");
@@ -660,62 +679,69 @@ const EMPTY_ICON = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
 
 function makeParamCard(p) {
   const card = document.createElement("article");
-  card.className = "card";
+  card.className = "card param";
   card.innerHTML = `
     <button class="swatch" title="color: click to pick"></button>
     <img class="thumb icon" alt="">
-    <div>
-      <div class="top"><span class="id"></span><span class="badge"></span></div>
-      <label>Name</label>
-      <input data-key="name">
+    <div class="body">
+      <div class="top"><span class="id"></span><span class="badge" hidden></span></div>
       <label>Prompt</label>
-      <textarea data-key="prompt" rows="1"></textarea>
-      <label>Plays when</label>
-      <select data-key="trigger"></select>
-      <div class="meter"><div></div></div>
+      <textarea data-key="prompt" rows="2"></textarea>
+      <div class="weight-block">
+        <label class="weight-label">Weight <span class="now">0.00</span></label>
+        <div class="weight">
+          <span class="bound">0.00</span>
+          <input type="range" data-key="value" min="0" max="1" step="0.01" value="0" aria-label="Weight from 0.00 to 1.00">
+          <span class="bound">1.00</span>
+        </div>
+      </div>
     </div>
     <p class="desc"></p>
     <div class="actions">
       <button data-act="icon">Draw icon</button>
       <button data-act="delete" class="danger">Delete</button>
     </div>`;
-  const name = card.querySelector("[data-key=name]");
   const prompt = card.querySelector("[data-key=prompt]");
-  const trigger = card.querySelector("[data-key=trigger]");
-  name.placeholder = "unnamed";
-  prompt.placeholder = "MusicCoCa prompt";
-  prompt.addEventListener("input", () => fit(prompt));
+  const slider = card.querySelector("[data-key=value]");
+  const readout = card.querySelector(".now");
+  prompt.placeholder = "what this parameter plays";
   if (p.editable) {
-    trigger.innerHTML = TRIGGER_OPTIONS;
     const save = (key, value) => post(`/api/parameters/${p.id}`, { [key]: value });
-    const bind = (input, key, trim) => {
-      const commit = () => {
-        if (input.value === input.dataset.saved) return;
-        input.dataset.saved = input.value;
-        save(key, trim ? input.value.trim() : input.value);
-      };
-      input.addEventListener("change", commit);
-      input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+    const commitPrompt = () => {
+      if (prompt.value === prompt.dataset.saved) return;
+      prompt.dataset.saved = prompt.value;
+      save("prompt", prompt.value.trim());
     };
-    bind(name, "name", true);
-    bind(prompt, "prompt", true);
-    trigger.onchange = () => save("trigger", trigger.value);
+    prompt.addEventListener("change", commitPrompt);
+    prompt.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); prompt.blur(); }
+    });
+    let valueTimer = 0;
+    const showWeight = () => { readout.textContent = Number(slider.value).toFixed(2); };
+    const commitWeight = () => {
+      clearTimeout(valueTimer);
+      showWeight();
+      save("value", Number(slider.value));
+    };
+    slider.addEventListener("input", () => {
+      showWeight();
+      clearTimeout(valueTimer);
+      valueTimer = setTimeout(commitWeight, 120);
+    });
+    slider.addEventListener("change", commitWeight);
     card.querySelector(".swatch").onclick = e => { e.stopPropagation(); openPicker(card, p.id, "param"); };
     card.querySelector("[data-act=delete]").onclick = () => {
-      const label = name.value.trim();
+      const label = prompt.value.trim();
       if (confirm(`Delete parameter #${p.id}${label ? " " + label : ""}?`))
         post(`/api/parameters/${p.id}`, null, "DELETE");
     };
   } else {
-    trigger.innerHTML = `<option value="service">sent by ${p.service}</option>`;
-    trigger.value = "service";
-    name.disabled = prompt.disabled = trigger.disabled = true;
+    prompt.disabled = slider.disabled = true;
     card.querySelector(".swatch").disabled = true;
     card.querySelector("[data-act=delete]").remove();
   }
   card.querySelector("[data-act=icon]").onclick = () => {
-    const text = (prompt.value || name.value || "").trim();
-    if (!text) { alert("Type a prompt first."); return; }
+    if (!prompt.value.trim()) { alert("Type a prompt first."); return; }
     post(`/api/parameters/${encodeURIComponent(p.id)}/icon`);
   };
   return card;
@@ -728,23 +754,22 @@ function renderParameters(params) {
     seen.add(key);
     let card = paramCards.get(key);
     if (!card) { card = makeParamCard(p); paramCards.set(key, card); }
-    place(paramGrid, card, i + 1);  // the + button stays in the top-left cell
-    card.classList.toggle("away", p.origin === "knob" && !p.live);
+    place(paramGrid, card, i + 1);  // the add button stays in the top-left cell
     card.querySelector(".id").textContent = p.origin === "service" ? p.service : `#${p.id}`;
     const badge = card.querySelector(".badge");
     badge.textContent = p.badge || "";
+    badge.hidden = !p.badge;
     badge.classList.toggle("live", !!p.live);
-    setInput(card.querySelector("[data-key=name]"), p.name);
     const prompt = card.querySelector("[data-key=prompt]");
     setInput(prompt, p.prompt);
-    fit(prompt);
-    const trig = card.querySelector("[data-key=trigger]");
-    if (p.editable && document.activeElement !== trig) trig.value = p.trigger || "near";
-    const value = Number(p.value) || 0;
-    card.querySelector(".meter div").style.width = `${Math.round(100 * Math.max(0, Math.min(1, value)))}%`;
-    card.querySelector(".meter").title = p.origin === "service"
-      ? `${p.service} weight ${value.toFixed(2)}`
-      : (p.badge && p.badge !== "free" ? `${p.badge}: ${value.toFixed(2)}` : "not driven yet");
+    const slider = card.querySelector("[data-key=value]");
+    const readout = card.querySelector(".now");
+    if (document.activeElement !== slider) {
+      const value = Math.max(0, Math.min(1, Number(p.value) || 0));
+      slider.value = String(value);
+      readout.textContent = value.toFixed(2);
+      slider.title = p.origin === "service" ? `${p.service} weight ${value.toFixed(2)}` : `weight ${value.toFixed(2)}`;
+    }
     const desc = card.querySelector(".desc");
     const note = p.drawing ? "drawing an icon…"
       : p.error ? p.error
@@ -775,7 +800,7 @@ function renderParameters(params) {
   if (focusNewParam && knobs.length > knobsAtAdd) {
     const newest = knobs.sort((a, b) => b.id - a.id)[0];
     const card = newest && paramCards.get(String(newest.id));
-    const input = card && card.querySelector("[data-key=name]");
+    const input = card && card.querySelector("[data-key=prompt]");
     if (input) input.focus();
     focusNewParam = false;
   }

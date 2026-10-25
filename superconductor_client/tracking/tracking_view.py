@@ -1,10 +1,10 @@
 """The app's web pages, all on one port under different paths (later pages,
 e.g. /conduct, go here too):
 
-    http://localhost:8467/          the camera page (app.html): the browser's camera,
+    http://localhost:8467/          Tracking (app.html): the browser's camera,
                                     its detector (vision_js + tracker_js), the view
                                     with the overlay drawn on it, and the audio
-    http://localhost:8467/objects   the prompts page
+    http://localhost:8467/objects   Prompts (MusicCoCa)
 
 The prompts page shows parameters (knobs added there, and prompts other
 services send, such as Atlas drums) and every object the app knows, with its
@@ -16,7 +16,7 @@ Runs in a daemon thread. The camera loop owns all object state: it publishes a
 snapshot with `publish()`, and edits from the page are queued in `actions` and
 applied by the camera loop (`CollabFrontend.apply_panel_actions`).
 
-The camera page sends its frames over WS /ws/camera, with the objects it detected
+Tracking sends its frames over WS /ws/camera, with the objects it detected
 (see CAMERA_PROTOCOL.md). Only the latest frame is kept (`latest_frame()`), so frames
 never queue up behind a slow tracker or a slow tunnel. The camera loop sends back
 what to draw over the video with `send_overlay()` (JSON, never pictures). Clicks and

@@ -110,7 +110,10 @@ def test_prompts_page_puts_parameters_first():
     assert "Superconductor - Prompts (MusicCoCa)" in html
     assert html.index('data-panel="parameters"') < html.index('data-panel="objects"')
     assert 'aria-selected="true">Parameters' in html
-    assert 'id="add-param"' in html
+    assert 'id="add-param"' in html and "Add new parameter" in html
+    assert 'min="0" max="1" step="0.01"' in html
+    assert html.count('data-key="name"') == 1  # objects have a name; a parameter's prompt is its name
+    assert html.count('data-key="trigger"') == 1  # objects only; a parameter has a weight slider
     assert 'id="list"' in html
 
 

@@ -358,6 +358,19 @@ def test_combo_replaces_parameters_and_releases():
     assert not m.combos[0].active and set(m.recipe()) == {"flute", "taiko"}
 
 
+def test_slider_parameters_keep_their_weight_and_are_not_claimed():
+    knob = Parameter("soft drums", "prompt", "soft drums", knob=1, value=0.4)
+    free = Parameter("open", "prompt", "open pad")
+    m = ParameterMapper(parameters=[knob, free], smoothing=1.0)
+    assert m.recipe()["soft drums"] == 0.4
+    m.update([labeled(obj(1, "bulbasaur", 300, 500), 1, "thing")], now=1.0)
+    assert knob.identity is None and knob.value == 0.4
+    assert free.identity == 1
+    assert m.recipe()["soft drums"] == 0.4
+    knob.value = 0.0
+    assert "soft drums" not in m.recipe()
+
+
 def test_held_trigger():
     m = mapper()
     m.set_mappings("bulbasaur", [{"trigger": "held", "prompt": "epic strings"}])

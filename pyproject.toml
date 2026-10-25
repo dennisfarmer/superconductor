@@ -67,6 +67,7 @@ exclude = ["media", "bin"]
 [tool.setuptools.package-data]
 "superconductor_client" = ["addresses.toml"]
 "superconductor_client.tracking" = ["collab.toml", "collab.container.toml"]
+"superconductor_client.describe" = ["default.svg"]
 "superconductor_client.tracking.object_tracking" = ["*.yaml"]
 
 [project.scripts]

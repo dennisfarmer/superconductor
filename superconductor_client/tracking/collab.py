@@ -130,13 +130,19 @@ class CollabFrontend:
         t = cfg["tracking"]
         self.mode = t.get("mode", "unsupervised")
         unsupervised = self.mode == "unsupervised"
+        # The client stays off the GPU on Linux. The L40S is Exclusive_Process, so the
+        # music server keeps it. A Mac leaves this unset and the embedder uses MPS.
+        # An explicit embed_device (the container's "cuda") is kept.
+        embed_device = t.get("embed_device")
+        if embed_device is None and os.uname().sysname != "Darwin":
+            embed_device = "cpu"
         self.tracker = ObjectTracker(model=t["model"], classes=t.get("classes"),
                                      conf=t.get("conf", 0.3), imgsz=t.get("imgsz", 480),
                                      device=t.get("device"),
                                      # the library replaces identities.json in unsupervised mode
                                      identity_dir=None if unsupervised else tracking_path(t.get("identity_dir")),
                                      embedder=t.get("embedder"), embed_imgsz=t.get("embed_imgsz", 224),
-                                     embed_device=t.get("embed_device"),
+                                     embed_device=embed_device,
                                      embeds_per_frame=t.get("embeds_per_frame", 2),
                                      identity=cfg.get("identity", {}))
         registry = self.tracker.registry
@@ -278,28 +284,42 @@ class CollabFrontend:
             self.library.save_combos(self.combos)
 
     def _knob_param_name(self, knob):
-        base = (knob.get("name") or "").strip() or f"parameter {knob['id']}"
+        """the prompt is the parameter's name"""
+        base = (knob.get("prompt") or "").strip() or f"parameter {knob['id']}"
         for param in self.mapper.parameters:
             if param.knob != knob["id"] and param.name == base:
                 return f"{base} #{knob['id']}"
         return base
 
+    def _knob_weight(self, knob):
+        """slider position, 0.00–1.00"""
+        try:
+            value = float(knob.get("value", 0.0))
+        except (TypeError, ValueError):
+            value = 0.0
+        value = max(0.0, min(1.0, value))
+        knob["value"] = value
+        return value
+
     def _sync_knob(self, knob):
-        """Keep the mapper parameter for this prompts-page knob in line with it.
-        It stays unowned, so an object without an instrument can drive it."""
+        """Keep the mapper parameter for a prompts-page parameter in line with it.
+
+        The prompt is its name. The slider is its weight and goes straight into
+        the recipe; distance to the reference point does not change it."""
         color = hex_to_bgr(knob.get("color")) or PALETTE[(int(knob["id"]) - 1) % len(PALETTE)]
         knob["color"] = bgr_to_hex(color)
-        trigger = knob.get("trigger") if knob.get("trigger") in ("near", "held", "visible") else "near"
-        knob["trigger"] = trigger
         prompt = (knob.get("prompt") or "").strip() or None
+        value = self._knob_weight(knob)
         param = next((p for p in self.mapper.parameters if p.knob == knob["id"]), None)
         if param is None:
             self.mapper.parameters.append(Parameter(
                 name=self._knob_param_name(knob), kind="prompt", prompt=prompt,
-                color=color, trigger=trigger, knob=knob["id"]))
+                color=color, knob=knob["id"], value=value))
         else:
             param.name = self._knob_param_name(knob)
-            param.prompt, param.trigger, param.color = prompt, trigger, color
+            param.prompt, param.color = prompt, color
+            param.value = value
+            param.identity = None
 
     def _save_knobs(self):
         if self.library is not None:
@@ -344,7 +364,7 @@ class CollabFrontend:
     def _param_action(self, kind, id, body):
         if kind == "param_add":
             new_id = max((int(k["id"]) for k in self.knobs), default=0) + 1
-            knob = {"id": new_id, "name": "", "prompt": "", "trigger": "near",
+            knob = {"id": new_id, "prompt": "", "value": 0.0,
                     "color": bgr_to_hex(PALETTE[(new_id - 1) % len(PALETTE)]),
                     "svg": None, "svg_rev": 0}
             self.knobs.append(knob)
@@ -373,8 +393,8 @@ class CollabFrontend:
                 knob["name"] = body["name"] or ""
             if "prompt" in body:
                 knob["prompt"] = body["prompt"] or ""
-            if body.get("trigger") in ("near", "held", "visible"):
-                knob["trigger"] = body["trigger"]
+            if "value" in body:
+                knob["value"] = body["value"]
             if "color" in body:
                 if body["color"] is None:
                     knob["color"] = bgr_to_hex(PALETTE[(id - 1) % len(PALETTE)])
@@ -384,7 +404,7 @@ class CollabFrontend:
             self._save_knobs()
             return
         if kind == "param_icon":
-            self._request_icon(f"knob:{id}", knob.get("prompt") or knob.get("name") or "")
+            self._request_icon(f"knob:{id}", knob.get("prompt") or "")
 
     def _parameter_cards(self, busy, in_view):
         """prompts-page knobs, then prompts arriving from other services (Atlas drums, ...)"""
@@ -394,17 +414,12 @@ class CollabFrontend:
             if param is None:
                 self._sync_knob(knob)
                 param = next(p for p in self.mapper.parameters if p.knob == knob["id"])
-            ident = self.tracker.registry.get(param.identity) if isinstance(param.identity, int) else None
-            if ident is not None:
-                badge, live = (ident.user_label or f"#{ident.id}"), ident.id in in_view
-            else:
-                badge, live = "free", False
             key = f"knob:{knob['id']}"
             svg = knob.get("svg") if isinstance(knob.get("svg"), str) else None
             cards.append({
-                "id": knob["id"], "name": knob.get("name") or "", "prompt": knob.get("prompt") or "",
-                "trigger": param.trigger, "color": bgr_to_hex(param.color), "value": param.value,
-                "origin": "knob", "editable": True, "badge": badge, "live": live,
+                "id": knob["id"], "prompt": knob.get("prompt") or "",
+                "color": bgr_to_hex(param.color), "value": round(float(param.value), 2),
+                "origin": "knob", "editable": True, "badge": "", "live": False,
                 "svg": svg, "svg_rev": knob.get("svg_rev") or 0,
                 "drawing": key in busy, "error": self._icon_errors.get(key),
             })
@@ -826,6 +841,8 @@ class CollabFrontend:
             if param.identity is None and param.owner and param.owner.startswith("#"):
                 ident = self.tracker.registry.get(param.owner)  # its object isn't in view this session
                 state = (ident.user_label if ident and ident.user_label else param.owner) + " not seen"
+            elif param.knob is not None:
+                state = "parameter"
             elif param.identity is None:
                 state = "free"
             elif isinstance(param.identity, str):

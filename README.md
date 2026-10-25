@@ -8,16 +8,21 @@ SuperConductor will be an interactive human-AI music co-creating system where th
 
 ## Web Application Views
 
-These are opened on the laptop to provide insight behind the messages the client sends to the server, as well as to the touchdesigner branch visualizer(s) and playback branch VST3 plugin.
+Open these in the browser on the laptop. The column is where the processes run.
 
-| | All local (Macbook Pro) | Client local, server remote | All remote, from the clones | All remote, published images |
+`server.localhost` is only the Singularity column. The gateway on port 8080 answers that name for the music server. The other columns do not use it. `midi.localhost` is the same kind of name, for the MIDI player. Chrome, Edge, and Firefox send `*.localhost` to this machine, so both work through the port 8080 tunnel.
+
+For the cluster-clones column, the laptop reaches those ports through the SSH tunnel in that section.
+
+| Page | Local: client and server on the laptop | Remote: client on the laptop, server on lh2300 | Cluster: client and server on lh2300, from the clones | Singularity: images on lh2300 |
 |---|---|---|---|---|
-| Camera | http://localhost:8467 | http://localhost:8467 | http://localhost:8467 | http://localhost:8080 |
-| Objects | http://localhost:8467/objects | http://localhost:8467/objects | http://localhost:8467/objects | http://localhost:8080/objects |
+| Tracking | http://localhost:8467 | http://localhost:8467 | http://localhost:8467 | http://localhost:8080 |
+| Prompts | http://localhost:8467/objects | http://localhost:8467/objects | http://localhost:8467/objects | http://localhost:8080/objects |
 | Conducting | http://localhost:8480 | http://localhost:8480 | http://localhost:8480 | http://localhost:8080/conduct/ |
 | MIDI player | http://localhost:8475 | http://localhost:8475 | http://localhost:8475 | http://midi.localhost:8080 |
-| Tempo | http://localhost:9100/tempo | http://localhost:9000/tempo | http://localhost:9100/tempo | http://server.localhost:8080/tempo |
-| Conductor (space bar = one beat) | http://localhost:9100/conduct | http://localhost:9000/conduct | http://localhost:9100/conduct | http://server.localhost:8080/conduct |
+| Tempo View | http://localhost:9100/tempo | http://localhost:9000/tempo | http://localhost:9100/tempo | http://server.localhost:8080/tempo |
+| Conductor | http://localhost:9100/conduct | http://localhost:9000/conduct | http://localhost:9100/conduct | http://server.localhost:8080/conduct |
+| Playback | ws://localhost:9100/stream/playback | ws://localhost:9000/stream/playback | ws://localhost:9100/stream/playback | ws://server.localhost:8080/stream/playback |
 
 Saved objects are `superconductor_client/tracking/library/<id>/` when you run a clone, and `/data/client/library` inside the image.
 
@@ -138,10 +143,15 @@ cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_clie
 git pull && make setup && make client
 ```
 
-On the Macbook Pro, open a tunnel to the node that is running `make client`. Leave it open:
+On the laptop, leave a tunnel open to the node that is running `make client`. The pages for this column are in the table above.
 
 ```bash
-ssh -N -L 8467:localhost:8467 YOUR_UNIQNAME@lh2300
+ssh -N \
+  -L 8467:lh2300:8467 \
+  -L 8475:lh2300:8475 \
+  -L 8480:lh2300:8480 \
+  -L 9100:lh2300:9100 \
+  YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
 ```
 
 ### Running the published images

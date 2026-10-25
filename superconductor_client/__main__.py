@@ -20,6 +20,7 @@ import sys
 import time
 
 from superconductor_client.addresses import AddressError, choose_place, load_place
+from superconductor_client.torch_device import DESCRIBE_NEEDS_GPU, cuda_state_detached
 
 CLIENT_URL = "http://127.0.0.1:8470"
 # these two keep the session; the others are started with them and may exit on their own
@@ -51,7 +52,13 @@ def main():
         ("client", [py, "-m", "superconductor_client.client", "--server", place.direct.input]),
     ]
     if args.describe:
-        commands.append(("describe", [py, "-m", "superconductor_client.describe.describe_server"]))
+        # macOS runs the icon model with MLX. Linux needs a CUDA device this process
+        # can open. Without one, skip describe and keep the client.
+        gpu_ok = sys.platform == "darwin" or cuda_state_detached() == "ok"
+        if gpu_ok:
+            commands.append(("describe", [py, "-m", "superconductor_client.describe.describe_server"]))
+        else:
+            print(f"{DESCRIBE_NEEDS_GPU} Continuing without it.", flush=True)
     commands += [
         ("midi", [py, "-m", "superconductor_client.midi.midi_player"]),
         ("conducting", [py, "-m", "superconductor_client.conducting.conducting_web.server",

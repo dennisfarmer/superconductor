@@ -13,7 +13,7 @@ names, descriptions and instruments survive restarts:
         hist.npy         color histogram (used only without an embedder)
       combos.json        [{"objects": [3, 5], "prompt": "...", "distance": 0.05, "trigger": "near"}]
       settings.json      {"test_beat": false}  (page-wide switches)
-      parameters.json    knobs added on the prompts page: [{id, name, prompt, trigger, color, svg}]
+      parameters.json    parameters added on the prompts page: [{id, prompt, value, color, svg}]
       icons.json         {"drums": "<svg...>"} icons for prompts other services send
 
 Ids are permanent and never reused, even after an object is deleted (moved to

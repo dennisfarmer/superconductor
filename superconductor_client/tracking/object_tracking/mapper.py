@@ -47,7 +47,7 @@ class Parameter:
     color: tuple = (255, 255, 255)  # BGR, for drawing
     trigger: str = "near"  # "near" | "held" | "visible"
     owner: str = None  # object label / "#id" whose mapping created this parameter
-    knob: int = None  # id of a parameter created on the prompts page; None otherwise
+    knob: int = None  # prompts-page parameter; its value is the 0–1 slider, not an object
 
     # runtime state
     identity: int = None  # object currently driving this parameter
@@ -191,7 +191,8 @@ class ParameterMapper:
     def _claim_free(self, obj):
         reserved = self._reserved()
         param = next((p for p in self.parameters
-                      if p.identity is None and p.name not in reserved and p.owner is None), None)
+                      if p.knob is None and p.identity is None and p.name not in reserved
+                      and p.owner is None), None)
         if param is not None:
             param.identity = obj.identity
             param.value = 0.0
@@ -240,6 +241,10 @@ class ParameterMapper:
         now = time.time() if now is None else now
         dt = 0.0 if self._last_update is None else now - self._last_update
         self._last_update = now
+        # a prompts-page parameter is a weight the user set; an object must not take it over
+        for param in self.parameters:
+            if param.knob is not None:
+                param.identity = None
 
         replaced = self._update_combos(objects)
         seen = set()
@@ -310,7 +315,12 @@ class ParameterMapper:
         if base_prompt and base_weight > 0:
             recipe[base_prompt] = base_weight
         for param in self.parameters:
-            if param.kind == "prompt" and param.prompt and param.identity is not None and param.value > 0.01:
+            if param.kind != "prompt" or not param.prompt:
+                continue
+            if param.knob is not None:
+                if param.value >= 0.01:
+                    recipe[param.prompt] = recipe.get(param.prompt, 0.0) + param.output
+            elif param.identity is not None and param.value > 0.01:
                 recipe[param.prompt] = recipe.get(param.prompt, 0.0) + param.output
         return recipe
 

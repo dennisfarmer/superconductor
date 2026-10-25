@@ -43,7 +43,7 @@ def default_backend():
 
 
 def inference_dtype(cuda, capability, mps):
-    """bfloat16 on Ampere and newer. float16 on a V100 (no bf16) and on Apple MPS."""
+    """bfloat16 on Ampere and newer, including the L40S. float16 on older CUDA GPUs and on Apple MPS."""
     if cuda and capability >= 8:
         return "bfloat16"
     if cuda or mps:
@@ -149,19 +149,20 @@ class SvgModel:
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as e:
             raise SvgError("transformers and torch are not installed (pip install transformers)", 503) from e
-        cuda = torch.cuda.is_available()
-        capability = torch.cuda.get_device_capability()[0] if cuda else 0
-        mps = getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
-        kind = inference_dtype(cuda, capability, mps)
+        from superconductor_client.torch_device import DESCRIBE_NEEDS_GPU, cuda_state
+        if cuda_state() != "ok":
+            raise SvgError(DESCRIBE_NEEDS_GPU, 503)
+        capability = torch.cuda.get_device_capability()[0]
+        kind = inference_dtype(True, capability, False)
         dtype = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}[kind]
-        device = "cuda" if cuda else "mps" if mps else "cpu"
         local = self._local_files_only()
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_id, local_files_only=local)
         model = AutoModelForCausalLM.from_pretrained(self.model_id, torch_dtype=dtype, local_files_only=local)
         model.config.use_cache = True
-        model.to(device)
+        model.to("cuda")
         model.eval()
         self._model = model
+        self._device = "cuda"
 
     def _prompt_text(self, messages):
         tok = self._tokenizer

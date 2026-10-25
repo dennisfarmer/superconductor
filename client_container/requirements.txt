@@ -1,7 +1,7 @@
 # Client dependencies for the container (linux/amd64): pyproject.toml's, minus the
 # MLX / magenta-rt ones (the laptop only; the client doesn't import them, the MRT2 server
-# runs elsewhere). torch / torchvision come from PyTorch's CUDA 12.6 index: PyPI's are
-# built for CUDA 13, which dropped the V100 (sm_70) on lh2300. They run on the CPU too.
+# runs elsewhere). torch / torchvision come from PyTorch's CUDA 12.6 index.
+# The lh2300 GPU is an L40S (Ada, sm_89). These wheels run on the CPU too.
 --extra-index-url https://download.pytorch.org/whl/cu126
 absl-py==2.4.0
 aiohttp
