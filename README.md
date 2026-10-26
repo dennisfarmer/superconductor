@@ -27,8 +27,8 @@ The release image is `ghcr.io/dennisfarmer/superconductor_server:server`. It is 
 - on Lighthouse:
     - `make server` (base model; uses `.venv` from `make setup`)
     - or `make server MODEL=mrt2_small` (small model)
-    - on the laptop, start the ssh tunnel: `ssh -N -L 9000:lh2300:9100 UNIQNAME@lighthouse.arc-ts.umich.edu`
-    - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9000/stream/input`). That starts describe on the laptop, and Ollama if one is not already running.
+    - on the laptop, start the ssh tunnel: `ssh -N -L 9100:lh2300:9100 UNIQNAME@lighthouse.arc-ts.umich.edu`
+    - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9100/stream/input`). That starts describe on the laptop, and Ollama if one is not already running.
 
 Other flags: `make server PORT=... ARGS="--frames_per_block 5"`, or `python mrt2_server.py --help`.
 
@@ -89,7 +89,7 @@ The ranges and steps are MRT2's (`magenta_rt/config.py`, `CFG_CONDITIONING_*`): 
 
 `tempo.py` time-stretches every block toward a target tempo before it is sent (speed changes, pitch doesn't), so audio blocks are `200ms / speed` long. It also measures the tempo MRT2 is generating ("model bpm") from the last 8s of audio, and moves the speed gradually (time constant 1.5s, clamped to 0.75–1.3) toward `target / model bpm`, matching up to half/double time.
 
-- **Test page:** `http://localhost:9100/tempo` (or `:9000` through the tunnel): set an exact bpm, watch the model / heard bpm, and open the conductor window.
+- **Test page:** `http://localhost:9100/tempo`: set an exact bpm, watch the model / heard bpm, and open the conductor window.
 - **Conductor window:** `http://localhost:9100/conduct`: each space bar press sends one beat. The beat period is smoothed with a 1-D Kalman filter; if no beat arrives for 3s, the current tempo is held.
 
 | Request | Body | Effect |

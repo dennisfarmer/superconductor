@@ -4,7 +4,7 @@ Four processes run at once. The conducting process sends tempo requests directly
 
 | Process | Branch / folder | Port |
 |---|---|---|
-| server (MRT2 + tempo) | `server` / `superconductor_server` | 9100 (9000 through the Lighthouse SSH tunnel) |
+| server (MRT2 + tempo) | `server` / `superconductor_server` | 9100 |
 | client | `main` / `superconductor_client` | 8467 (objects page) |
 | describe | `describe` / `superconductor_describe` | 9200 |
 | conducting | (new) | sends requests to the server |

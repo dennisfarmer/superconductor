@@ -10,7 +10,7 @@
 #                     mrt2_base (JAX) on Linux, e.g. a Lighthouse GPU node.
 #                     Runs `make setup` when the environment is not already there.
 #   make server BACKEND=mlx MODEL=mrt2_base   override the defaults
-#   make server PORT=9000 ARGS="--frames_per_block 4"   other mrt2_server.py flags
+#   make server PORT=9100 ARGS="--frames_per_block 4"   other mrt2_server.py flags
 #   make image        build the linux/amd64 dev image; make image-push sends it to :server-dev
 #   make sif          on lh2300: pull the release image again (:server).
 #                     This, and the singularity targets below, source

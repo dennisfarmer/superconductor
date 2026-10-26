@@ -103,8 +103,11 @@ import asyncio
 import json
 import logging
 import queue
+import re
 import socket
 import struct
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -136,6 +139,75 @@ _MEM_LOG = flags.DEFINE_float(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _forwarded_port(spec):
+    """Local port of one ssh -L spec (`[bind:]port:host:hostport`), or None."""
+    fields = spec.split(":")
+    if len(fields) == 3 and fields[0].isdigit():
+        return int(fields[0])
+    if len(fields) == 4 and fields[1].isdigit():
+        return int(fields[1])
+    return None
+
+
+def is_lighthouse_tunnel(command, port):
+    """True when `command` is an ssh client forwarding `port` toward Lighthouse.
+
+    The laptop tunnel is `ssh -L 9100:lh2300:9100 ...@lighthouse.arc-ts.umich.edu`,
+    or the outer hop of the two-step tunnel (`-L 9100:127.0.0.1:19100` to lighthouse).
+    """
+    command = (command or "").strip()
+    if not command:
+        return False
+    if Path(command.split()[0]).name != "ssh":
+        return False
+    specs = re.findall(r"-L\s*(\S+)", command)
+    if not any(_forwarded_port(spec) == port for spec in specs):
+        return False
+    if "lighthouse" in command.lower():
+        return True
+    return re.search(r"\blh\d+\b", command) is not None
+
+
+def _listening_commands(port):
+    """Full command lines of ssh processes listening on `port`."""
+    try:
+        listed = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fp", "-Fc"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if listed.returncode not in (0, 1):
+        return []
+    pid = None
+    commands = []
+    for line in listed.stdout.splitlines():
+        if line.startswith("p"):
+            pid = line[1:].strip()
+        elif line.startswith("c") and line[1:].strip() == "ssh" and pid:
+            try:
+                ps = subprocess.run(
+                    ["ps", "-p", pid, "-ww", "-o", "args="],
+                    capture_output=True, text=True, timeout=5,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if ps.returncode == 0 and ps.stdout.strip():
+                commands.append(ps.stdout.strip())
+    return commands
+
+
+def lighthouse_tunnel_message(port):
+    """A message when the Lighthouse SSH tunnel already holds `port`, else None."""
+    if not any(is_lighthouse_tunnel(command, port) for command in _listening_commands(port)):
+        return None
+    return (
+        f"Port {port} is already taken by an SSH tunnel to the Lighthouse server. "
+        "That is the remote server, not one on this laptop. "
+        "Stop the tunnel, then start the server again."
+    )
 
 
 def load_model(backend, model):
@@ -671,6 +743,10 @@ class MRT2Server:
 
 
 def main(_):
+    blocked = lighthouse_tunnel_message(_PORT.value)
+    if blocked:
+        print(blocked, file=sys.stderr, flush=True)
+        sys.exit(1)
     logging.basicConfig(level=logging.INFO)
     generator = Generator(
         lambda: load_model(_BACKEND.value, _MODEL.value),
