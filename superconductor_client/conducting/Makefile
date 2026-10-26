@@ -4,7 +4,7 @@
 #   make conduct          conducting page on http://localhost:8480, sending the tempo to the
 #                         MRT2 server on this machine (http://localhost:9100, make server)
 #   make conduct-remote   the same, to the server on Lighthouse through the SSH tunnel
-#                         (http://localhost:9000; use with the client's make client-remote)
+#                         (http://localhost:9100; use with the client's make client-remote)
 #   make conduct PORT=8481 SERVER=http://localhost:9100 ARGS="--tempo-window 3"
 #   make web-deps         MediaPipe and the hand model for the page, into var/web
 #   make test             unit tests in tests/
@@ -26,7 +26,7 @@ ARGS ?=
 conduct: check-env web-deps
 	$(IN_ENV) python conducting_web/server.py --port $(PORT) --server-url $(SERVER) $(ARGS)
 
-conduct-remote: SERVER = http://localhost:9000
+conduct-remote: SERVER = http://localhost:9100
 conduct-remote: conduct
 
 web-deps:

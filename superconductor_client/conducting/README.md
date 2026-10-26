@@ -18,7 +18,7 @@ preview drew (hands, fingertip trail, status lines). Its status line shows each 
 ```bash
 make server
 make client
-make conduct           # make conduct-remote uses the port 9000 tunnel
+make conduct           # make conduct-remote uses the port 9100 tunnel
 ```
 
 Where to open Tracking and Conducting is the table in `superconductor_client/README.md`. The container serves the same Conducting process. The browser will only share the camera on `localhost`.
@@ -40,7 +40,7 @@ Run live camera conducting against the tempo server (Linux/macOS):
 python3 -m pip install -r superconductor/requirements-live.txt
 python3 superconductor/new_tempo_detector.py --server-url http://localhost:9100
 # Through the Lighthouse SSH tunnel:
-python3 superconductor/new_tempo_detector.py --server-url http://localhost:9000
+python3 superconductor/new_tempo_detector.py --server-url http://localhost:9100
 ```
 
 Server mode is now the default and follows

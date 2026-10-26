@@ -10,7 +10,7 @@
 # node, docker on a laptop) and that wins. Addresses are in addresses.toml.
 where = "cluster"
 base_prompt = "ambient electronic"
-base_weight = 0.3             # style weight that is always present
+base_weight = 0.3             # style weight of the base prompt; the Other tab can leave it out
 credits = 3                   # blocks the server stays ahead of playback (~latency: 3 x 200ms)
 update_interval = 0.25        # seconds between recipe / control updates
 midi_port = 8470              # client_midi: other programs (e.g. SuperConductor Atlas) POST NOTES / DRUMS
@@ -19,7 +19,7 @@ midi_port = 8470              # client_midi: other programs (e.g. SuperConductor
 [tracking]
 # "unsupervised": every object gets a permanent id when it first appears and is
 #   cached in the library, so it is recognized again later (also after a restart).
-#   Name it and set its instrument on the objects page (http://localhost:8467/objects).
+#   Name it and set its instrument on the prompts page (http://localhost:8467/prompts).
 # "calibration": "touch the <label>" for each [assign] label at startup (see the end
 #   of this file); only those are tracked.
 mode = "unsupervised"
@@ -99,7 +99,7 @@ hold_seconds = 1.5            # keep value while an object is occluded, then fad
 # release_after = 30.0        # free an object's parameter after this long unseen (default: never)
 
 # Instruments, triggers (near / held / visible) and combos are set per object on
-# the objects page (http://localhost:8467/objects) and saved in /data/client/library. An object
+# the prompts page (http://localhost:8467/prompts) and saved in /data/client/library. An object
 # without an instrument is silent until the describe server suggests one.
 #
 # Calibration mode only ("touch the ..."): add [[parameters]] (name, kind, prompt)

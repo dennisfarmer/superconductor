@@ -9,7 +9,7 @@ sc-tracking --mode calibration   # the old "touch the bulbasaur" flow
 Or, without activating the environment: `make server` (MRT2 `mrt2_small` server; leave it running) then `make client` in another terminal (webcam + music; `make client-remote` uses the cluster's `mrt2_base` instead), `make vision` (no music), `make test`. Extra options go in `make client ARGS="--mode calibration"`.
 Each object gets a permanent id (`#1`, `#2`, …) the first time it's seen. It's cached in the library (`superconductor_client/tracking/library/<id>/`), so it keeps its id, name and instrument when it leaves the frame and comes back, and after a restart. Click in the window to move the crosshair.
 
-**Objects page:** `make client` opens http://localhost:8467/objects. It lists every object (those in view first) with its picture, id, name, description and instrument:
+**Prompts page:** `make client` opens http://localhost:8467/prompts. It lists every object (those in view first) with its picture, id, name, description and instrument:
 - **Name:** optional, typed by you.
 - **Description:** written once per new object by a Qwen VLM on the describe server (`make describe`, see `../superconductor_client/describe/README.md`). "Describe again" asks for a new one.
 - **Instrument and trigger:** the instrument is suggested from the description, or typed. The trigger sets when it plays: `near` (louder closer to the crosshair), `held` (a hand is on it) or `visible` (while in view). An object without an instrument is silent.

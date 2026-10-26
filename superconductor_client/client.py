@@ -304,7 +304,7 @@ class MagentaClient:
         """
         `server_url`: input websocket of a running mrt2_server.py (local
             `ws://localhost:9100/stream/input`, or the local end of the SSH tunnel
-            to the cluster, `ws://localhost:9000/stream/input`)
+            to the cluster, `ws://localhost:9100/stream/input`)
         `credits`: kept so callers don't break; the player grants the lead on
             `/stream/playback`, not this process
         `midi_port`: port of client_midi, where note sources POST patterns

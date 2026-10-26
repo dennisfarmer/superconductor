@@ -17,8 +17,8 @@ class AddressesTest(unittest.TestCase):
         self.assertEqual(local.direct.http, "http://localhost:9100")
 
         remote = load_place("remote", ROOT)
-        self.assertEqual(remote.browser.playback, "ws://localhost:9000/stream/playback")
-        self.assertEqual(remote.direct.http, "http://localhost:9000")
+        self.assertEqual(remote.browser.playback, "ws://localhost:9100/stream/playback")
+        self.assertEqual(remote.direct.http, "http://localhost:9100")
 
         cluster = load_place("cluster", ROOT)
         self.assertEqual(cluster.direct.input, "ws://localhost:9100/stream/input")
@@ -34,8 +34,8 @@ class AddressesTest(unittest.TestCase):
         self.assertEqual(moved.direct.http, "http://localhost:9100")
 
         docker = load_place("docker", ROOT)
-        self.assertEqual(docker.direct.input, "ws://host.docker.internal:9000/stream/input")
-        self.assertEqual(docker.browser.playback, "ws://localhost:9000/stream/playback")
+        self.assertEqual(docker.direct.input, "ws://host.docker.internal:9100/stream/input")
+        self.assertEqual(docker.browser.playback, "ws://localhost:9100/stream/playback")
 
     def test_unknown_name_lists_the_file(self):
         with self.assertRaises(AddressError) as caught:

@@ -5,6 +5,7 @@ import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 import unittest
 
 import aiohttp
@@ -101,6 +102,15 @@ class ConductorTests(unittest.TestCase):
         self.assertEqual(len(parse_hands({"hands": [landmarks()]})), 1)
 
 
+class PageTests(unittest.TestCase):
+    def test_header_links_objects_and_start_sound_sits_with_the_camera(self):
+        html = (Path(__file__).resolve().parents[1] / "conducting_web" / "app.html").read_text()
+        header = html.split("<main>", 1)[0]
+        assert 'id="objects"' in header and ">Prompts</a>" in header
+        assert html.index(">Prompts</a>") < html.index('id="start"') < html.index('id="sound"')
+        assert "Start sound" in html
+
+
 class FakeTempoServer(BaseHTTPRequestHandler):
     requests = []
 
@@ -153,6 +163,9 @@ class EndToEndTests(unittest.TestCase):
         async with TestClient(TestServer(server.app())) as client:
             config = await (await client.get("/api/web")).json()
             self.assertEqual(config["server_url"], server.server_url)
+            self.assertEqual(config["objects_url"], server.objects_url)
+            self.assertEqual(config["playback_url"], server.playback_url)
+            self.assertEqual(config["credits"], 3)
             # relative to /web/hands_worker.js, so a gateway prefix (/conduct/) is kept
             self.assertEqual(config["bundle_url"], "mediapipe/vision_bundle.mjs")
             self.assertEqual(config["wasm_url"], "mediapipe/wasm")

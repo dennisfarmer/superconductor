@@ -9,7 +9,7 @@
 	default_bind {$SC_GATEWAY_BIND}
 }
 
-# the client: Tracking (/), Prompts (/objects); /audio is client_midi's player socket
+# the client: Tracking (/), Prompts (/prompts); /audio is client_midi's player socket
 http://localhost:{$SC_GATEWAY_PORT}, http://127.0.0.1:{$SC_GATEWAY_PORT} {
 	handle /audio {
 		reverse_proxy 127.0.0.1:8470

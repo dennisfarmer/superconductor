@@ -19,8 +19,8 @@ Two modes ([tracking] mode, or --mode):
   and is cached in the object library (superconductor_client/tracking/library/<id>/), so it is recognized again
   later, across restarts. The describe server (superconductor_client/describe/) writes
   a one-time description of each new object and suggests an instrument from it.
-  Names and instruments are edited on the objects page (tracking_view.py,
-  http://localhost:8467/objects).
+  Names and instruments are edited on the prompts page (tracking_view.py,
+  http://localhost:8467/prompts).
 - calibration: starts with "touch the bulbasaur", ... (unless --skip-calibration);
   only those objects are tracked.
 
@@ -49,7 +49,7 @@ import numpy as np
 import yaml
 
 from superconductor_client.addresses import AddressError, load_place
-from superconductor_client.tracking.describe_client import DescribeClient
+from superconductor_client.tracking.describe_client import DescribeClient, default_icon_svg
 from superconductor_client.client import HttpMagentaClient, MagentaClient
 from superconductor_client.tracking.object_tracking import (Calibration, Combo, ObjectLibrary, ObjectTracker, Parameter,
                                               ParameterMapper)
@@ -225,7 +225,7 @@ class CollabFrontend:
             self.calibration.start()
         self._objects = []
         self.messages = []  # (text, expires)
-        print(f"objects page: {self.panel.url}")
+        print(f"prompts page: {self.panel.url}")
 
         self._frame_shape = None
         self._detector = None  # "browser" | "container": who detected the last frame
@@ -332,12 +332,14 @@ class CollabFrontend:
     def _request_icon(self, key, text):
         text = (text or "").strip()
         if not text:
-            self._icon_errors[key] = "type a prompt first"
-            self.say("type a prompt first, then draw an icon")
             return
         if self.describer is None:
-            self._icon_errors[key] = "describe server is not running"
-            self.say("describe server is not running")
+            svg = default_icon_svg()
+            if svg:
+                self._store_icon(key, svg)
+            else:
+                self._icon_errors[key] = "describe server is not running"
+                self.say("describe server is not running")
             return
         self._icon_errors.pop(key, None)
         self.describer.icon(key, text)
@@ -389,10 +391,13 @@ class CollabFrontend:
             self.say(f"deleted parameter #{id}", 2.0)
             return
         if kind == "param_edit":
+            prompt_changed = False
             if "name" in body:
                 knob["name"] = body["name"] or ""
             if "prompt" in body:
-                knob["prompt"] = body["prompt"] or ""
+                prompt = body["prompt"] or ""
+                prompt_changed = (knob.get("prompt") or "") != prompt
+                knob["prompt"] = prompt
             if "value" in body:
                 knob["value"] = body["value"]
             if "color" in body:
@@ -402,6 +407,8 @@ class CollabFrontend:
                     knob["color"] = body["color"]
             self._sync_knob(knob)
             self._save_knobs()
+            if prompt_changed:
+                self._request_icon(f"knob:{id}", knob.get("prompt") or "")
             return
         if kind == "param_icon":
             self._request_icon(f"knob:{id}", knob.get("prompt") or "")
@@ -523,6 +530,10 @@ class CollabFrontend:
                 if "test_beat" in body:
                     self.settings["test_beat"] = bool(body["test_beat"])
                     self.say(f"test beat ({TEST_BEAT}) {'on' if self.settings['test_beat'] else 'off'}", 2.0)
+                if "base_enabled" in body:
+                    self.settings["base_enabled"] = bool(body["base_enabled"])
+                    prompt = self.cfg["music"].get("base_prompt") or "base prompt"
+                    self.say(f"{prompt} {'in the recipe' if self.settings['base_enabled'] else 'out of the recipe'}", 2.0)
                 if self.library is not None:
                     self.library.save_settings(self.settings)
                 continue
@@ -668,6 +679,8 @@ class CollabFrontend:
         return {
             # probed from this process, so the direct address, not the browser's
             "server": self.place.direct.http,
+            # tracking and the objects page are this app, on one port
+            "tracking": f"http://localhost:{self.panel.port}",
             "objects": f"http://localhost:{self.panel.port}",
             "client_midi": f"http://localhost:{midi_port}" if midi_port and self.magenta is not None else None,
             "describe": self.describer.server_url if self.describer is not None
@@ -707,8 +720,12 @@ class CollabFrontend:
             if not base:
                 return None
             base = base.rstrip("/")
-            up = True if key == "objects" else (alive[key] is not None) if key in alive else None
-            shown = public.get(key, base).rstrip("/")
+            up = True if key in ("tracking", "objects") else (alive[key] is not None) if key in alive else None
+            # same port as the objects page, so the same address the browser uses for it
+            if key == "tracking" and key not in public and "objects" in public:
+                shown = public["objects"].rstrip("/")
+            else:
+                shown = public.get(key, base).rstrip("/")
             return {"name": name, "started": started, "base": shown, "up": up, "note": note,
                     "endpoints": [{"method": m, "url": u if "://" in u else shown + u} for m, u in endpoints]}
 
@@ -723,8 +740,10 @@ class CollabFrontend:
         rows = [
             row("server", "Music server (mrt2_server.py)", f"addresses.toml · {self.place.name}",
                 self.place.service_endpoints(), server_note),
-            row("objects", "Objects page (this app)", "superconductor_client: make client",
-                [("page", "/objects"), ("GET", "/api/objects")]),
+            row("tracking", "Tracking page (this app)", "superconductor_client: make client",
+                [("page", "/")]),
+            row("objects", "Prompts page (this app)", "superconductor_client: make client",
+                [("page", "/prompts"), ("GET", "/api/objects")]),
             row("client_midi", "client_midi (this app)", "superconductor_client: make client",
                 [("GET", "/status"), ("GET", "/input"), ("POST", "/pattern")],
                 "note sources (Atlas, MIDI player) POST patterns here"),
@@ -789,6 +808,7 @@ class CollabFrontend:
                  "paused": bool(self.magenta and self.magenta.paused)}
         self.panel.publish({"objects": objects, "combos": combos,
                             "parameters": self._parameter_cards(busy, in_view),
+                            "other": self._other_cards(),
                             "settings": dict(self.settings, test_beat_prompt=TEST_BEAT), "music": music,
                             "models": self.models(), "services": self.services(),
                             "learning": {k: getattr(registry, k) for k in registry.LEARNING}}, views)
@@ -813,10 +833,26 @@ class CollabFrontend:
         Drums page's {"drums": 0..1})"""
         return self.magenta.prompts if self.magenta else {}
 
+    def _base_on(self):
+        """the config base prompt is in the recipe unless the Other tab switches it off"""
+        return bool(self.settings.get("base_enabled", True))
+
+    def _other_cards(self):
+        music = self.cfg["music"]
+        prompt = (music.get("base_prompt") or "").strip()
+        if not prompt:
+            return []
+        try:
+            weight = float(music.get("base_weight") or 0.0)
+        except (TypeError, ValueError):
+            weight = 0.0
+        return [{"id": "base", "prompt": prompt, "value": weight, "enabled": self._base_on()}]
+
     def recipe(self):
         """style weights sent to MRT2: base prompt, test beat, objects, combos and Atlas"""
         music = self.cfg["music"]
-        recipe = self.mapper.recipe(music["base_prompt"], music["base_weight"])
+        weight = music["base_weight"] if self._base_on() else 0.0
+        recipe = self.mapper.recipe(music["base_prompt"], weight)
         if self.settings["test_beat"]:  # always-on test sound (checkbox on the objects page)
             recipe[TEST_BEAT] = recipe.get(TEST_BEAT, 0.0) + 1.0
         for prompt, weight in self.atlas_prompts().items():
@@ -830,7 +866,7 @@ class CollabFrontend:
         averages the prompts' embeddings by weight, so share = weight / sum of weights."""
         music = self.cfg["music"]
         rows = []  # (prompt, source, value, color)
-        if music["base_prompt"] and music["base_weight"] > 0:
+        if self._base_on() and music["base_prompt"] and music["base_weight"] > 0:
             rows.append((music["base_prompt"], "base", music["base_weight"], (200, 200, 200)))
         if self.settings["test_beat"]:
             rows.append((TEST_BEAT, "test beat", 1.0, (120, 200, 255)))

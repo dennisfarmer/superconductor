@@ -131,6 +131,10 @@
                                           accent-color: var(--accent); }
   .card.param .weight input:disabled { opacity: .85; }
   .card.param .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card.other { grid-template-columns: 1fr; height: auto; }
+  .card.other .switch { display: flex; gap: 8px; align-items: center; margin: 12px 0 0;
+                        color: var(--text); font-size: 14px; }
+  .card.other .switch input { width: auto; margin: 0; }
   .empty { color: var(--muted); grid-column: 1 / -1; padding: 40px 0; text-align: center; }
   select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
            background: var(--field); color: var(--text); }
@@ -214,10 +218,12 @@
   <nav class="panel-tabs" role="tablist" aria-label="Prompts">
     <button role="tab" data-panel="parameters" aria-selected="true">Parameters</button>
     <button role="tab" data-panel="objects" aria-selected="false">Objects</button>
+    <button role="tab" data-panel="other" aria-selected="false">Other</button>
   </nav>
 </section>
 <div id="parameters" class="grid"><button type="button" id="add-param" class="add-tile"><span class="plus" aria-hidden="true">+</span>Add new parameter</button></div>
 <main id="list" class="grid" hidden><p class="empty">No objects yet. Show something to the camera.</p></main>
+<div id="other" class="grid" hidden></div>
 <script>
 const list = document.getElementById("list");
 const status = document.getElementById("status");
@@ -698,8 +704,8 @@ function makeParamCard(p) {
     </div>
     <p class="desc"></p>
     <div class="actions">
-      <button data-act="icon">Draw icon</button>
-      <button data-act="delete" class="danger">Delete</button>
+      ${p.editable ? "" : `<button data-act="icon">Draw icon</button>`}
+      ${p.editable ? `<button data-act="delete" class="danger">Delete</button>` : ""}
     </div>`;
   const prompt = card.querySelector("[data-key=prompt]");
   const slider = card.querySelector("[data-key=value]");
@@ -712,7 +718,7 @@ function makeParamCard(p) {
       prompt.dataset.saved = prompt.value;
       save("prompt", prompt.value.trim());
     };
-    prompt.addEventListener("change", commitPrompt);
+    prompt.addEventListener("blur", commitPrompt);
     prompt.addEventListener("keydown", e => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); prompt.blur(); }
     });
@@ -738,9 +744,9 @@ function makeParamCard(p) {
   } else {
     prompt.disabled = slider.disabled = true;
     card.querySelector(".swatch").disabled = true;
-    card.querySelector("[data-act=delete]").remove();
   }
-  card.querySelector("[data-act=icon]").onclick = () => {
+  const icon = card.querySelector("[data-act=icon]");
+  if (icon) icon.onclick = () => {
     if (!prompt.value.trim()) { alert("Type a prompt first."); return; }
     post(`/api/parameters/${encodeURIComponent(p.id)}/icon`);
   };
@@ -784,8 +790,10 @@ function renderParameters(params) {
       swatch.classList.toggle("none", !p.color);
     }
     const icon = card.querySelector("[data-act=icon]");
-    icon.disabled = !!p.drawing;
-    icon.textContent = p.drawing ? "Drawing…" : "Draw icon";
+    if (icon) {
+      icon.disabled = !!p.drawing;
+      icon.textContent = p.drawing ? "Drawing…" : "Draw icon";
+    }
     const rev = String(p.svg_rev ?? "");
     if (iconRevs.get(key) !== rev) {
       iconRevs.set(key, rev);
@@ -812,14 +820,64 @@ document.getElementById("add-param").onclick = () => {
   post("/api/parameters", {});
 };
 
+const otherGrid = document.getElementById("other");
+let otherCard = null;
+
+function renderOther(items) {
+  const item = (items || [])[0];
+  if (!item) {
+    otherCard = null;
+    otherGrid.innerHTML = '<p class="empty">No base prompt in the config.</p>';
+    return;
+  }
+  if (!otherCard || !otherCard.isConnected) {
+    otherCard = document.createElement("article");
+    otherCard.className = "card param other";
+    otherCard.innerHTML = `
+      <div class="body">
+        <div class="top"><span class="id">Base</span></div>
+        <label>Prompt</label>
+        <textarea data-key="prompt" rows="2" disabled></textarea>
+        <div class="weight-block">
+          <label class="weight-label">Weight <span class="now">0.00</span></label>
+          <div class="weight">
+            <span class="bound">0.00</span>
+            <input type="range" data-key="value" min="0" max="1" step="0.01" value="0" disabled aria-label="Weight">
+            <span class="bound">1.00</span>
+          </div>
+        </div>
+      </div>
+      <label class="switch"><input type="checkbox" data-act="enabled"> In the recipe</label>
+      <p class="desc">Switch off to leave it out of the recipe.</p>`;
+    otherCard.querySelector("[data-act=enabled]").onchange = (e) => {
+      post("/api/settings", { base_enabled: e.target.checked });
+    };
+    otherGrid.replaceChildren(otherCard);
+  }
+  const prompt = otherCard.querySelector("[data-key=prompt]");
+  setInput(prompt, item.prompt);
+  fit(prompt);
+  const slider = otherCard.querySelector("[data-key=value]");
+  const value = Math.max(0, Math.min(1, Number(item.value) || 0));
+  slider.value = String(value);
+  otherCard.querySelector(".now").textContent = value.toFixed(2);
+  const box = otherCard.querySelector("[data-act=enabled]");
+  if (document.activeElement !== box) box.checked = !!item.enabled;
+  otherCard.classList.toggle("away", !item.enabled);
+}
+
 function showPanel(name) {
   document.querySelectorAll(".panel-tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.panel === name));
   document.getElementById("parameters").hidden = name !== "parameters";
   document.getElementById("list").hidden = name !== "objects";
+  document.getElementById("other").hidden = name !== "other";
   try { localStorage.setItem("prompts-panel", name); } catch {}
 }
 document.querySelectorAll(".panel-tabs button").forEach(b => b.onclick = () => showPanel(b.dataset.panel));
-try { if (localStorage.getItem("prompts-panel") === "objects") showPanel("objects"); } catch {}
+try {
+  const t = localStorage.getItem("prompts-panel");
+  if (t === "objects" || t === "other") showPanel(t);
+} catch {}
 
 async function poll() {
   try {
@@ -828,6 +886,7 @@ async function poll() {
     lastState = state;
     render(objects);
     renderParameters(state.parameters || []);
+    renderOther(state.other || []);
     renderViews(state);
     renderCombos(state.combos, objects);
     renderMusic(state.music);

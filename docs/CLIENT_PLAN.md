@@ -45,7 +45,7 @@ browser (app.html + vision_js + tracker_js)          detector (swappable) + the 
    ▼
 client process (sc-tracking)                     unchanged pipeline after detection
    │  identity (DINO, histograms) → mapper → recipe/controls
-   │  other sources, as today: objects page (/objects), client_midi POST /pattern (Atlas, MIDI player), describe server
+   │  other sources, as today: prompts page (/prompts), client_midi POST /pattern (Atlas, MIDI player), describe server
    │  WS ws://<server>/stream  UpdateRecipe / UpdateControls / Pattern / ReceivedChunk   (unchanged)
    ▼
 MRT2 server (server branch, unchanged)               generates, tempo-stretches, streams audio

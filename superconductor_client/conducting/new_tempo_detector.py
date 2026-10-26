@@ -32,7 +32,7 @@ def main(argv=None):
     parser.add_argument("--playback", choices=("server", "local"), default="server",
                         help="Server HTTP tempo control (default), or local Bungee music")
     parser.add_argument("--server-url", default="http://localhost:9100",
-                        help="Tempo server URL; use http://localhost:9000 for the Lighthouse tunnel")
+                        help="Tempo server URL; use http://localhost:9100 for the Lighthouse tunnel")
     parser.add_argument("--music", type=Path, default=Path(__file__).with_name("testmusic-80.mp3"),
                         help="Local playback only: music file (default: testmusic-80.mp3)")
     parser.add_argument("--music-bpm", type=float,

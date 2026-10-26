@@ -159,10 +159,13 @@ def parse_hands(message):
 
 
 class ConductingServer:
-    def __init__(self, player, server_url, tempo_window=5.0):
+    def __init__(self, player, server_url, tempo_window=5.0, objects_url=None, playback_url=None):
         self.player = player
         self.server_url = server_url
         self.tempo_window = tempo_window
+        # the prompts page, and the playback socket Start sound opens (the browser's addresses)
+        self.objects_url = objects_url or "http://localhost:8467/prompts"
+        self.playback_url = playback_url or "ws://localhost:9100/stream/playback"
         self.frames = 0
         self.last_frame = None  # time.monotonic() of the newest frame
         self.fps = 0.0
@@ -193,7 +196,10 @@ class ConductingServer:
         return web.json_response({"bundle_url": "mediapipe/vision_bundle.mjs",
                                   "wasm_url": "mediapipe/wasm",
                                   "model_url": "models/hand_landmarker.task",
-                                  "server_url": self.server_url})
+                                  "server_url": self.server_url,
+                                  "objects_url": self.objects_url,
+                                  "playback_url": self.playback_url,
+                                  "credits": 3})
 
     async def _stats(self, request):
         now = time.monotonic()
@@ -281,10 +287,14 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=8480)
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--server-url", default="http://localhost:9100",
-                        help="MRT2 server; http://localhost:9000 through the Lighthouse tunnel")
+                        help="MRT2 server; http://localhost:9100 through the Lighthouse tunnel")
     parser.add_argument("--page-server-url", default=None,
                         help="music-server URL the page links to (default: --server-url). "
                              "The container passes the gateway here; tempo is still POSTed to --server-url")
+    parser.add_argument("--objects-url", default="http://localhost:8467/prompts",
+                        help="prompts page linked from the header")
+    parser.add_argument("--playback-url", default="ws://localhost:9100/stream/playback",
+                        help="playback socket Start sound opens in the browser")
     parser.add_argument("--tempo-window", type=float, default=5.0,
                         help="Cycle history in seconds, at least 2 (default: 5)")
     args = parser.parse_args(argv)
@@ -295,7 +305,8 @@ def main(argv=None):
     player = TimedTempoPlayer(args.server_url)
     with player:
         # server_url on the page is only the link; the player already has where to POST
-        server = ConductingServer(player, args.page_server_url or args.server_url, args.tempo_window)
+        server = ConductingServer(player, args.page_server_url or args.server_url, args.tempo_window,
+                                  objects_url=args.objects_url, playback_url=args.playback_url)
         print(f"Conducting page: http://{args.host}:{args.port}  (tempo to {args.server_url})", flush=True)
         web.run_app(server.app(), host=args.host, port=args.port, print=None, access_log=None)
     print(summary("POST /tempo/*", player.post_log))

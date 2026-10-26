@@ -138,7 +138,7 @@ def describe_machine(hostname):
         return "cluster node", (("local", "on this node (port 9100)"),)
     return "laptop", (
         ("local", "on this computer (port 9100)"),
-        ("remote", "on the cluster, through the SSH tunnel (port 9000)"),
+        ("remote", "on the cluster, through the SSH tunnel (port 9100)"),
     )
 
 

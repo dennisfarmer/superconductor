@@ -3,14 +3,14 @@
 One player receives the music directly from the MRT2 server. The client process does not forward audio.
 
 - Local server: `ws://localhost:9100/stream/playback`
-- SSH tunnel (`ssh -N -L 9000:lh2300:9100`): `ws://localhost:9000/stream/playback`
+- SSH tunnel (`ssh -N -L 9100:lh2300:9100`): `ws://localhost:9100/stream/playback`
 
 The camera page (Start sound), `make audio` (`audio_receiver.py`), and the playback plugin each open this socket. A second connection is closed with "Session already active".
 
 The client process uses the other socket, `GET /stream/input`, for recipe, controls, pattern, and pause:
 
 - Local: `ws://localhost:9100/stream/input` (`make client`)
-- SSH tunnel: `ws://localhost:9000/stream/input` (`make client-remote`)
+- SSH tunnel: `ws://localhost:9100/stream/input` (`make client-remote`)
 
 Generation waits until a player is attached, that player has granted a lead, and a recipe has been set. The lead is that many blocks. A new recipe, controls, or pattern applies on the next block. Blocks already sent still play.
 

@@ -41,6 +41,9 @@ superconductor_client/tracking/library/
 # browser detector (ort/, models/) and other generated tracking files
 superconductor_client/tracking/var
 
+# MediaPipe and the hand model from conducting's make web-deps
+superconductor_client/conducting/var
+
 # the browser detector: generated parity fixtures, node packages
 vision_js/test/fixtures/
 node_modules/

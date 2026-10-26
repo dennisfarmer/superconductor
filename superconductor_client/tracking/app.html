@@ -44,7 +44,7 @@
 <body>
 <header>
   <h1>SuperConductor — Tracking</h1>
-  <nav id="links"><a href="/objects" target="_blank" rel="noopener">Objects</a></nav>
+  <nav id="links"><a href="/prompts" target="_blank" rel="noopener">Prompts</a></nav>
 </header>
 <main>
   <div class="controls">
@@ -343,7 +343,7 @@ async function startAudio() {
 
 function connectAudio() {
   // local server: ws://localhost:9100/stream/playback
-  // SSH tunnel:  ws://localhost:9000/stream/playback
+  // SSH tunnel:  ws://localhost:9100/stream/playback
   const url = config.playback_url;
   if (!url) {
     stats.audio = "no playback url";

@@ -41,24 +41,25 @@
 <body>
 <header>
   <h1>SuperConductor — Conducting</h1>
-  <nav id="links"></nav>
+  <nav id="links"><a id="objects" href="http://localhost:8467/prompts" target="_blank" rel="noopener">Prompts</a></nav>
 </header>
 <main>
   <div class="controls">
     <button id="start" class="primary">Start camera</button>
+    <button id="sound" class="primary">Start sound</button>
     <select id="camera" title="camera" hidden></select>
     <select id="size" title="camera resolution">
       <option value="640x360">640 × 360</option>
       <option value="960x540" selected>960 × 540</option>
       <option value="1280x720">1280 × 720</option>
     </select>
-    <span class="hint">Conduct a repeating 4/4 pattern. Keys: F release · R resume. The music plays on the camera page.</span>
+    <span class="hint">Conduct a repeating 4/4 pattern. Keys: F release · R resume. Start sound plays the music in this page.</span>
   </div>
   <div id="stage">
     <video id="video" playsinline muted></video>
     <canvas id="overlay"></canvas>
   </div>
-  <div id="status">Press Start: the browser asks for the camera, then your hand movement sets the music's tempo.</div>
+  <div id="status">Press Start camera. Start sound plays the music in this page. Your hand movement sets the tempo.</div>
 </main>
 
 <script type="module">
@@ -71,17 +72,20 @@
 import { startHands, backgroundCapable } from "./web/hands.js";
 import { drawConducting } from "./web/overlay.js";
 
+const SAMPLE_RATE = 48000, CHANNELS = 2;
 const STALE_MS = 1000, TRAIL_MS = 1000;
 const $ = id => document.getElementById(id);
 const wsUrl = path => new URL(path, location.href.replace(/^http/, "ws")).href;
 const stats = { results: 0, fps: 0, delay: 0, detectMs: 0, sent: 0, answered: 0, socket: false,
-                delegate: null, lastReplyAt: 0 };
+                delegate: null, lastReplyAt: 0, audio: "off", underruns: 0, buffered: 0 };
+let audioWs = null, worklet = null, bus = null, ctx = null;
 window.scStats = stats;  // for checking from outside the tab (e.g. that it runs while hidden)
 let config = {}, stream = null, hands = null, handsState = "off";  // "starting" | "ready" | "unavailable: ..."
 let frame = null, reply = null, replyAt = 0, busy = false;
 const trail = [];  // {t, x, y}: the middle fingertip (landmark 12) of the first hand
 
 config = await fetch(new URL("api/web", location.href)).then(r => r.json()).catch(() => ({}));
+if (config.objects_url) $("objects").href = config.objects_url;
 if (config.server_url) {
   const a = document.createElement("a");
   a.href = config.server_url.replace(/\/$/, "") + "/tempo";
@@ -175,6 +179,85 @@ document.addEventListener("keydown", e => {
   }
 });
 
+// ---------- audio ----------
+
+// Same player as the tracking page: stereo float32 blocks in order.
+const WORKLET = `
+class Player extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.blocks = []; this.pos = 0; this.started = false; this.starved = false;
+    this.port.onmessage = e => {
+      const m = e.data;
+      if (m.type === "block") { this.blocks.push(m.samples); this.started = true; }
+      else if (m.type === "pause") this.started = false;
+      else if (m.type === "reset") { this.blocks = []; this.pos = 0; this.started = false; }
+    };
+  }
+  process(_inputs, outputs) {
+    const [left, right] = outputs[0];
+    let i = 0;
+    while (i < left.length && this.blocks.length) {
+      const b = this.blocks[0];
+      const n = Math.min(left.length - i, (b.length - this.pos) / 2);
+      for (let k = 0; k < n; k++, i++) { left[i] = b[this.pos++]; right[i] = b[this.pos++]; }
+      if (this.pos >= b.length) { this.blocks.shift(); this.pos = 0; this.port.postMessage("played"); }
+    }
+    for (; i < left.length; i++) { left[i] = 0; right[i] = 0; }
+    const empty = !this.blocks.length;
+    if (empty && this.started && !this.starved) this.port.postMessage("underrun");
+    this.starved = empty;
+    return true;
+  }
+}
+registerProcessor("player", Player);`;
+
+async function startAudio() {
+  ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  worklet = new AudioWorkletNode(ctx, "player", { numberOfInputs: 0, outputChannelCount: [CHANNELS] });
+  bus = new GainNode(ctx, { gain: 1 });
+  worklet.connect(bus).connect(ctx.destination);
+  worklet.port.onmessage = e => {
+    const open = audioWs && audioWs.readyState === 1;
+    if (e.data === "played") {
+      stats.buffered--;
+      if (open) audioWs.send('{"type":"ReceivedChunk","body":null}');
+    } else if (e.data === "underrun") {
+      stats.underruns++;
+    }
+  };
+  connectAudio();
+}
+
+function connectAudio() {
+  const url = config.playback_url;
+  if (!url) {
+    stats.audio = "no playback url";
+    return;
+  }
+  audioWs = new WebSocket(url);
+  audioWs.binaryType = "arraybuffer";
+  audioWs.onopen = () => {
+    worklet.port.postMessage({ type: "reset" });
+    stats.buffered = 0;
+    stats.audio = "connected";
+    const credits = config.credits || 3;
+    audioWs.send(JSON.stringify({ type: "Credits", body: { credits } }));
+  };
+  audioWs.onmessage = e => {
+    if (typeof e.data === "string") {
+      const m = JSON.parse(e.data);
+      if (m.type === "Error") stats.audio = m.body && m.body.error ? m.body.error : "error";
+      return;
+    }
+    const samples = new Float32Array(e.data, 4);
+    worklet.port.postMessage({ type: "block", samples }, [e.data]);
+    stats.buffered++;
+  };
+  audioWs.onclose = () => { stats.audio = "reconnecting"; setTimeout(connectAudio, 1000); };
+}
+
 // ---------- start ----------
 
 $("start").onclick = async () => {
@@ -189,6 +272,16 @@ $("start").onclick = async () => {
   $("start").hidden = true;
   initHands();
   requestAnimationFrame(frameLoop);
+};
+$("sound").onclick = async () => {
+  $("sound").disabled = true;
+  try {
+    await startAudio();
+    $("sound").hidden = true;
+  } catch (e) {
+    stats.audio = `error: ${e.message}`;
+    $("sound").disabled = false;
+  }
 };
 $("camera").onchange = $("size").onchange = () => { if (stream) openCamera().catch(cameraError); };
 
@@ -217,9 +310,12 @@ setInterval(() => {
     line2 = `${srv} POST ${ms(reply.post_ms)}, frame→server ${ms(reply.to_server_ms)} · ${target}${heard}${speed}` +
       `${calibrating}${warmup}`;
   }
+  const snd = stats.audio !== "connected" ? `<span class="bad">○ sound (${stats.audio})</span>`
+    : '<span class="ok">● sound</span>';
   const hidden = backgroundCapable ? "" : '<br><span class="bad">this browser pauses tracking while this tab is hidden</span>';
   $("status").innerHTML = `${conn} ${stats.fps.toFixed(0)} fps (${settings.width}×${settings.height}), ` +
-    `delay ${stats.delay.toFixed(0)} ms · ${where}${step}<br>${line2}${hidden}`;
+    `delay ${stats.delay.toFixed(0)} ms · ${where}${step}<br>${line2}<br>` +
+    `${snd} ${Math.max(stats.buffered, 0)} blocks buffered · underruns ${stats.underruns}${hidden}`;
 }, 1000);
 </script>
 </body>

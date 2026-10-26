@@ -11,7 +11,7 @@ The gateway is the only port the browser uses. Open these on the laptop, through
 | Page | On the laptop |
 |---|---|
 | Tracking | http://localhost:8080 |
-| Prompts | http://localhost:8080/objects |
+| Prompts | http://localhost:8080/prompts |
 | Conducting | http://localhost:8080/conduct/ |
 | MIDI player | http://midi.localhost:8080 |
 | Atlas | http://atlas.localhost:8080 |

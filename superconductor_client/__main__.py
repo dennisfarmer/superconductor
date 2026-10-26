@@ -63,7 +63,9 @@ def main():
         ("midi", [py, "-m", "superconductor_client.midi.midi_player"]),
         ("conducting", [py, "-m", "superconductor_client.conducting.conducting_web.server",
                         "--server-url", place.direct.http,
-                        "--page-server-url", place.browser.http]),
+                        "--page-server-url", place.browser.http,
+                        "--playback-url", place.browser.playback,
+                        "--objects-url", "http://localhost:8467/prompts"]),
         ("tracking", [py, "-m", "superconductor_client.tracking.collab",
                       "--client-url", CLIENT_URL, "--where", place.name, *tracking_args]),
     ]

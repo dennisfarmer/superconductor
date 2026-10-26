@@ -9,7 +9,7 @@ question `make client` asks. `--where NAME` skips it.
 
     python audio_receiver.py                       # ask
     python audio_receiver.py --where local         # this computer, port 9100
-    python audio_receiver.py --where remote        # SSH tunnel, port 9000
+    python audio_receiver.py --where remote        # SSH tunnel, port 9100
 
     python audio_receiver.py --list-devices
     make audio

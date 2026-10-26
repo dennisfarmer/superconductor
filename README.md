@@ -4,157 +4,116 @@ Recent years have witnessed major advances in generative AI and its success in m
 
 SuperConductor will be an interactive human-AI music co-creating system where the user can control an AI music generator through hand gestures and body movements. The user will be able to control the instrumentation, dynamic, tempo, density, and tension of the generated music – as if they were “conducting” an ensemble of AI music agents. The SuperConductor explores the future of human-AI music co-creativity.
 
+# Getting Started
+
+If running either the client or the server on Lighthouse, you will want to first open an ssh tunnel with one of the commands listed below, depending on where the client and server processes are located. The ports are the same between running locally and via the cluster so once the tunnel is open you can run the same commands for all these situations (with `atlas` also running either on laptop or lighthouse, again due to using same ports either way):
+- client and server on laptop
+- client on laptop, server on lighthouse
+- client and server on lighthouse
+
+Note that client assumes MacOS or Lighthouse, but may also run via WSL just fine as long as both the `make` and `ssh` commands are ran inside of WSL terminals. server doesn't run on windows unless further modifications are made.
+
+I assume that this would work with multiple users simultaneously on difference sessions, since perhaps the nodes are unique to the lighthouse session. Since for now the client -> server protocol covers most / all of possible input options, and tempo control is via a server endpoint rather than a client endpoint, likely all prototype development work can be done on laptop side (MacOS or WSL), with the only thing running on lighthouse being the server since the server implementation doesn't have to change very often for now.
+
+### SSH tunnel for client + server both running on lighthouse 
+
+`(laptop -> login node -> compute node)`
+
+```bash
+# 8467 Tracking and Prompts
+# 8475 MIDI player
+# 8480 Conducting
+# 8764 Atlas
+# 8765 Atlas engine
+# 9100 Server, Tempo View and Conductor
+```
+```bash
+ssh -t \
+  -L 8467:127.0.0.1:18467 \
+  -L 8475:127.0.0.1:18475 \
+  -L 8480:127.0.0.1:18480 \
+  -L 8764:127.0.0.1:18764 \
+  -L 8765:127.0.0.1:18765 \
+  -L 9100:127.0.0.1:19100 \
+  YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu \
+  ssh -N \
+    -L 18467:127.0.0.1:8467 \
+    -L 18475:127.0.0.1:8475 \
+    -L 18480:127.0.0.1:8480 \
+    -L 18764:127.0.0.1:8764 \
+    -L 18765:127.0.0.1:8765 \
+    -L 19100:127.0.0.1:9100 \
+    lh2300
+```
+
+### SSH tunnel for client on laptop, server on lighthouse
+
+```
+ssh -N -L 9100:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
+```
+
+### Setup for `client`, `server`, optional `atlas`
+
+Note: whenever updates are made, simply run `git pull` because the `make client`, `make server`, etc. automatically detect changes and re-run the environment setup idempotently, so running setup once is the same as running it multiple times.
+
+On laptop:
+```bash
+git clone -b client https://github.com/dennisfarmer/superconductor.git superconductor_client
+cd superconductor_client
+make worktrees
+```
+
+On lighthouse:
+```bash
+# client
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
+# server
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
+# atlas
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_atlas
+```
+
+Start the server..
+```bash
+cd ../superconductor_server
+# runs setup automatically
+make server
+```
+
+..and the client..
+```bash
+# runs setup automatically, prompts to ask if server is on laptop or lighthouse
+cd ../superconductor_client
+make client
+# The describe server (camera object auto-analysis, parameter logo generation, ...) is optional. This starts it along with the client.
+# make client DESCRIBE=1
+```
+
+Optionally also start this atlas web app. For now this can control notes and drums by sending messages to client to be forwarded to server. Later this functionality will be replaced by things that are cooler than knobs and buttons!
+```bash
+# runs idempotent setup automatically
+cd ../superconductor_atlas
+make atlas
+```
+
+Here is a table of the different web application views, which can be opened in a web browser after starting the client/server/atlas stack (and opening the ssh tunnel if using lighthouse).
+
+| Page | URL |
+|---|---|
+| Tracking | http://localhost:8467 |
+| Prompts | http://localhost:8467/prompts |
+| Conducting | http://localhost:8480 |
+| MIDI player | http://localhost:8475 |
+| Atlas | http://localhost:8764 |
+| Tempo View | http://localhost:9100/tempo |
+| Conductor | http://localhost:9100/conduct |
+| Playback | ws://localhost:9100/stream/playback |
+
 # Development Guide
 
-## Web Application Views
-
-Open these in the browser on the laptop. The column is where the processes run.
-
-`server.localhost` is only the Singularity column. The gateway on port 8080 answers that name for the music server. The other columns do not use it. `midi.localhost` is the same kind of name, for the MIDI player. Chrome, Edge, and Firefox send `*.localhost` to this machine, so both work through the port 8080 tunnel.
-
-For the cluster-clones column, the laptop reaches those ports through the SSH tunnel in that section.
-
-| Page | Local: client and server on the laptop | Remote: client on the laptop, server on lh2300 | Cluster: client and server on lh2300, from the clones | Singularity: images on lh2300 |
-|---|---|---|---|---|
-| Tracking | http://localhost:8467 | http://localhost:8467 | http://localhost:8467 | http://localhost:8080 |
-| Prompts | http://localhost:8467/objects | http://localhost:8467/objects | http://localhost:8467/objects | http://localhost:8080/objects |
-| Conducting | http://localhost:8480 | http://localhost:8480 | http://localhost:8480 | http://localhost:8080/conduct/ |
-| MIDI player | http://localhost:8475 | http://localhost:8475 | http://localhost:8475 | http://midi.localhost:8080 |
-| Tempo View | http://localhost:9100/tempo | http://localhost:9000/tempo | http://localhost:9100/tempo | http://server.localhost:8080/tempo |
-| Conductor | http://localhost:9100/conduct | http://localhost:9000/conduct | http://localhost:9100/conduct | http://server.localhost:8080/conduct |
-| Playback | ws://localhost:9100/stream/playback | ws://localhost:9000/stream/playback | ws://localhost:9100/stream/playback | ws://server.localhost:8080/stream/playback |
-
-Saved objects are `superconductor_client/tracking/library/<id>/` when you run a clone, and `/data/client/library` inside the image.
-
-
-## All local (Macbook Pro)
-
-The client and the server both run on the Macbook Pro. The server is `mrt2_small` on port 9100. Use two terminals. One runs the server. The other runs the client. A new terminal starts in your home directory, so each one changes into its own checkout.
-
-**First time.** In one terminal:
-
-```bash
-cd ~/Michigan/superconductor
-git clone -b client https://github.com/dennisfarmer/superconductor.git superconductor_client
-cd superconductor_client
-make worktrees
-make setup
-```
-
-`make worktrees` puts the server at `~/Michigan/superconductor/superconductor_server`. In a second terminal:
-
-```bash
-cd ~/Michigan/superconductor/superconductor_server
-make setup
-```
-
-**Each time you run it.** Leave the server terminal open.
-
-Server terminal:
-
-```bash
-cd ~/Michigan/superconductor/superconductor_server
-git pull && make setup && make server
-```
-
-Wait until that terminal prints `Serving mrt2_small (mlx) on port 9100`.
-
-Client terminal:
-
-```bash
-cd ~/Michigan/superconductor/superconductor_client
-git pull && make setup && make client
-```
-
-## Client local, server remote
-
-The client runs on the Macbook Pro. The server is `mrt2_base` on lh2300, port 9100. An SSH tunnel on the Macbook Pro forwards localhost port 9000 to that server.
-
-**First time, on the Macbook Pro:**
-
-```bash
-cd ~/Michigan/superconductor
-git clone -b client https://github.com/dennisfarmer/superconductor.git superconductor_client
-cd superconductor_client
-make worktrees
-make setup
-```
-
-**First time, on lh2300:**
-
-```bash
-cd /scratch/aimusic_project_root/aimusic_project/shared_data
-git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
-cd superconductor_server
-make setup
-```
-
-**Each time you run it.** On lh2300, in the server checkout:
-
-```bash
-cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
-git pull && make setup && make server
-```
-
-Wait until that terminal prints `Serving mrt2_base (jax) on port 9100`.
-
-On the Macbook Pro, open a terminal and leave the tunnel running:
-
-```bash
-ssh -N -L 9000:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
-```
-
-Open another terminal on the Macbook Pro for the client:
-
-```bash
-cd ~/Michigan/superconductor/superconductor_client
-git pull && make setup && make client-remote
-```
-
-## All remote
-
-The client and the server both run on lh2300. One way is the git checkouts. The other is the published images.
-
-### Testing from the git clones
-
-**First time, on lh2300:**
-
-```bash
-cd /scratch/aimusic_project_root/aimusic_project/shared_data
-git clone -b server --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_server
-cd superconductor_server && make setup
-
-cd /scratch/aimusic_project_root/aimusic_project/shared_data
-git clone -b client --single-branch https://github.com/dennisfarmer/superconductor.git superconductor_client
-cd superconductor_client && make setup
-```
-
-**Each time you run it.** On lh2300, start the server and leave that terminal open:
-
-```bash
-cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
-git pull && make setup && make server
-```
-
-Wait until it prints `Serving mrt2_base (jax) on port 9100`. Then start the client in another terminal on lh2300:
-
-```bash
-cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
-git pull && make setup && make client
-```
-
-On the laptop, leave a tunnel open to the node that is running `make client`. The pages for this column are in the table above.
-
-```bash
-ssh -N \
-  -L 8467:lh2300:8467 \
-  -L 8475:lh2300:8475 \
-  -L 8480:lh2300:8480 \
-  -L 9100:lh2300:9100 \
-  YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
-```
-
 ### Running the published images
+
+The published images are to maybe make running client and server ultra reproducable by hosting a singularity container via `ghcr.io` on the github repository. Hasn't been fully tested yet but the idea is that images are associated with a "release", which is a known to be working version of the SuperConductor stack.
 
 **Actions** → **release** → **Run workflow** publishes the two release images and a GitHub Release for the current `client` and `server` commits. On lh2300, `make server-singularity` and `make client-singularity` pull those images when the `.sif` is not already in the checkout. `make sif` pulls again after a new release. `make sif-dev` does the same for a dev image from `make image-push` on a laptop. See [client_container/README.md](client_container/README.md).
 
@@ -190,7 +149,27 @@ ssh -N -L 8080:lh2300:8080 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
 
 A `.sif` already in the checkout is reused. When a new release is published, run `make sif` in the server checkout and in the client checkout, then start them again. For a dev image, `make sif-dev`, then `make server-singularity-dev` / `make client-singularity-dev`.
 
+`server.localhost` is only the Singularity column. The gateway on port 8080 answers that name for the music server. The other columns do not use it. `midi.localhost` is the same kind of name, for the MIDI player. Chrome, Edge, and Firefox send `*.localhost` to this machine, so both work through the port 8080 tunnel.
+
+For the cluster-clones column, the laptop reaches those ports through the SSH tunnel in that section.
+
+Saved objects are `superconductor_client/tracking/library/<id>/` when you run a clone, and `/data/client/library` inside the image.
+
+| Page | Local: client and server on the laptop | Remote: client on the laptop, server on lh2300 | Cluster: client and server on lh2300, from the clones | Singularity: images on lh2300 |
+|---|---|---|---|---|
+| Tracking | http://localhost:8467 | http://localhost:8467 | http://localhost:8467 | http://localhost:8080 |
+| Prompts | http://localhost:8467/prompts | http://localhost:8467/prompts | http://localhost:8467/prompts | http://localhost:8080/prompts |
+| Conducting | http://localhost:8480 | http://localhost:8480 | http://localhost:8480 | http://localhost:8080/conduct/ |
+| MIDI player | http://localhost:8475 | http://localhost:8475 | http://localhost:8475 | http://midi.localhost:8080 |
+| Tempo View | http://localhost:9100/tempo | http://localhost:9100/tempo | http://localhost:9100/tempo | http://server.localhost:8080/tempo |
+| Conductor | http://localhost:9100/conduct | http://localhost:9100/conduct | http://localhost:9100/conduct | http://server.localhost:8080/conduct |
+| Playback | ws://localhost:9100/stream/playback | ws://localhost:9100/stream/playback | ws://localhost:9100/stream/playback | ws://server.localhost:8080/stream/playback |
+
 ## Sound on this machine
+
+This is a minimal example of an audio reciever that is seperate from the web browser. See also the `playback` branch, which implements a more formal plugin which can forward audio to speakers, DAW, touchdesigner, etc. by reading directly from server websocket for minimal latency.
+
+Note that as of now only one process can connect to and read from the server playback socket at one time, since it sends clock messages to confirm that audio blocks were recieved to obtain the subsequent blocks.
 
 `make audio` asks where the music server is, the same question as `make client`. `make audio-local` and `make audio-remote` skip it (`--where local` and `--where remote`).
 

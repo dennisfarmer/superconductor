@@ -132,8 +132,8 @@ class RoutingTests(unittest.TestCase):
              patch('live.live_conductor.resolve_music') as resolve, \
              patch('live.live_conductor.MusicPlayer') as local, \
              patch('live.live_conductor._run_live') as run:
-            run_live_conductor(0, '/missing/music.mp3', server_url='http://localhost:9000')
-            remote.assert_called_once_with('http://localhost:9000')
+            run_live_conductor(0, '/missing/music.mp3', server_url='http://localhost:9100')
+            remote.assert_called_once_with('http://localhost:9100')
             resolve.assert_not_called()
             local.assert_not_called()
             self.assertEqual(run.call_args.args[3], 'server')
@@ -143,7 +143,7 @@ class RoutingTests(unittest.TestCase):
         with patch('live.live_conductor.run_live_conductor') as run:
             main([])
             self.assertEqual(run.call_args.kwargs['playback'], 'server')
-            main(['--server-url', 'http://localhost:9000'])
-            self.assertEqual(run.call_args.kwargs['server_url'], 'http://localhost:9000')
+            main(['--server-url', 'http://localhost:9100'])
+            self.assertEqual(run.call_args.kwargs['server_url'], 'http://localhost:9100')
             main(['--playback', 'local'])
             self.assertEqual(run.call_args.kwargs['playback'], 'local')

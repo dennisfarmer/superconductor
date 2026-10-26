@@ -7,6 +7,7 @@ No camera, browser, detector or MRT2 server needed. Run with
 import json
 import struct
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
@@ -105,16 +106,80 @@ def test_overlay_has_what_the_page_draws():
         c.tracker.registry.save()
 
 
+def test_services_lists_the_tracking_page_above_objects():
+    with tempfile.TemporaryDirectory() as tmp:
+        c = client(tmp)
+        rows = c.services()
+        names = [s["name"] for s in rows]
+        assert names.index("Tracking page (this app)") + 1 == names.index("Prompts page (this app)")
+        by = {s["name"]: s for s in rows}
+        tracking, objects = by["Tracking page (this app)"], by["Prompts page (this app)"]
+        assert tracking["up"] is True and objects["up"] is True
+        page = next(e["url"] for e in tracking["endpoints"] if e["method"] == "page")
+        objects_page = next(e["url"] for e in objects["endpoints"] if e["method"] == "page")
+        assert page.rstrip("/") + "/prompts" == objects_page
+        c.cfg["web"]["public_urls"] = {"objects": "http://localhost:8080"}
+        rows = c.services()
+        by = {s["name"]: s for s in rows}
+        page = next(e["url"] for e in by["Tracking page (this app)"]["endpoints"] if e["method"] == "page")
+        objects_page = next(e["url"] for e in by["Prompts page (this app)"]["endpoints"] if e["method"] == "page")
+        assert page == "http://localhost:8080/" and objects_page == "http://localhost:8080/prompts"
+
+
 def test_prompts_page_puts_parameters_first():
     html = (Path(__file__).resolve().parents[1] / "superconductor_client" / "tracking" / "tracking_view.html").read_text()
     assert "Superconductor - Prompts (MusicCoCa)" in html
-    assert html.index('data-panel="parameters"') < html.index('data-panel="objects"')
+    assert html.index('data-panel="parameters"') < html.index('data-panel="objects"') < html.index('data-panel="other"')
     assert 'aria-selected="true">Parameters' in html
+    assert ">Other</button>" in html and "In the recipe" in html
+    # parameters edited on this page have no Draw icon button; that button stays on
+    # prompts another service sends, which this page does not edit
+    assert 'p.editable ? "" : `<button data-act="icon">Draw icon</button>`' in html
     assert 'id="add-param"' in html and "Add new parameter" in html
     assert 'min="0" max="1" step="0.01"' in html
     assert html.count('data-key="name"') == 1  # objects have a name; a parameter's prompt is its name
     assert html.count('data-key="trigger"') == 1  # objects only; a parameter has a weight slider
     assert 'id="list"' in html
+
+
+def test_other_tab_base_prompt_leaves_the_recipe_and_icons_fall_back_to_disk():
+    from superconductor_client.tracking.describe_client import default_icon_svg
+    with tempfile.TemporaryDirectory() as tmp:
+        c = client(tmp)
+        assert abs(c.recipe()["ambient electronic"] - 0.3) < 1e-9
+        assert c._other_cards() == [{"id": "base", "prompt": "ambient electronic",
+                                     "value": 0.3, "enabled": True}]
+        rows, _ = c.mrt2_input()
+        assert ("ambient electronic", "base") in [(p, src) for p, src, *_ in rows]
+
+        c.panel.actions.put(("param_add", -1, None))
+        c.apply_panel_actions()
+        c.describer.timeout = 2
+        c.panel.actions.put(("param_edit", 1, {"prompt": "soft pad", "value": 0.4}))
+        c.apply_panel_actions()
+        assert abs(c.recipe()["soft pad"] - 0.4) < 1e-9
+
+        svg = None
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            c.apply_describe_results()
+            svg = c.knobs[0].get("svg")
+            if isinstance(svg, str) and svg.startswith("<svg"):
+                break
+            time.sleep(0.02)
+        assert svg == default_icon_svg()
+
+        c.panel.actions.put(("settings", None, {"base_enabled": False}))
+        c.apply_panel_actions()
+        assert "ambient electronic" not in c.recipe()
+        assert abs(c.recipe()["soft pad"] - 0.4) < 1e-9
+        rows, _ = c.mrt2_input()
+        assert all(src != "base" for _, src, *_ in rows)
+        assert c._other_cards()[0]["enabled"] is False
+
+        again = client(tmp)
+        assert "ambient electronic" not in again.recipe()
+        assert abs(again.recipe()["soft pad"] - 0.4) < 1e-9
 
 
 if __name__ == "__main__":

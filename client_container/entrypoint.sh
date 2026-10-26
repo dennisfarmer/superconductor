@@ -163,6 +163,8 @@ if has conduct; then
     python "$SC/client/superconductor_client/conducting/conducting_web/server.py" --host 127.0.0.1 --port 8480 \
         --server-url "$SC_HTTP" \
         --page-server-url "$SC_BROWSER_HTTP" \
+        --playback-url "$SC_BROWSER_PLAYBACK" \
+        --objects-url "http://localhost:$SC_GATEWAY_PORT/prompts" \
         > /data/run/conduct.log 2>&1 &
     pids+=($!); watched+=($!)
 fi

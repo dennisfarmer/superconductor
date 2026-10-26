@@ -4,10 +4,11 @@ e.g. /conduct, go here too):
     http://localhost:8467/          Tracking (app.html): the browser's camera,
                                     its detector (vision_js + tracker_js), the view
                                     with the overlay drawn on it, and the audio
-    http://localhost:8467/objects   Prompts (MusicCoCa)
+    http://localhost:8467/prompts   Prompts (MusicCoCa)
 
 The prompts page shows parameters (knobs added there, and prompts other
-services send, such as Atlas drums) and every object the app knows, with its
+services send, such as Atlas drums), the config base prompt on the Other tab,
+and every object the app knows, with its
 picture, id, name, description, instrument and trigger, plus the combos
 (objects that play something else together). All of it is edited there;
 changes apply immediately and are saved to the library.
@@ -82,7 +83,7 @@ class TrackingView:
 
     @property
     def url(self):
-        return f"http://localhost:{self.port}/objects"
+        return f"http://localhost:{self.port}/prompts"
 
     def publish(self, state, views):
         """`state`: {"objects": [...], "combos": [...]} (see CollabFrontend.publish_panel);
@@ -133,7 +134,7 @@ class TrackingView:
         for sub in ("ort", "models"):
             if self.web_dir is not None and (self.web_dir / sub).is_dir():
                 app.router.add_static(f"/web/{sub}", self.web_dir / sub)
-        app.router.add_get("/objects", self._page)
+        app.router.add_get("/prompts", self._page)
         app.router.add_get("/api/objects", self._list)
         app.router.add_get("/api/objects/{id}/view.jpg", self._view)
         app.router.add_get("/api/objects/{id}/views/{index}.jpg", self._view)
@@ -161,7 +162,7 @@ class TrackingView:
         try:
             loop.run_until_complete(web.TCPSite(runner, self.host, self.port).start())
         except OSError as e:
-            print(f"objects page: port {self.port} unavailable ({e})")
+            print(f"prompts page: port {self.port} unavailable ({e})")
             return
         loop.run_forever()
 

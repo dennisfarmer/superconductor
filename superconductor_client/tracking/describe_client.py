@@ -16,6 +16,19 @@ import queue
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+
+def default_icon_svg():
+    """describe/default.svg, used when the describe server rejects an icon request."""
+    path = Path(__file__).resolve().parent.parent / "describe" / "default.svg"
+    try:
+        svg = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not svg.lower().lstrip().startswith("<svg"):
+        return None
+    return svg
 
 
 class DescribeClient:
@@ -67,7 +80,13 @@ class DescribeClient:
                 continue
             try:
                 if kind == "svg":
-                    self.results.put(("svg", id, self._post("/svg", {"prompt": data})["svg"]))
+                    try:
+                        svg = self._post("/svg", {"prompt": data})["svg"]
+                    except (urllib.error.URLError, OSError, KeyError, ValueError):
+                        svg = default_icon_svg()
+                        if not svg:
+                            raise
+                    self.results.put(("svg", id, svg))
                     continue
                 if kind == "describe":
                     description = self._post("/describe", {"image": base64.b64encode(data).decode()})["description"]

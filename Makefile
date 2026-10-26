@@ -15,7 +15,7 @@
 #                     --where NAME (make client ARGS="--where local").
 #                     Open the camera page http://localhost:8467/ in Chrome
 #   make client-local    same, without the question: server on this computer (port 9100)
-#   make client-remote   same, without the question: server through the SSH tunnel (port 9000)
+#   make client-remote   same, without the question: server through the SSH tunnel (port 9100)
 #   make client ARGS="--mode calibration"   extra tracking options (--detection container: no browser detection)
 #   make audio        sc-audio. Asks where the music server is, same question as make client.
 #   make audio-local  same, without the question: --where local
@@ -37,12 +37,12 @@
 #                     describe, conducting and midi live in this checkout.
 #   make conduct      conducting page (superconductor_client/conducting/): browser
 #                     hand tracking sets the MRT2 server's tempo, page on http://localhost:8480;
-#                     make conduct-remote: to the server through the Lighthouse tunnel (:9000)
+#                     make conduct-remote: to the server through the Lighthouse tunnel (:9100)
 #   make playback     SuperConductor Playback VST3 Plugin app (../superconductor_playback/Makefile;
 #                     builds it if needed): plays the local server
 #                     (ws://localhost:9100/stream/playback) on this machine's speakers.
 #                     Through the SSH tunnel, set the plugin URL to
-#                     ws://localhost:9000/stream/playback
+#                     ws://localhost:9100/stream/playback
 #   make touchdesigner   a TouchDesigner visualizer (../superconductor_touchdesigner/Makefile),
 #                     showing only its output window: VISUALIZER=<name> (default
 #                     overlay_example_1), PERFORM=0 to open it in the editor instead
