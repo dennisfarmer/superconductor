@@ -28,7 +28,7 @@ class VisualizeAddressesTest(unittest.TestCase):
         remote = load_place("remote")
         cluster = load_place("cluster")
         self.assertIn("client-local", visualize_plan(local))
-        self.assertIn("ws://localhost:9000/stream/playback", visualize_plan(remote))
+        self.assertIn("ws://localhost:9100/stream/playback", visualize_plan(remote))
         self.assertEqual(cluster.client.tracking, "ws://localhost:8080/ws/tracking")
         self.assertEqual(cluster.client.hands, "ws://localhost:8080/conduct/ws/hands/monitor")
         self.assertIn("CHECK_PORT=8080", visualize_plan(cluster))

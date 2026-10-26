@@ -3,7 +3,7 @@
 #
 #   make visualize                    ask where the client is, then where the music server is
 #   make visualize-local              client and music server on this computer
-#   make visualize-remote             client on this computer, server through the tunnel (port 9000)
+#   make visualize-remote             client on this computer, server through the tunnel (port 9100)
 #   make visualize-cluster            both on the cluster; this computer uses the gateway (:8080)
 #   touchdesigner/run_visualizer.sh [--where NAME] [visualizer]
 #
@@ -80,7 +80,7 @@ start() {
 
 if [ -n "$CHECK_PORT" ] && ! listening "$CHECK_PORT"; then
     if [ "$where" = "remote" ]; then
-        echo "nothing is listening on port $CHECK_PORT. Open the tunnel first: ssh -N -L 9000:lh2300:9100"
+        echo "nothing is listening on port $CHECK_PORT. Open the tunnel first: ssh -N -L 9100:lh2300:9100"
     else
         echo "nothing is listening on port $CHECK_PORT. Start the container and the tunnel: ssh -N -L 8080:lh2300:8080"
     fi

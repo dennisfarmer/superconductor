@@ -178,7 +178,7 @@ def describe_machine(hostname):
         return "cluster node", (("local", "on this node (port 9100)"),)
     return "laptop", (
         ("local", "on this computer (port 9100)"),
-        ("remote", "on the cluster, through the SSH tunnel (port 9000)"),
+        ("remote", "on the cluster, through the SSH tunnel (port 9100)"),
     )
 
 
@@ -230,7 +230,7 @@ def server_choices(kind, client_choice):
         return (("local", "on this node (port 9100)"),)
     return (
         ("local", "on this computer (port 9100)"),
-        ("remote", "on the cluster, through the SSH tunnel (port 9000)"),
+        ("remote", "on the cluster, through the SSH tunnel (port 9100)"),
     )
 
 
@@ -268,7 +268,7 @@ def visualize_plan(place):
         wait, check = "9100 8470 8467 8480", ""
     elif place.name == "remote":
         start_server, client_target, conduct_target = "0", "client-remote", "conduct-remote"
-        wait, check = "8470 8467 8480", "9000"
+        wait, check = "8470 8467 8480", "9100"
     elif place.name == "cluster":
         start_server, client_target, conduct_target = "0", "", ""
         wait, check = "8080", "8080"
