@@ -175,10 +175,10 @@ def describe_machine(hostname):
     """
     short = hostname.split(".")[0]
     if re.fullmatch(r"lh\d+", short):
-        return "cluster node", (("local", "on this node (port 9100)"),)
+        return "cluster node", (("local", "on this node (port 9000)"),)
     return "laptop", (
-        ("local", "on this computer (port 9100)"),
-        ("remote", "on the cluster, through the SSH tunnel (port 9100)"),
+        ("local", "on this computer (port 9000)"),
+        ("remote", "on the cluster, through the SSH tunnel (port 9000)"),
     )
 
 
@@ -215,9 +215,9 @@ def _menu(title, choices, isatty, read_line):
 def client_choices(kind):
     """Where the client process is, as seen from this computer."""
     if kind == "cluster node":
-        return (("here", "on this node (ports 8467 and 8480)"),)
+        return (("here", "on this node (ports 9100 and 9102)"),)
     return (
-        ("here", "on this computer (ports 8467 and 8480)"),
+        ("here", "on this computer (ports 9100 and 9102)"),
         ("gateway", "in the container, through the gateway (port 8080)"),
     )
 
@@ -227,10 +227,10 @@ def server_choices(kind, client_choice):
     if client_choice == "gateway":
         return (("cluster", "on that same cluster node"),)
     if kind == "cluster node":
-        return (("local", "on this node (port 9100)"),)
+        return (("local", "on this node (port 9000)"),)
     return (
-        ("local", "on this computer (port 9100)"),
-        ("remote", "on the cluster, through the SSH tunnel (port 9100)"),
+        ("local", "on this computer (port 9000)"),
+        ("remote", "on the cluster, through the SSH tunnel (port 9000)"),
     )
 
 
@@ -265,10 +265,10 @@ def visualize_plan(place):
         raise AddressError(f"{place.name} has no client addresses")
     if place.name == "local":
         start_server, client_target, conduct_target = "1", "client-local", "conduct"
-        wait, check = "9100 8470 8467 8480", ""
+        wait, check = "9000 9105 9100 9102", ""
     elif place.name == "remote":
         start_server, client_target, conduct_target = "0", "client-remote", "conduct-remote"
-        wait, check = "8470 8467 8480", "9100"
+        wait, check = "9105 9100 9102", "9000"
     elif place.name == "cluster":
         start_server, client_target, conduct_target = "0", "", ""
         wait, check = "8080", "8080"

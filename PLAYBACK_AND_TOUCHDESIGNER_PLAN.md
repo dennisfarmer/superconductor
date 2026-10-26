@@ -10,7 +10,7 @@ Design rule (from you): **audio and data travel separately.** The only data that
 
 ```
                                ┌──────────── AUDIO ─────────────┐
-MRT2 server :9100 ─► client ─► ws://localhost:8470/audio
+MRT2 server :9000 ─► client ─► ws://localhost:9105/audio
                                   ├─► camera page (unchanged; goes quiet while another player is the clock)
                                   ├─► SC plugin in a DAW          ─► you hear it through the DAW
                                   ├─► SC plugin in TD (Audio VST CHOP) ─► audio channels in TD
@@ -18,8 +18,8 @@ MRT2 server :9100 ─► client ─► ws://localhost:8470/audio
                                   One copy of the plugin also sends OSC ─► TD (loudness, bands, hits, tempo)
 
                                ┌──────────── DATA ──────────────┐
-camera page (tab 1, YOLOE + BoT-SORT) ─► sc-collab :8467 /ws/camera ─► NEW listen-only WS /ws/tracking ─► TD
-conducting page (tab 2, MediaPipe)    ─► conducting server :8480 /ws/hands ─► NEW listen-only WS /ws/hands/monitor ─► TD
+camera page (tab 1, YOLOE + BoT-SORT) ─► sc-collab :9100 /ws/camera ─► NEW listen-only WS /ws/tracking ─► TD
+conducting page (tab 2, MediaPipe)    ─► conducting server :9102 /ws/hands ─► NEW listen-only WS /ws/hands/monitor ─► TD
 
                                ┌──────────── VIDEO ─────────────┐
 webcams ─► TD Video Device In TOP (one per camera; TD opens them itself)

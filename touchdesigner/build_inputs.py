@@ -12,10 +12,10 @@ it provides is in TOUCHDESIGNER_PROTOCOL_GETTING_STARTED.md. Inside:
             "Display Plugin GUI" on it for its settings.
   osc       OSC In CHOP on port 7000: loudness, bands, hits, tempo from the one plugin
             copy that has "Send OSC" on (playback/docs/osc.md).
-  tracking  WebSocket DAT on the client's ws://localhost:8467/ws/tracking: what the
+  tracking  WebSocket DAT on the client's ws://localhost:9100/ws/tracking: what the
             Tracking page tracked, as tables (objects, hand_boxes, combos, tracking_info)
             and a CHOP with one sample per object (objects_chop).
-  hands     WebSocket DAT on the conducting server's ws://localhost:8480/ws/hands/monitor:
+  hands     WebSocket DAT on the conducting server's ws://localhost:9102/ws/hands/monitor:
             MediaPipe's 21 points per hand (hand_points, hand_points_chop) and the
             conductor's reply (conduct).
   camera1   Video Device In TOP. add_camera() in the Textport adds camera2, camera3, ...
@@ -25,7 +25,7 @@ mirrored. For TouchDesigner's y-up space use 1 - y.
 
 The client TouchDesigner listens to is not the music server.
 
-  local, remote   the client is on this computer: localhost:8467 and :8480.
+  local, remote   the client is on this computer: localhost:9100 and :9102.
                   remote only changes where that client finds the music server.
   cluster         the client is the container. This computer reaches it through
                   the gateway, localhost:8080.
@@ -39,7 +39,7 @@ import sys
 from urllib.parse import urlparse
 
 # client on this computer. remote uses the same sockets: the client is still here.
-_LAPTOP = ("ws://localhost:8467/ws/tracking", "ws://localhost:8480/ws/hands/monitor")
+_LAPTOP = ("ws://localhost:9100/ws/tracking", "ws://localhost:9102/ws/hands/monitor")
 # client inside the container; the laptop tunnel is port 8080.
 _CLUSTER = ("ws://localhost:8080/ws/tracking", "ws://localhost:8080/conduct/ws/hands/monitor")
 PLACES = {"local": _LAPTOP, "remote": _LAPTOP, "cluster": _CLUSTER}
@@ -176,7 +176,7 @@ APPLY_LOCATION = '''"""Apply SC_WHERE, or SC_TRACKING_URL and SC_HANDS_URL, to t
 import os
 from urllib.parse import urlparse
 
-_LAPTOP = ("ws://localhost:8467/ws/tracking", "ws://localhost:8480/ws/hands/monitor")
+_LAPTOP = ("ws://localhost:9100/ws/tracking", "ws://localhost:9102/ws/hands/monitor")
 _PLACES = {
     "local": _LAPTOP,
     "remote": _LAPTOP,

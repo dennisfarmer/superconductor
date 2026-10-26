@@ -18,37 +18,37 @@
 description = "Music server on this computer (make client)."
 
 [local.direct]
-input = "ws://localhost:9100/stream/input"
-playback = "ws://localhost:9100/stream/playback"
-http = "http://localhost:9100"
+input = "ws://localhost:9000/stream/input"
+playback = "ws://localhost:9000/stream/playback"
+http = "http://localhost:9000"
 
 [local.client]
-tracking = "ws://localhost:8467/ws/tracking"
-hands = "ws://localhost:8480/ws/hands/monitor"
-tracking_page = "http://localhost:8467/?audio=monitor"
-conduct_page = "http://localhost:8480"
+tracking = "ws://localhost:9100/ws/tracking"
+hands = "ws://localhost:9102/ws/hands/monitor"
+tracking_page = "http://localhost:9100/?audio=monitor"
+conduct_page = "http://localhost:9102"
 
 [remote]
-description = "Music server on the cluster, through the SSH tunnel on port 9100 (make client-remote)."
+description = "Music server on the cluster, through the SSH tunnel on port 9000 (make client-remote)."
 
 [remote.direct]
-input = "ws://localhost:9100/stream/input"
-playback = "ws://localhost:9100/stream/playback"
-http = "http://localhost:9100"
+input = "ws://localhost:9000/stream/input"
+playback = "ws://localhost:9000/stream/playback"
+http = "http://localhost:9000"
 
 [remote.client]
-tracking = "ws://localhost:8467/ws/tracking"
-hands = "ws://localhost:8480/ws/hands/monitor"
-tracking_page = "http://localhost:8467/?audio=monitor"
-conduct_page = "http://localhost:8480"
+tracking = "ws://localhost:9100/ws/tracking"
+hands = "ws://localhost:9102/ws/hands/monitor"
+tracking_page = "http://localhost:9100/?audio=monitor"
+conduct_page = "http://localhost:9102"
 
 [cluster]
-description = "Music server on this cluster node (make client-singularity). The browser uses the gateway; programs in the container use localhost:9100."
+description = "Music server on this cluster node (make client-singularity). The browser uses the gateway; programs in the container use localhost:9000."
 
 [cluster.direct]
-input = "ws://localhost:9100/stream/input"
-playback = "ws://localhost:9100/stream/playback"
-http = "http://localhost:9100"
+input = "ws://localhost:9000/stream/input"
+playback = "ws://localhost:9000/stream/playback"
+http = "http://localhost:9000"
 
 [cluster.browser]
 playback = "ws://server.localhost:8080/stream/playback"
@@ -61,25 +61,25 @@ tracking_page = "http://localhost:8080/?audio=monitor"
 conduct_page = "http://localhost:8080/conduct/"
 
 [docker]
-description = "Container on the laptop, music server through the laptop's SSH tunnel (make client-docker). The container uses host.docker.internal; the browser uses localhost:9100."
+description = "Container on the laptop, music server through the laptop's SSH tunnel (make client-docker). The container uses host.docker.internal; the browser uses localhost:9000."
 
 [docker.direct]
-input = "ws://host.docker.internal:9100/stream/input"
-playback = "ws://host.docker.internal:9100/stream/playback"
-http = "http://host.docker.internal:9100"
+input = "ws://host.docker.internal:9000/stream/input"
+playback = "ws://host.docker.internal:9000/stream/playback"
+http = "http://host.docker.internal:9000"
 
 [docker.browser]
-playback = "ws://localhost:9100/stream/playback"
-http = "http://localhost:9100"
+playback = "ws://localhost:9000/stream/playback"
+http = "http://localhost:9000"
 
 [docker-local]
-description = "Container on the laptop, music server on the laptop (make client-docker SC_WHERE=docker-local). The container uses host.docker.internal; the browser uses localhost:9100."
+description = "Container on the laptop, music server on the laptop (make client-docker SC_WHERE=docker-local). The container uses host.docker.internal; the browser uses localhost:9000."
 
 [docker-local.direct]
-input = "ws://host.docker.internal:9100/stream/input"
-playback = "ws://host.docker.internal:9100/stream/playback"
-http = "http://host.docker.internal:9100"
+input = "ws://host.docker.internal:9000/stream/input"
+playback = "ws://host.docker.internal:9000/stream/playback"
+http = "http://host.docker.internal:9000"
 
 [docker-local.browser]
-playback = "ws://localhost:9100/stream/playback"
-http = "http://localhost:9100"
+playback = "ws://localhost:9000/stream/playback"
+http = "http://localhost:9000"
