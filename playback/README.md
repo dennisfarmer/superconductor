@@ -4,8 +4,8 @@ A plugin that plays the server's music stream inside a DAW or TouchDesigner, and
 
 ```
 MRT2 server
-  ws://localhost:9100/stream/playback   local (`make server`)
-  ws://localhost:9100/stream/playback   SSH tunnel (`ssh -N -L 9100:lh2300:9100`)
+  ws://localhost:9000/stream/playback   local (`make server`)
+  ws://localhost:9000/stream/playback   SSH tunnel (`ssh -N -L 9000:lh2300:9000`)
         ├─► camera page, Start sound
         ├─► SuperConductor Playback VST3 Plugin in a DAW
         ├─► SuperConductor Playback VST3 Plugin in TouchDesigner (Audio VST CHOP)
@@ -22,8 +22,8 @@ Needs CMake 3.22+ and a C++20 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 ```bash
 make playback-build    # from the repo root: plugins + app, Release
 make playback          # build if needed, ask where the music server is, open the app
-make playback-local    # server on this computer (port 9100)
-make playback-remote   # server through the SSH tunnel (port 9100)
+make playback-local    # server on this computer (port 9000)
+make playback-remote   # server through the SSH tunnel (port 9000)
 make playback-cluster  # server through the container gateway
 ```
 
@@ -33,8 +33,8 @@ The plugins are copied to your plugin folders after each build (Mac: `~/Library/
 
 ## Use
 
-1. Start the server and the client (`make server`, `make client`). The client opens `ws://localhost:9100/stream/input` and does not play. Through the SSH tunnel, `make client-remote` opens `ws://localhost:9100/stream/input`.
-2. Load **SuperConductor Playback VST3 Plugin** in a DAW or in TouchDesigner, or open the app with `make playback`. The app uses the address you picked. A plugin inside a DAW still opens `ws://localhost:9100/stream/playback` until you change its stream field; `make playback-remote` and `make playback-cluster` only affect the app they launch.
+1. Start the server and the client (`make server`, `make client`). The client opens `ws://localhost:9000/stream/input` and does not play. Through the SSH tunnel, `make client-remote` opens `ws://localhost:9000/stream/input`.
+2. Load **SuperConductor Playback VST3 Plugin** in a DAW or in TouchDesigner, or open the app with `make playback`. The app uses the address you picked. A plugin inside a DAW still opens `ws://localhost:9000/stream/playback` until you change its stream field; `make playback-remote` and `make playback-cluster` only affect the app they launch.
 3. Turn on **Send OSC** in one copy.
 
 The page's Start sound and `make audio` open the same playback socket. Close the other player first, or the server rejects this one.

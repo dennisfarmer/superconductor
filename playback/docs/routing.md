@@ -2,8 +2,8 @@
 
 The plugin connects to the server's playback websocket (`../../AUDIO_PROTOCOL.md`).
 
-- Local server: `ws://localhost:9100/stream/playback`
-- SSH tunnel (`ssh -N -L 9100:lh2300:9100`): `ws://localhost:9100/stream/playback`
+- Local server: `ws://localhost:9000/stream/playback`
+- SSH tunnel (`ssh -N -L 9000:lh2300:9000`): `ws://localhost:9000/stream/playback`
 
 One player at a time. The camera page's Start sound, `make audio`, and this plugin each open that socket. A second connection is closed with "Session already active".
 
