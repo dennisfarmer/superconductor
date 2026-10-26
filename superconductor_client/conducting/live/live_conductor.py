@@ -67,7 +67,7 @@ class LatestCamera:
 
 
 def run_live_conductor(camera_index, music_path=None, music_bpm=None, tempo_window=5.0,
-                       *, playback="server", server_url="http://localhost:9100"):
+                       *, playback="server", server_url="http://localhost:9000"):
     if playback == "server":
         player_context = ServerTempoPlayer(server_url)
         print(f"Tempo server: {server_url}. Connect an audio client to hear music.")

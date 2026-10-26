@@ -18,7 +18,7 @@ preview drew (hands, fingertip trail, status lines). Its status line shows each 
 ```bash
 make server
 make client
-make conduct           # make conduct-remote uses the port 9100 tunnel
+make conduct           # make conduct-remote uses the port 9000 tunnel
 ```
 
 Where to open Tracking and Conducting is the table in `superconductor_client/README.md`. The container serves the same Conducting process. The browser will only share the camera on `localhost`.
@@ -28,7 +28,7 @@ camera track (`MediaStreamTrackProcessor`), so both pages keep running in backgr
 `make web-deps` downloads `@mediapipe/tasks-vision` and `hand_landmarker.task` into `var/web`,
 and `make conduct` runs it for you. `make test` runs the unit tests in `tests/`.
 
-`ws://localhost:8480/ws/hands/monitor` is listen-only (TouchDesigner reads it): each frame's
+`ws://localhost:9102/ws/hands/monitor` is listen-only (TouchDesigner reads it): each frame's
 hands message as the page sent it (`seq`, `t_ms`, `width`, `height`, `hands`: 21 points per
 hand, x and y 0–1, `handedness`), plus `conduct`, the conductor's reply to that frame.
 
@@ -38,9 +38,9 @@ Run live camera conducting against the tempo server (Linux/macOS):
 
 ```bash
 python3 -m pip install -r superconductor/requirements-live.txt
-python3 superconductor/new_tempo_detector.py --server-url http://localhost:9100
+python3 superconductor/new_tempo_detector.py --server-url http://localhost:9000
 # Through the Lighthouse SSH tunnel:
-python3 superconductor/new_tempo_detector.py --server-url http://localhost:9100
+python3 superconductor/new_tempo_detector.py --server-url http://localhost:9000
 ```
 
 Server mode is now the default and follows

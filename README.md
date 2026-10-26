@@ -15,41 +15,35 @@ Note that client assumes MacOS or Lighthouse, but may also run via WSL just fine
 
 I assume that this would work with multiple users simultaneously on difference sessions, since perhaps the nodes are unique to the lighthouse session. Since for now the client -> server protocol covers most / all of possible input options, and tempo control is via a server endpoint rather than a client endpoint, likely all prototype development work can be done on laptop side (MacOS or WSL), with the only thing running on lighthouse being the server since the server implementation doesn't have to change very often for now.
 
-### SSH tunnel for client + server both running on lighthouse 
+### SSH tunnel for client + server both running on lighthouse
 
-`(laptop -> login node -> compute node)`
+The processes listen on every interface of `lh2300`, so the login node connects straight to that machine. One `ssh` is enough.
 
 ```bash
-# 8467 Tracking and Prompts
-# 8475 MIDI player
-# 8480 Conducting
-# 8764 Atlas
-# 8765 Atlas engine
-# 9100 Server, Tempo View and Conductor
-```
-```bash
-ssh -t \
-  -L 8467:127.0.0.1:18467 \
-  -L 8475:127.0.0.1:18475 \
-  -L 8480:127.0.0.1:18480 \
-  -L 8764:127.0.0.1:18764 \
-  -L 8765:127.0.0.1:18765 \
-  -L 9100:127.0.0.1:19100 \
-  YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu \
-  ssh -N \
-    -L 18467:127.0.0.1:8467 \
-    -L 18475:127.0.0.1:8475 \
-    -L 18480:127.0.0.1:8480 \
-    -L 18764:127.0.0.1:8764 \
-    -L 18765:127.0.0.1:8765 \
-    -L 19100:127.0.0.1:9100 \
-    lh2300
+# 9000 Server, Tempo View and Conductor
+# 9100 Tracking and Prompts
+# 9101 MIDI player
+# 9102 Conducting
+# 9103 Atlas
+# 9104 Atlas engine
+# 9105 client_midi
+# 9106 Describe
+ssh -N \
+  -L 9000:lh2300:9000 \
+  -L 9100:lh2300:9100 \
+  -L 9101:lh2300:9101 \
+  -L 9102:lh2300:9102 \
+  -L 9103:lh2300:9103 \
+  -L 9104:lh2300:9104 \
+  -L 9105:lh2300:9105 \
+  -L 9106:lh2300:9106 \
+  YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
 ```
 
 ### SSH tunnel for client on laptop, server on lighthouse
 
 ```
-ssh -N -L 9100:lh2300:9100 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
+ssh -N -L 9000:lh2300:9000 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
 ```
 
 ### Setup for `client`, `server`, optional `atlas`
@@ -100,16 +94,29 @@ Here is a table of the different web application views, which can be opened in a
 
 | Page | URL |
 |---|---|
-| Tracking | http://localhost:8467 |
-| Prompts | http://localhost:8467/prompts |
-| Conducting | http://localhost:8480 |
-| MIDI player | http://localhost:8475 |
-| Atlas | http://localhost:8764 |
-| Tempo View | http://localhost:9100/tempo |
-| Conductor | http://localhost:9100/conduct |
-| Playback | ws://localhost:9100/stream/playback |
+| Tracking | http://localhost:9100 |
+| Prompts | http://localhost:9100/prompts |
+| Conducting | http://localhost:9102 |
+| MIDI player | http://localhost:9101 |
+| Atlas | http://localhost:9103 |
+| Tempo View | http://localhost:9000/tempo |
+| Conductor | http://localhost:9000/conduct |
+| Playback | ws://localhost:9000/stream/playback |
 
 # Development Guide
+
+## Making a release
+
+probably ask AI to do it, but the idea is tagged commit with v0.1.0, then run the workflow to create the singularity images, then create a release using the tagged commits to `client`, `server`, and `atlas` branches, along with the images at the fixed urls.
+
+Images this release publishes:
+
+- `ghcr.io/dennisfarmer/superconductor_client:client`
+- `ghcr.io/dennisfarmer/superconductor_server:server`
+
+```
+gh workflow run release --ref client -f bump=patch
+```
 
 ### Running the published images
 
@@ -134,7 +141,7 @@ cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_serv
 make server-singularity
 ```
 
-Wait until it prints `Serving mrt2_base (jax) on port 9100`. Then start the client image in another terminal on lh2300:
+Wait until it prints `Serving mrt2_base (jax) on port 9000`. Then start the client image in another terminal on lh2300:
 
 ```bash
 cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
@@ -157,13 +164,13 @@ Saved objects are `superconductor_client/tracking/library/<id>/` when you run a 
 
 | Page | Local: client and server on the laptop | Remote: client on the laptop, server on lh2300 | Cluster: client and server on lh2300, from the clones | Singularity: images on lh2300 |
 |---|---|---|---|---|
-| Tracking | http://localhost:8467 | http://localhost:8467 | http://localhost:8467 | http://localhost:8080 |
-| Prompts | http://localhost:8467/prompts | http://localhost:8467/prompts | http://localhost:8467/prompts | http://localhost:8080/prompts |
-| Conducting | http://localhost:8480 | http://localhost:8480 | http://localhost:8480 | http://localhost:8080/conduct/ |
-| MIDI player | http://localhost:8475 | http://localhost:8475 | http://localhost:8475 | http://midi.localhost:8080 |
-| Tempo View | http://localhost:9100/tempo | http://localhost:9100/tempo | http://localhost:9100/tempo | http://server.localhost:8080/tempo |
-| Conductor | http://localhost:9100/conduct | http://localhost:9100/conduct | http://localhost:9100/conduct | http://server.localhost:8080/conduct |
-| Playback | ws://localhost:9100/stream/playback | ws://localhost:9100/stream/playback | ws://localhost:9100/stream/playback | ws://server.localhost:8080/stream/playback |
+| Tracking | http://localhost:9100 | http://localhost:9100 | http://localhost:9100 | http://localhost:8080 |
+| Prompts | http://localhost:9100/prompts | http://localhost:9100/prompts | http://localhost:9100/prompts | http://localhost:8080/prompts |
+| Conducting | http://localhost:9102 | http://localhost:9102 | http://localhost:9102 | http://localhost:8080/conduct/ |
+| MIDI player | http://localhost:9101 | http://localhost:9101 | http://localhost:9101 | http://midi.localhost:8080 |
+| Tempo View | http://localhost:9000/tempo | http://localhost:9000/tempo | http://localhost:9000/tempo | http://server.localhost:8080/tempo |
+| Conductor | http://localhost:9000/conduct | http://localhost:9000/conduct | http://localhost:9000/conduct | http://server.localhost:8080/conduct |
+| Playback | ws://localhost:9000/stream/playback | ws://localhost:9000/stream/playback | ws://localhost:9000/stream/playback | ws://server.localhost:8080/stream/playback |
 
 ## Sound on this machine
 

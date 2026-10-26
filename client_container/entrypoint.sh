@@ -123,7 +123,7 @@ if [ "$describe_ok" = 1 ]; then
     if [ -n "${SC_DESCRIBE_GPU:-}" ]; then export CUDA_VISIBLE_DEVICES=$SC_DESCRIBE_GPU; fi
     HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HOME=/data/huggingface \
         python "$SC/client/superconductor_client/describe/describe_server.py" \
-        --model "$DESCRIBE_MODEL" --port 9200 --ollama_url "$OLLAMA_URL" \
+        --model "$DESCRIBE_MODEL" --port 9106 --ollama_url "$OLLAMA_URL" \
         --keep_alive 0 "${svg_args[@]}" &
     unset CUDA_VISIBLE_DEVICES
     pids+=($!)
@@ -151,16 +151,16 @@ if has client; then
     pids+=($!); watched+=($!)
     # run in /opt/models, where the YOLOE weights are; everything it writes is under /data
     (cd /opt/models && exec sc-tracking --config "$config" --where "$SC_WHERE" \
-        --client-url http://127.0.0.1:8470) &
+        --client-url http://127.0.0.1:9105) &
     pids+=($!); watched+=($!)
 fi
 
 # MediaPipe runs in the browser. This process turns landmarks into POST /tempo/target
-# on the MRT2 server. 127.0.0.1:8480 is the direct port (TouchDesigner on this machine);
+# on the MRT2 server. 127.0.0.1:9102 is the direct port (TouchDesigner on this machine);
 # the page the browser opens is the gateway's /conduct/, because the camera needs
 # http://localhost.
 if has conduct; then
-    python "$SC/client/superconductor_client/conducting/conducting_web/server.py" --host 127.0.0.1 --port 8480 \
+    python "$SC/client/superconductor_client/conducting/conducting_web/server.py" --host 0.0.0.0 --port 9102 \
         --server-url "$SC_HTTP" \
         --page-server-url "$SC_BROWSER_HTTP" \
         --playback-url "$SC_BROWSER_PLAYBACK" \
@@ -170,7 +170,7 @@ if has conduct; then
 fi
 
 if has midi; then
-    python "$SC/client/superconductor_client/midi/midi_player.py" --port 8475 --client_url http://localhost:8470 \
+    python "$SC/client/superconductor_client/midi/midi_player.py" --port 9101 --client_url http://localhost:9105 \
         --songs_dir /data/midi/songs &
     pids+=($!); watched+=($!)
 fi
@@ -180,11 +180,11 @@ fi
 # gateway at /engine. Both run in the Atlas folder (walker.toml, the presets).
 if has atlas; then
     (cd "$SC/atlas" && exec python audio_engine/engine.py --sink superconductor \
-        --client-midi http://localhost:8470 --sc-server "$SC_HTTP" --preset warm_piano \
-        --port 8765 > /data/run/atlas-engine.log 2>&1) &
+        --client-midi http://localhost:9105 --sc-server "$SC_HTTP" --preset warm_piano \
+        --port 9104 > /data/run/atlas-engine.log 2>&1) &
     pids+=($!)
     (cd "$SC/atlas" && ATLAS_DATA=/data/atlas ATLAS_ENGINE_PUBLIC_URL=/engine \
-        exec python -m server.app --host 127.0.0.1 --port 8764 > /data/run/atlas.log 2>&1) &
+        exec python -m server.app --host 0.0.0.0 --port 9103 > /data/run/atlas.log 2>&1) &
     pids+=($!)
 fi
 

@@ -3,7 +3,7 @@
 #
 #   make pull         download the VLM into Ollama (MODEL, default qwen2.5vl:3b)
 #   make pull-svg     download the text-to-SVG model (SVGen Qwen2.5-3B) into the HF cache
-#   make describe     describe server on port 9200 (Ollama already running)
+#   make describe     describe server on port 9106 (Ollama already running)
 #   make describe MODEL=qwen2.5vl:7b PORT=9300 ARGS="--keep_alive 0"
 #
 # Uses the sc_env conda env when it exists, without needing `conda activate`;
@@ -17,7 +17,7 @@ ifneq ($(wildcard $(ENV_PREFIX)/bin/python),)
 IN_ENV := PATH="$(ENV_PREFIX)/bin:$$PATH" CONDA_PREFIX="$(ENV_PREFIX)"
 endif
 MODEL ?= qwen2.5vl:3b
-PORT ?= 9200
+PORT ?= 9106
 ARGS ?=
 
 .PHONY: describe pull pull-svg check-env

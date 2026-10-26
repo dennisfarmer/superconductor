@@ -32,7 +32,7 @@ def default_icon_svg():
 
 
 class DescribeClient:
-    def __init__(self, server_url="http://localhost:9200", timeout=120.0):
+    def __init__(self, server_url="http://localhost:9106", timeout=120.0):
         self.server_url = server_url.rstrip("/")
         self.timeout = timeout
         self.results = queue.Queue()

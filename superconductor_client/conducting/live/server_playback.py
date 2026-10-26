@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 
 class ServerTempoPlayer:
-    def __init__(self, server_url='http://localhost:9100', timeout=0.5):
+    def __init__(self, server_url='http://localhost:9000', timeout=0.5):
         address = urlsplit(server_url)
         if address.scheme not in ('http', 'https') or not address.hostname or address.query or address.fragment:
             raise ValueError('Server URL must be an http(s) base URL without a query or fragment')

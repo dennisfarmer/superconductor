@@ -19,8 +19,8 @@ The gateway is the only port the browser uses. Open these on the laptop, through
 | Tempo View | http://server.localhost:8080/tempo |
 | Conductor | http://server.localhost:8080/conduct |
 | Playback | ws://server.localhost:8080/stream/playback |
-| Conducting, on the container machine | http://127.0.0.1:8480 |
-| TouchDesigner, on the container machine | ws://127.0.0.1:8480/ws/hands/monitor |
+| Conducting, on the container machine | http://127.0.0.1:9102 |
+| TouchDesigner, on the container machine | ws://127.0.0.1:9102/ws/hands/monitor |
 | TouchDesigner, through the laptop tunnel | ws://localhost:8080/conduct/ws/hands/monitor |
 
 ## What starts
@@ -29,11 +29,11 @@ Each service listens on 127.0.0.1. Caddy on 8080 forwards by hostname. `client_c
 
 | Service | Port |
 |---|---|
-| Client (Tracking, Prompts, client_midi) | 8467, 8470 |
-| Describe server, Ollama, and the SVGen icon model | 9200, 11434 |
-| MIDI player | 8475 |
-| Atlas app, Atlas engine | 8764, 8765 |
-| Conducting | 8480 |
+| Client (Tracking, Prompts, client_midi) | 9100, 9105 |
+| Describe server, Ollama, and the SVGen icon model | 9106, 11434 |
+| MIDI player | 9101 |
+| Atlas app, Atlas engine | 9103, 9104 |
+| Conducting | 9102 |
 | Gateway | 8080 |
 
 Writable files go under `/data`: the object library (`/data/client/library`), uploaded MIDI files, Atlas's session, and logs in `/data/run`. The image itself is read-only. It already contains the vision weights (`qwen2.5vl:3b` under `/opt/models/ollama`) and the parameter-icon weights (SVGen's Qwen2.5-3B under `/opt/models/svgen`). A `/data/ollama` that already has models is used instead of the copy in the image. Descriptions ask Ollama to drop the vision model when they finish (`--keep_alive 0`), so an icon can use the same GPU.
@@ -71,7 +71,7 @@ git clone -b client --single-branch https://github.com/dennisfarmer/superconduct
 
 **Each time:**
 
-1. On lh2300, start the server image and wait for `Serving mrt2_base (jax) on port 9100`:
+1. On lh2300, start the server image and wait for `Serving mrt2_base (jax) on port 9000`:
    ```bash
    cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
    make server-singularity
@@ -84,7 +84,7 @@ git clone -b client --single-branch https://github.com/dennisfarmer/superconduct
 3. On the laptop: `ssh -N -L 8080:lh2300:8080 YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu`
 4. Open Tracking from the table above and press **Start**.
 
-`make client-singularity` uses the `cluster` entry in `superconductor_client/addresses.toml`. Programs in the container open port 9100 on the node. The laptop browser uses the table above. Singularity shares the node's network, so these ports belong to whoever starts the container. If another Ollama already has 11434, set `SINGULARITYENV_SC_OLLAMA_PORT=11435`.
+`make client-singularity` uses the `cluster` entry in `superconductor_client/addresses.toml`. Programs in the container open port 9000 on the node. The laptop browser uses the table above. Singularity shares the node's network, so these ports belong to whoever starts the container. If another Ollama already has 11434, set `SINGULARITYENV_SC_OLLAMA_PORT=11435`.
 
 After a new release is published: `make sif` in the server checkout and `make sif` in this checkout, then start them again. For a laptop dev image, `make sif-dev` and `make client-singularity-dev` (and `make server-singularity-dev` in the server checkout).
 

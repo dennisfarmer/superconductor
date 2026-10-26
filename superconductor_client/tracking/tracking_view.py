@@ -1,10 +1,10 @@
 """The app's web pages, all on one port under different paths (later pages,
 e.g. /conduct, go here too):
 
-    http://localhost:8467/          Tracking (app.html): the browser's camera,
+    http://localhost:9100/          Tracking (app.html): the browser's camera,
                                     its detector (vision_js + tracker_js), the view
                                     with the overlay drawn on it, and the audio
-    http://localhost:8467/prompts   Prompts (MusicCoCa)
+    http://localhost:9100/prompts   Prompts (MusicCoCa)
 
 The prompts page shows parameters (knobs added there, and prompts other
 services send, such as Atlas drums), the config base prompt on the Other tab,
@@ -62,7 +62,7 @@ def parse_frame_message(data):
 
 
 class TrackingView:
-    def __init__(self, port=8467, host="localhost", page_config=None, web_dir=None):
+    def __init__(self, port=9100, host="0.0.0.0", page_config=None, web_dir=None):
         """`page_config`: what the camera page reads from GET /api/web (where its audio
         player connects, the detector's classes and thresholds, its links).
         `web_dir`: holds ort/ and models/ for the page's detector."""

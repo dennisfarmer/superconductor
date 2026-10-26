@@ -2,7 +2,7 @@
 
 It reads a .mid file, turns its notes into a NOTES / DRUMS Pattern (40 ms frames,
 see superconductor_client/MIDI_MSG_PROTOCOL.md) and POSTs it to the running
-superconductor_client (client_midi, http://localhost:8470/pattern), which forwards
+superconductor_client (client_midi, http://localhost:9105/pattern), which forwards
 it to the MRT2 server. The client's prompts still decide what it sounds like; the
 file decides which pitches play and when.
 
@@ -11,7 +11,7 @@ applied here, by scaling the file's times, so a tempo change (or a seek) while
 playing re-sends the rest of the song from the current position. Stop clears the
 lanes this player set.
 
-Open http://localhost:8475 to upload .mid files and play them. Uploads are kept
+Open http://localhost:9101 to upload .mid files and play them. Uploads are kept
 in --songs_dir.
 
 HTTP API (used by the page):
@@ -368,8 +368,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("files", nargs="*", help=".mid files to add to the library")
-    parser.add_argument("--port", type=int, default=8475)
-    parser.add_argument("--client_url", default="http://localhost:8470",
+    parser.add_argument("--port", type=int, default=9101)
+    parser.add_argument("--client_url", default="http://localhost:9105",
                         help="client_midi of the running superconductor_client")
     parser.add_argument("--songs_dir", default=str(Path(__file__).parent / "songs"),
                         help="where uploaded .mid files are kept")

@@ -1,11 +1,11 @@
 # SuperConductor conducting shortcuts (conducting_web/server.py). Self-contained, so it
 # also works from a checkout of only this folder; the client's `make conduct` runs it.
 #
-#   make conduct          conducting page on http://localhost:8480, sending the tempo to the
-#                         MRT2 server on this machine (http://localhost:9100, make server)
+#   make conduct          conducting page on http://localhost:9102, sending the tempo to the
+#                         MRT2 server on this machine (http://localhost:9000, make server)
 #   make conduct-remote   the same, to the server on Lighthouse through the SSH tunnel
-#                         (http://localhost:9100; use with the client's make client-remote)
-#   make conduct PORT=8481 SERVER=http://localhost:9100 ARGS="--tempo-window 3"
+#                         (http://localhost:9000; use with the client's make client-remote)
+#   make conduct PORT=8481 SERVER=http://localhost:9000 ARGS="--tempo-window 3"
 #   make web-deps         MediaPipe and the hand model for the page, into var/web
 #   make test             unit tests in tests/
 #
@@ -17,8 +17,8 @@ ENV_PREFIX := $(shell conda info --base 2>/dev/null)/envs/$(ENV_NAME)
 ifneq ($(wildcard $(ENV_PREFIX)/bin/python),)
 IN_ENV := PATH="$(ENV_PREFIX)/bin:$$PATH" CONDA_PREFIX="$(ENV_PREFIX)"
 endif
-PORT ?= 8480
-SERVER ?= http://localhost:9100
+PORT ?= 9102
+SERVER ?= http://localhost:9000
 ARGS ?=
 
 .PHONY: conduct conduct-remote web-deps test check-env
@@ -26,7 +26,7 @@ ARGS ?=
 conduct: check-env web-deps
 	$(IN_ENV) python conducting_web/server.py --port $(PORT) --server-url $(SERVER) $(ARGS)
 
-conduct-remote: SERVER = http://localhost:9100
+conduct-remote: SERVER = http://localhost:9000
 conduct-remote: conduct
 
 web-deps:

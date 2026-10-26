@@ -1,6 +1,6 @@
 # Camera protocol (`WS /ws/camera`)
 
-The camera page (`superconductor_client/tracking/app.html`) and tracking (`superconductor_client/tracking/collab.py` + `tracking_view.py`) talk over one websocket, `ws://<client>:8467/ws/camera` (through the container's gateway: `ws://localhost:8080/ws/camera`). The page sends frames up. The client answers each frame it handles with an overlay: what to draw over the video. No pictures ever come back down.
+The camera page (`superconductor_client/tracking/app.html`) and tracking (`superconductor_client/tracking/collab.py` + `tracking_view.py`) talk over one websocket, `ws://<client>:9100/ws/camera` (through the container's gateway: `ws://localhost:8080/ws/camera`). The page sends frames up. The client answers each frame it handles with an overlay: what to draw over the video. No pictures ever come back down.
 
 Anything that speaks this protocol can replace the page's detector or the page itself.
 
@@ -90,6 +90,6 @@ The client sends this when it can't parse a frame message. The frame is skipped.
 
 ## Listening in (`WS /ws/tracking`)
 
-`ws://<client>:8467/ws/tracking` (through the gateway: `ws://localhost:8080/ws/tracking`) gets every overlay the camera page gets, as the same JSON text, while the page is sending frames. It's listen-only: anything sent to it is ignored, and the page is unaffected. TouchDesigner reads it this way.
+`ws://<client>:9100/ws/tracking` (through the gateway: `ws://localhost:8080/ws/tracking`) gets every overlay the camera page gets, as the same JSON text, while the page is sending frames. It's listen-only: anything sent to it is ignored, and the page is unaffected. TouchDesigner reads it this way.
 
 Coordinates are the camera page's frame pixels, unmirrored. Divide by the overlay's `width` and `height` for 0–1.

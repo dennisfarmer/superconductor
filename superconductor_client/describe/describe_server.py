@@ -183,7 +183,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", default="qwen2.5vl:3b", help="Ollama vision model")
-    parser.add_argument("--port", type=int, default=9200)
+    parser.add_argument("--port", type=int, default=9106)
     parser.add_argument("--ollama_url", default="http://localhost:11434")
     parser.add_argument("--keep_alive", default="10m",
                         help="how long Ollama keeps the model loaded after a request "

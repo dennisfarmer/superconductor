@@ -135,10 +135,10 @@ def describe_machine(hostname):
     """
     short = hostname.split(".")[0]
     if re.fullmatch(r"lh\d+", short):
-        return "cluster node", (("local", "on this node (port 9100)"),)
+        return "cluster node", (("local", "on this node (port 9000)"),)
     return "laptop", (
-        ("local", "on this computer (port 9100)"),
-        ("remote", "on the cluster, through the SSH tunnel (port 9100)"),
+        ("local", "on this computer (port 9000)"),
+        ("remote", "on the cluster, through the SSH tunnel (port 9000)"),
     )
 
 

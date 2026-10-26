@@ -12,7 +12,7 @@
 # the client: Tracking (/), Prompts (/prompts); /audio is client_midi's player socket
 http://localhost:{$SC_GATEWAY_PORT}, http://127.0.0.1:{$SC_GATEWAY_PORT} {
 	handle /audio {
-		reverse_proxy 127.0.0.1:8470
+		reverse_proxy 127.0.0.1:9105
 	}
 	# MediaPipe conducting. On localhost (not a *.localhost name) so the camera works.
 	# /conduct/ keeps the page's relative URLs; the process itself still serves them at /.
@@ -20,29 +20,29 @@ http://localhost:{$SC_GATEWAY_PORT}, http://127.0.0.1:{$SC_GATEWAY_PORT} {
 		redir /conduct/ 308
 	}
 	handle_path /conduct/* {
-		reverse_proxy 127.0.0.1:8480
+		reverse_proxy 127.0.0.1:9102
 	}
 	handle {
-		reverse_proxy 127.0.0.1:8467
+		reverse_proxy 127.0.0.1:9100
 	}
 }
 
 http://midi.localhost:{$SC_GATEWAY_PORT} {
-	reverse_proxy 127.0.0.1:8475
+	reverse_proxy 127.0.0.1:9101
 }
 
-# SuperConductor Atlas: the app (8764); the page talks to its engine (8765) at /engine
+# SuperConductor Atlas: the app (9103); the page talks to its engine (9104) at /engine
 http://atlas.localhost:{$SC_GATEWAY_PORT} {
 	handle_path /engine/* {
-		reverse_proxy 127.0.0.1:8765
+		reverse_proxy 127.0.0.1:9104
 	}
 	handle {
-		reverse_proxy 127.0.0.1:8764
+		reverse_proxy 127.0.0.1:9103
 	}
 }
 
 http://describe.localhost:{$SC_GATEWAY_PORT} {
-	reverse_proxy 127.0.0.1:9200
+	reverse_proxy 127.0.0.1:9106
 }
 
 # the MRT2 server (not in the container): its /tempo and /conduct pages

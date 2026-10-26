@@ -342,8 +342,8 @@ async function startAudio() {
 }
 
 function connectAudio() {
-  // local server: ws://localhost:9100/stream/playback
-  // SSH tunnel:  ws://localhost:9100/stream/playback
+  // local server: ws://localhost:9000/stream/playback
+  // SSH tunnel:  ws://localhost:9000/stream/playback
   const url = config.playback_url;
   if (!url) {
     stats.audio = "no playback url";

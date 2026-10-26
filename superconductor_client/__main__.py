@@ -22,7 +22,7 @@ import time
 from superconductor_client.addresses import AddressError, choose_place, load_place
 from superconductor_client.torch_device import DESCRIBE_NEEDS_GPU, cuda_state_detached
 
-CLIENT_URL = "http://127.0.0.1:8470"
+CLIENT_URL = "http://127.0.0.1:9105"
 # these two keep the session; the others are started with them and may exit on their own
 REQUIRED = ("client", "tracking")
 
@@ -65,7 +65,7 @@ def main():
                         "--server-url", place.direct.http,
                         "--page-server-url", place.browser.http,
                         "--playback-url", place.browser.playback,
-                        "--objects-url", "http://localhost:8467/prompts"]),
+                        "--objects-url", "http://localhost:9100/prompts"]),
         ("tracking", [py, "-m", "superconductor_client.tracking.collab",
                       "--client-url", CLIENT_URL, "--where", place.name, *tracking_args]),
     ]

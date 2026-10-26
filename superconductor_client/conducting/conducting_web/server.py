@@ -2,7 +2,7 @@
 MRT2 server out. What live/live_conductor.py does with OpenCV and Python MediaPipe, with
 the camera, MediaPipe and the preview moved into the browser (app.html):
 
-    http://localhost:8480/      the conducting page: camera, hand tracking (MediaPipe in a
+    http://localhost:9102/      the conducting page: camera, hand tracking (MediaPipe in a
                                 Worker), and the trail / hand / status drawn over the video
     WS  /ws/hands               page -> here: {"type": "hands", "seq", "t_ms", "width",
                                 "height", "hands": [[{x, y, z} x 21], ...], "handedness",
@@ -20,7 +20,7 @@ CycleTempoEstimator (live/cycle_tempo.py), and ServerTempoPlayer (live/server_pl
 POSTs /tempo/target and /tempo/free to the server (CONDUCTING_INTEGRATION.md on the
 server branch).
 
-    python conducting_web/server.py --port 8480 --server-url http://localhost:9100
+    python conducting_web/server.py --port 9102 --server-url http://localhost:9000
 """
 import argparse
 import asyncio
@@ -164,8 +164,8 @@ class ConductingServer:
         self.server_url = server_url
         self.tempo_window = tempo_window
         # the prompts page, and the playback socket Start sound opens (the browser's addresses)
-        self.objects_url = objects_url or "http://localhost:8467/prompts"
-        self.playback_url = playback_url or "ws://localhost:9100/stream/playback"
+        self.objects_url = objects_url or "http://localhost:9100/prompts"
+        self.playback_url = playback_url or "ws://localhost:9000/stream/playback"
         self.frames = 0
         self.last_frame = None  # time.monotonic() of the newest frame
         self.fps = 0.0
@@ -284,16 +284,16 @@ def summary(name, values):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Conduct the MRT2 server's tempo from the browser.")
-    parser.add_argument("--port", type=int, default=8480)
-    parser.add_argument("--host", default="localhost")
-    parser.add_argument("--server-url", default="http://localhost:9100",
-                        help="MRT2 server; http://localhost:9100 through the Lighthouse tunnel")
+    parser.add_argument("--port", type=int, default=9102)
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--server-url", default="http://localhost:9000",
+                        help="MRT2 server; http://localhost:9000 through the Lighthouse tunnel")
     parser.add_argument("--page-server-url", default=None,
                         help="music-server URL the page links to (default: --server-url). "
                              "The container passes the gateway here; tempo is still POSTed to --server-url")
-    parser.add_argument("--objects-url", default="http://localhost:8467/prompts",
+    parser.add_argument("--objects-url", default="http://localhost:9100/prompts",
                         help="prompts page linked from the header")
-    parser.add_argument("--playback-url", default="ws://localhost:9100/stream/playback",
+    parser.add_argument("--playback-url", default="ws://localhost:9000/stream/playback",
                         help="playback socket Start sound opens in the browser")
     parser.add_argument("--tempo-window", type=float, default=5.0,
                         help="Cycle history in seconds, at least 2 (default: 5)")

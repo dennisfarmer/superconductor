@@ -3,13 +3,13 @@
 Plays a MIDI file through SuperConductor's music model. The player turns the file's notes into the model's NOTES / DRUMS input (40 ms frames) and sends them to the running `superconductor_client`, which forwards them to the MRT2 server. The client's prompts (objects, combos, base prompt) still decide what it sounds like; the file decides which pitches play and when. The message format is described in `superconductor_client/MIDI_MSG_PROTOCOL.md`.
 
 ```
-midi_player.py ──POST /pattern──▶ superconductor_client (client_midi, :8470) ──▶ mrt2_server.py
+midi_player.py ──POST /pattern──▶ superconductor_client (client_midi, :9105) ──▶ mrt2_server.py
 ```
 
 ### Startup
 
-1. In `superconductor_client`: `make server` and `make client` (or `client-remote`). client_midi listens on port 8470 (`midi_port` in `collab.toml`).
-2. Here: `make player`, then open http://localhost:8475.
+1. In `superconductor_client`: `make server` and `make client` (or `client-remote`). client_midi listens on port 9105 (`midi_port` in `collab.toml`).
+2. Here: `make player`, then open http://localhost:9101.
 
 Needs `aiohttp` and `mido` (`pip install mido` in sc_env).
 

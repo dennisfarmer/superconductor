@@ -13,9 +13,9 @@
 #                     Describe is separate: make describe, or make client DESCRIBE=1.
 #                     Asks where the music server is, unless you pass
 #                     --where NAME (make client ARGS="--where local").
-#                     Open the camera page http://localhost:8467/ in Chrome
-#   make client-local    same, without the question: server on this computer (port 9100)
-#   make client-remote   same, without the question: server through the SSH tunnel (port 9100)
+#                     Open the camera page http://localhost:9100/ in Chrome
+#   make client-local    same, without the question: server on this computer (port 9000)
+#   make client-remote   same, without the question: server through the SSH tunnel (port 9000)
 #   make client ARGS="--mode calibration"   extra tracking options (--detection container: no browser detection)
 #   make audio        sc-audio. Asks where the music server is, same question as make client.
 #   make audio-local  same, without the question: --where local
@@ -29,20 +29,20 @@
 #                     already be running. POST /svg draws parameter icons (SVGen)
 #   make -C superconductor_client/describe pull-svg   download that icon model into the HF cache
 #   make midi         MIDI player (superconductor_client/midi/): plays .mid files through the running client's
-#                     notes input, page on http://localhost:8475
+#                     notes input, page on http://localhost:9101
 #   make atlas        SuperConductor Atlas (../superconductor_atlas, its make start): engine as the
-#                     running client's note / drum source, page on http://localhost:8764; stop it
+#                     running client's note / drum source, page on http://localhost:9103; stop it
 #                     with make -C ../superconductor_atlas stop
 #   make worktrees    server, atlas, playback and touchdesigner into the sibling folders.
 #                     describe, conducting and midi live in this checkout.
 #   make conduct      conducting page (superconductor_client/conducting/): browser
-#                     hand tracking sets the MRT2 server's tempo, page on http://localhost:8480;
-#                     make conduct-remote: to the server through the Lighthouse tunnel (:9100)
+#                     hand tracking sets the MRT2 server's tempo, page on http://localhost:9102;
+#                     make conduct-remote: to the server through the Lighthouse tunnel (:9000)
 #   make playback     SuperConductor Playback VST3 Plugin app (../superconductor_playback/Makefile;
 #                     builds it if needed): plays the local server
-#                     (ws://localhost:9100/stream/playback) on this machine's speakers.
+#                     (ws://localhost:9000/stream/playback) on this machine's speakers.
 #                     Through the SSH tunnel, set the plugin URL to
-#                     ws://localhost:9100/stream/playback
+#                     ws://localhost:9000/stream/playback
 #   make touchdesigner   a TouchDesigner visualizer (../superconductor_touchdesigner/Makefile),
 #                     showing only its output window: VISUALIZER=<name> (default
 #                     overlay_example_1), PERFORM=0 to open it in the editor instead

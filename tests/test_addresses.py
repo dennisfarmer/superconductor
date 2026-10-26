@@ -12,17 +12,17 @@ class AddressesTest(unittest.TestCase):
     def test_shipped_places(self):
         local = load_place("local", ROOT)
         self.assertEqual(local.direct, local.browser)
-        self.assertEqual(local.direct.input, "ws://localhost:9100/stream/input")
-        self.assertEqual(local.browser.playback, "ws://localhost:9100/stream/playback")
-        self.assertEqual(local.direct.http, "http://localhost:9100")
+        self.assertEqual(local.direct.input, "ws://localhost:9000/stream/input")
+        self.assertEqual(local.browser.playback, "ws://localhost:9000/stream/playback")
+        self.assertEqual(local.direct.http, "http://localhost:9000")
 
         remote = load_place("remote", ROOT)
-        self.assertEqual(remote.browser.playback, "ws://localhost:9100/stream/playback")
-        self.assertEqual(remote.direct.http, "http://localhost:9100")
+        self.assertEqual(remote.browser.playback, "ws://localhost:9000/stream/playback")
+        self.assertEqual(remote.direct.http, "http://localhost:9000")
 
         cluster = load_place("cluster", ROOT)
-        self.assertEqual(cluster.direct.input, "ws://localhost:9100/stream/input")
-        self.assertEqual(cluster.direct.http, "http://localhost:9100")
+        self.assertEqual(cluster.direct.input, "ws://localhost:9000/stream/input")
+        self.assertEqual(cluster.direct.http, "http://localhost:9000")
         self.assertEqual(cluster.browser.playback, "ws://server.localhost:8080/stream/playback")
         self.assertEqual(cluster.browser.http, "http://server.localhost:8080")
         self.assertIn(("WS playback", cluster.browser.playback), cluster.service_endpoints())
@@ -31,11 +31,11 @@ class AddressesTest(unittest.TestCase):
 
         moved = load_place("cluster", ROOT, gateway_port="9090")
         self.assertEqual(moved.browser.http, "http://server.localhost:9090")
-        self.assertEqual(moved.direct.http, "http://localhost:9100")
+        self.assertEqual(moved.direct.http, "http://localhost:9000")
 
         docker = load_place("docker", ROOT)
-        self.assertEqual(docker.direct.input, "ws://host.docker.internal:9100/stream/input")
-        self.assertEqual(docker.browser.playback, "ws://localhost:9100/stream/playback")
+        self.assertEqual(docker.direct.input, "ws://host.docker.internal:9000/stream/input")
+        self.assertEqual(docker.browser.playback, "ws://localhost:9000/stream/playback")
 
     def test_unknown_name_lists_the_file(self):
         with self.assertRaises(AddressError) as caught:
@@ -66,9 +66,9 @@ class AddressesTest(unittest.TestCase):
         text = """
 [local]
 [local.direct]
-input = "ws://localhost:9100/stream"
-playback = "ws://localhost:9100/stream/playback"
-http = "http://localhost:9100"
+input = "ws://localhost:9000/stream"
+playback = "ws://localhost:9000/stream/playback"
+http = "http://localhost:9000"
 """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "addresses.toml"

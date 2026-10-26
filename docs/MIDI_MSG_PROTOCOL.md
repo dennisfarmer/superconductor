@@ -6,14 +6,14 @@ client keeps providing the prompts, so it decides *what it sounds like*. Your pr
 decides *which pitches and when*, and *when drum hits happen*.
 
 ```
-your program ──HTTP POST /pattern──▶ superconductor_client (client_midi, port 8470)
+your program ──HTTP POST /pattern──▶ superconductor_client (client_midi, port 9105)
                                          │  websocket "Pattern" (same body)
                                          ▼
                                      mrt2_server.py ──▶ audio back to superconductor_client
 ```
 
 Start `make server` and `make client` (or `client-remote`) in `superconductor_client`.
-client_midi listens on `http://localhost:8470` once the client is running. The port is
+client_midi listens on `http://localhost:9105` once the client is running. The port is
 `midi_port` in `client/collab.toml`, and `0` turns it off.
 
 ## Endpoints
@@ -208,7 +208,7 @@ def midi_to_pattern(path, default=0, drums_between=0, loop=False):
         body["drums"] = {"loop": loop, "steps": drum_steps()}
     return body
 
-def send(body, url="http://localhost:8470/pattern"):
+def send(body, url="http://localhost:9105/pattern"):
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=2) as r:
@@ -251,11 +251,11 @@ the chord every 40 ms. Expect the ~0.6 s lead between a key press and hearing it
 ## Quick test
 
 ```bash
-curl -s localhost:8470/status
+curl -s localhost:9105/status
 # a drum hit every second
-curl -s -X POST localhost:8470/pattern -d '{"drums":{"loop":true,"steps":[{"frames":25,"first":1}]}}'
+curl -s -X POST localhost:9105/pattern -d '{"drums":{"loop":true,"steps":[{"frames":25,"first":1}]}}'
 # back to free
-curl -s -X POST localhost:8470/pattern -d 'null'
+curl -s -X POST localhost:9105/pattern -d 'null'
 ```
 
 The server-side reference is the module docstring of `superconductor_server/mrt2_server.py`

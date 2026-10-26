@@ -15,13 +15,13 @@ base_prompt = "ambient electronic"
 base_weight = 0.3             # style weight of the base prompt; the Other tab can leave it out
 credits = 3                   # blocks the server stays ahead of playback (~latency: 3 x 200ms)
 update_interval = 0.25        # seconds between recipe / control updates
-midi_port = 8470              # client_midi: other programs (e.g. SuperConductor Atlas) POST NOTES / DRUMS
+midi_port = 9105              # client_midi: other programs (e.g. SuperConductor Atlas) POST NOTES / DRUMS
                               # patterns here, forwarded to the server (0 = off)
 
 [tracking]
 # "unsupervised": every object gets a permanent id when it first appears and is
 #   cached in the library, so it is recognized again later (also after a restart).
-#   Name it and set its instrument on the prompts page (http://localhost:8467/prompts).
+#   Name it and set its instrument on the prompts page (http://localhost:9100/prompts).
 # "calibration": "touch the <label>" for each [assign] label at startup (see the end
 #   of this file); only those are tracked.
 mode = "unsupervised"
@@ -70,20 +70,21 @@ learn_threshold = 0.65        # ...and at least this similar to the closest one 
 # one-time description of each new object and suggests an instrument from it.
 # POST /svg draws an icon for a parameter prompt (SVGen: mlx-lm on macOS, transformers
 # on the cluster; the weights load on the first icon).
-server_url = "http://localhost:9200"
+server_url = "http://localhost:9106"
 
 [web]
-port = 8467                   # the camera page http://localhost:8467/ and the prompts page /prompts
+port = 9100                   # the camera page http://localhost:9100/ and the prompts page /prompts
+host = "0.0.0.0"              # every interface, so the login node can reach lh2300 directly
 detection = "auto"            # where YOLOE + BoT-SORT run: "auto" (the browser if it has WebGPU, else
                               # this process), "browser" or "container" (this process)
 web_dir = "var/web"           # superconductor_client/tracking/var/web: ort/ (make web-deps), models/ (make web-model)
 
 [services]
 # other SuperConductor programs, listed (with whether they're up) on the objects page's Services tab
-midi_player_url = "http://localhost:8475"   # superconductor_client/midi/, `make player`
-# Atlas: tried first; if it is on another port (8764 in use), the running Atlas is found anyway
-atlas_url = "http://localhost:8764"         # ../superconductor_atlas app, `make run`
-atlas_engine_url = "http://localhost:8765"  # its audio engine (control API)
+midi_player_url = "http://localhost:9101"   # superconductor_client/midi/, `make player`
+# Atlas: tried first; if it is on another port (9103 in use), the running Atlas is found anyway
+atlas_url = "http://localhost:9103"         # ../superconductor_atlas app, `make run`
+atlas_engine_url = "http://localhost:9104"  # its audio engine (control API)
 
 [mapping]
 reference = [0.5, 0.5]        # normalized, as displayed (mirrored); click in the window to move
@@ -93,7 +94,7 @@ hold_seconds = 1.5            # keep value while an object is occluded, then fad
 # release_after = 30.0        # free an object's parameter after this long unseen (default: never)
 
 # Instruments, triggers (near / held / visible) and combos are set per object on
-# the prompts page (http://localhost:8467/prompts) and saved in superconductor_client/tracking/library/. An object
+# the prompts page (http://localhost:9100/prompts) and saved in superconductor_client/tracking/library/. An object
 # without an instrument is silent until the describe server suggests one.
 #
 # Calibration mode only ("touch the ..."): add [[parameters]] (name, kind, prompt)

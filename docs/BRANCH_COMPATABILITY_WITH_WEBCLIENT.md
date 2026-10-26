@@ -7,7 +7,7 @@ The web client (camera, view and sound in the browser; container in `client_cont
 
 **Change:** a `--host` argument, passed to `web.run_app(..., host=...)`, with today's behavior as the default.
 
-**Why:** `web.run_app` listens on every interface. Under Singularity the container shares lh2300's network, so the describe server (9200) and the MIDI player (8475) can be reached by other users of the cluster, not only through the gateway. In Docker this doesn't matter (only 8080 is published).
+**Why:** `web.run_app` listens on every interface. Under Singularity the container shares lh2300's network, so the describe server (9106) and the MIDI player (9101) can be reached by other users of the cluster, not only through the gateway. In Docker this doesn't matter (only 8080 is published).
 
 **For now:** nothing; they listen on every interface on lh2300. The client, client_midi and the gateway's other services already listen on 127.0.0.1 only.
 

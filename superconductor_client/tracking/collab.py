@@ -2,7 +2,7 @@
 parameters (by its distance to a reference point, being held, or being in view).
 
 The camera, the view and the sound are in the browser (the camera page,
-http://localhost:8467/, app.html), whether this process runs natively, in Docker or
+http://localhost:9100/, app.html), whether this process runs natively, in Docker or
 in Singularity. The page detects and tracks objects itself (YOLOE + BoT-SORT on
 WebGPU: vision_js, tracker_js) and sends its detections with each frame; without
 WebGPU it sends plain frames and YOLOE + BoT-SORT run here (compatibility mode).
@@ -20,7 +20,7 @@ Two modes ([tracking] mode, or --mode):
   later, across restarts. The describe server (superconductor_client/describe/) writes
   a one-time description of each new object and suggests an instrument from it.
   Names and instruments are edited on the prompts page (tracking_view.py,
-  http://localhost:8467/prompts).
+  http://localhost:9100/prompts).
 - calibration: starts with "touch the bulbasaur", ... (unless --skip-calibration);
   only those objects are tracked.
 
@@ -123,7 +123,7 @@ class CollabFrontend:
                 self.magenta = MagentaClient(
                     server_url=self.place.direct.input,
                     credits=music["credits"],
-                    midi_port=music.get("midi_port", 8470),
+                    midi_port=music.get("midi_port", 9105),
                 )
             self.magenta.start()
 
@@ -182,7 +182,7 @@ class CollabFrontend:
         self.describer = None
         if self.library is not None:
             self.describer = DescribeClient(describe_server or cfg.get("describe", {}).get(
-                "server_url", "http://localhost:9200"))
+                "server_url", "http://localhost:9106"))
             registry.on_new = self._describe
             for ident in registry.identities:
                 if not ident.description:
@@ -207,7 +207,7 @@ class CollabFrontend:
                                     "iou": 0.7, "input": [480, 288],
                                     # the page's BoT-SORT (tracker_js) uses the same settings as this one
                                     "tracker": yaml.safe_load(TRACKER_CONFIG.read_text())}}
-        self.panel = TrackingView(web_cfg.get("port", 8467), web_cfg.get("host", "localhost"),
+        self.panel = TrackingView(web_cfg.get("port", 9100), web_cfg.get("host", "0.0.0.0"),
                               page_config=page_config, web_dir=web_dir)
         self._panel_views = {}  # id -> its view_rev when its views were last encoded
         self._view_scores, self._view_scores_key = {}, None  # id -> IdentityRegistry.view_scores
@@ -675,7 +675,7 @@ class CollabFrontend:
     def _service_urls(self):
         """http base URL of each service (None: not used)"""
         svc = self.cfg.get("services", {})
-        midi_port = self.cfg["music"].get("midi_port", 8470)
+        midi_port = self.cfg["music"].get("midi_port", 9105)
         return {
             # probed from this process, so the direct address, not the browser's
             "server": self.place.direct.http,
@@ -684,8 +684,8 @@ class CollabFrontend:
             "objects": f"http://localhost:{self.panel.port}",
             "client_midi": f"http://localhost:{midi_port}" if midi_port and self.magenta is not None else None,
             "describe": self.describer.server_url if self.describer is not None
-            else self.cfg.get("describe", {}).get("server_url", "http://localhost:9200"),
-            "midi_player": svc.get("midi_player_url", "http://localhost:8475"),
+            else self.cfg.get("describe", {}).get("server_url", "http://localhost:9106"),
+            "midi_player": svc.get("midi_player_url", "http://localhost:9101"),
             "conduct": svc.get("conduct_url"),
             "atlas": self._atlas["atlas"][0], "atlas_engine": self._atlas["atlas_engine"][0],
         }
@@ -1163,15 +1163,15 @@ def _listening_ports(marker):
 def _find_atlas(svc, search=True):
     """{"atlas": (url, answer), "atlas_engine": (url, answer)}; answer None: not running.
 
-    `jac start` takes the next free port when its own is in use (e.g. 8769 for 8764), so the
+    `jac start` takes the next free port when its own is in use (e.g. 8769 for 9103), so the
     ports Atlas's processes listen on are tried along with the configured ones, and a port
     counts only if it answers like Atlas: its functions in /openapi.json, the engine's /status
     fields. With search=False, just the configured URLs, not running."""
     found = {}
     for key, default, marker, path, check in (
-            ("atlas", "http://localhost:8764", "jac start main.jac", "/openapi.json",
+            ("atlas", "http://localhost:9103", "jac start main.jac", "/openapi.json",
              lambda a: {"/function/explore", "/function/set_tempo"} <= set(a.get("paths", {}))),
-            ("atlas_engine", "http://localhost:8765", "audio_engine/engine.py", "/status",
+            ("atlas_engine", "http://localhost:9104", "audio_engine/engine.py", "/status",
              lambda a: {"realtime_budget_ms", "style_layers"} <= set(a))):
         url = svc.get(f"{key}_url", default).rstrip("/")
         found[key] = (url, None)

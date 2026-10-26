@@ -51,7 +51,7 @@ client process (sc-tracking)                     unchanged pipeline after detect
 MRT2 server (server branch, unchanged)               generates, tempo-stretches, streams audio
    │  audio blocks back over the same /stream
    ▼
-client process → WS /audio (client_midi port 8470)   audio interface: one "clock" sink acks, others listen
+client process → WS /audio (client_midi port 9105)   audio interface: one "clock" sink acks, others listen
    ▼
 browser player (AudioWorklet → output bus → speakers)   later: other receivers on the same /audio protocol
 ```
@@ -161,7 +161,7 @@ After each frame it handles, the process sends one JSON text message on `/ws/cam
   - The browser connects as the clock by default. When it is demoted to monitor, it mutes itself and its status shows where the sound plays.
   - When the clock disconnects, the most recent connection that asked to be clock takes over again (e.g. stopping sc-audio hands playback back to the browser). Blocks not yet acked are re-sent to it, as `_BrowserAudio` already does on reconnect.
 - **`audio_receiver.py`** (repo root, `make audio`): the sounddevice playback moved out of `superconductor_client/client.py`. Its only job is to play the audio. It is not part of the client web app.
-  - It connects to `/audio` on the client process (`--url`, default `ws://localhost:8470/audio`; through the gateway, `ws://localhost:8080/audio`), with `--role clock|monitor` and `--device`.
+  - It connects to `/audio` on the client process (`--url`, default `ws://localhost:9105/audio`; through the gateway, `ws://localhost:8080/audio`), with `--role clock|monitor` and `--device`.
   - As clock it acks each block after the sounddevice callback has played it, as today.
   - It runs on the machine with the speakers. For lh2300 that means the laptop, through the SSH tunnel.
   - `make audio` starts it.
@@ -170,7 +170,7 @@ After each frame it handles, the process sends one JSON text message on `/ws/cam
 - The protocol (binary `[uint32 seq][float32 stereo 48 kHz]`, JSON `ack`/`underrun`/`pause`) is documented in `AUDIO_PROTOCOL.md`.
 
 ### 6. lh2300 setup
-- Nothing changes in the server. The client container reaches the server at `ws://localhost:9100/stream` (`make client-singularity`, as now).
+- Nothing changes in the server. The client container reaches the server at `ws://localhost:9000/stream` (`make client-singularity`, as now).
 - The browser on the laptop reaches the gateway through the SSH tunnel to port 8080. That counts as `localhost`, so WebGPU and the camera work.
 - `README.md` and `CLIENT_CONTAINER.md` get a short "browser detection" section.
 
@@ -215,7 +215,7 @@ Note: the working tree has uncommitted edits in `collab.py`, `superconductor_cli
   - `node --test tracker_js/test/*.test.js` (exists).
   - `vision_js` parity against Ultralytics on recorded frames: boxes within 2 px, the same classes.
 - **End to end, on the real ports** (`make server`, then `make client`):
-  - Open `http://localhost:8467/` in Chrome. Check that the status shows `webgpu` and a detector time.
+  - Open `http://localhost:9100/` in Chrome. Check that the status shows `webgpu` and a detector time.
   - Check that objects get identities and the recipe changes.
   - Check that the overlay draws over the live video: mirrored correctly, the delay shown, and "no data" when the client process is stopped.
   - Check that audio plays in the browser.

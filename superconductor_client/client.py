@@ -17,7 +17,7 @@ Until the server answers (it may still be loading the model, or not started yet)
 again whenever it goes away, the child process retries every RETRY_S seconds;
 client_midi stays up meanwhile, so the order things are started in doesn't matter.
 
-client_midi: the child process also serves a small HTTP API (default port 8470)
+client_midi: the child process also serves a small HTTP API (default port 9105)
 through which another program (e.g. SuperConductor Atlas) gives MRT2 its NOTES and
 DRUMS input, while this client keeps providing the prompts:
     POST /pattern   Pattern body (see mrt2_server.py), forwarded to the server
@@ -187,7 +187,7 @@ async def _start_client_midi(port, link, stats_q, control_q):
     app.router.add_route("OPTIONS", "/{tail:.*}", options)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
-    await web.TCPSite(runner, "127.0.0.1", port).start()
+    await web.TCPSite(runner, "0.0.0.0", port).start()
     print(f"client_midi on http://localhost:{port} "
           f"(POST /pattern /controls /recipe /pause /prompts)")
     return runner
@@ -300,11 +300,11 @@ async def _stream(control_q, stats_q, uri, credits, link, websockets):
 
 class MagentaClient:
 
-    def __init__(self, server_url="ws://localhost:9100/stream/input", credits=3, midi_port=8470):
+    def __init__(self, server_url="ws://localhost:9000/stream/input", credits=3, midi_port=9105):
         """
         `server_url`: input websocket of a running mrt2_server.py (local
-            `ws://localhost:9100/stream/input`, or the local end of the SSH tunnel
-            to the cluster, `ws://localhost:9100/stream/input`)
+            `ws://localhost:9000/stream/input`, or the local end of the SSH tunnel
+            to the cluster, `ws://localhost:9000/stream/input`)
         `credits`: kept so callers don't break; the player grants the lead on
             `/stream/playback`, not this process
         `midi_port`: port of client_midi, where note sources POST patterns
@@ -443,7 +443,7 @@ def main():
     parser.add_argument("--server", default=None,
                         help="MRT2 input websocket. Default: the local entry in addresses.toml.")
     parser.add_argument("--credits", type=int, default=3)
-    parser.add_argument("--midi-port", type=int, default=8470)
+    parser.add_argument("--midi-port", type=int, default=9105)
     args = parser.parse_args()
     server = args.server
     if server is None:
