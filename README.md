@@ -27,8 +27,8 @@ The release image is `ghcr.io/dennisfarmer/superconductor_server:server`. It is 
 - on Lighthouse:
     - `make server` (base model; uses `.venv` from `make setup`)
     - or `make server MODEL=mrt2_small` (small model)
-    - on the laptop, start the ssh tunnel: `ssh -N -L 9100:lh2300:9100 UNIQNAME@lighthouse.arc-ts.umich.edu`
-    - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9100/stream/input`). That starts describe on the laptop, and Ollama if one is not already running.
+    - on the laptop, start the ssh tunnel: `ssh -N -L 9000:lh2300:9000 UNIQNAME@lighthouse.arc-ts.umich.edu`
+    - then `make client-remote` in `superconductor_client` (connects to `ws://localhost:9000/stream/input`). That starts describe on the laptop, and Ollama if one is not already running.
 
 Other flags: `make server PORT=... ARGS="--frames_per_block 5"`, or `python mrt2_server.py --help`.
 
@@ -89,8 +89,8 @@ The ranges and steps are MRT2's (`magenta_rt/config.py`, `CFG_CONDITIONING_*`): 
 
 `tempo.py` time-stretches every block toward a target tempo before it is sent (speed changes, pitch doesn't), so audio blocks are `200ms / speed` long. It also measures the tempo MRT2 is generating ("model bpm") from the last 8s of audio, and moves the speed gradually (time constant 1.5s, clamped to 0.75–1.3) toward `target / model bpm`, matching up to half/double time.
 
-- **Test page:** `http://localhost:9100/tempo`: set an exact bpm, watch the model / heard bpm, and open the conductor window.
-- **Conductor window:** `http://localhost:9100/conduct`: each space bar press sends one beat. The beat period is smoothed with a 1-D Kalman filter; if no beat arrives for 3s, the current tempo is held.
+- **Test page:** `http://localhost:9000/tempo`: set an exact bpm, watch the model / heard bpm, and open the conductor window.
+- **Conductor window:** `http://localhost:9000/conduct`: each space bar press sends one beat. The beat period is smoothed with a 1-D Kalman filter; if no beat arrives for 3s, the current tempo is held.
 
 | Request | Body | Effect |
 |---|---|---|
@@ -124,4 +124,4 @@ To light a beat in time: `anchor = now + latency - beat_frac * 60 / heard_bpm` i
 
 Besides the style, MRT2 takes two inputs every 40 ms frame: NOTES (128 MIDI-pitch slots: -1 model chooses, 0 off, 1 held, 2 onset, 3 on) and DRUMS (one slot: -1 model chooses, 0 no hit, 1 hit). A `Pattern` sets either lane as run-length steps, looped or played once, from the next generated frame. With no pattern every slot is -1, as before. If a pattern is rejected, the server replies `{"type": "Error", "body": {"error": ...}}` and keeps generating.
 
-`Pattern` is a message on the input websocket. Note sources POST to the client's client_midi (port 8470). The full format, with a MIDI-file converter, is in [`superconductor_client/MIDI_MSG_PROTOCOL.md`](../superconductor_client/MIDI_MSG_PROTOCOL.md); the reference implementation is `expand_lane` / `Lane` in `mrt2_server.py`.
+`Pattern` is a message on the input websocket. Note sources POST to the client's client_midi (port 9105). The full format, with a MIDI-file converter, is in [`superconductor_client/MIDI_MSG_PROTOCOL.md`](../superconductor_client/MIDI_MSG_PROTOCOL.md); the reference implementation is `expand_lane` / `Lane` in `mrt2_server.py`.

@@ -6,11 +6,11 @@
 #                     This always runs the installer. `make server` skips it when
 #                     .cache/setup-stamp still matches.
 #   make env          build / update the sc_env conda env from environment_macbook.yml (the laptop, MLX)
-#   make server       listen on port 9100: mrt2_small (MLX) on the laptop,
+#   make server       listen on port 9000: mrt2_small (MLX) on the laptop,
 #                     mrt2_base (JAX) on Linux, e.g. a Lighthouse GPU node.
 #                     Runs `make setup` when the environment is not already there.
 #   make server BACKEND=mlx MODEL=mrt2_base   override the defaults
-#   make server PORT=9100 ARGS="--frames_per_block 4"   other mrt2_server.py flags
+#   make server PORT=9000 ARGS="--frames_per_block 4"   other mrt2_server.py flags
 #   make image        build the linux/amd64 dev image; make image-push sends it to :server-dev
 #   make sif          on lh2300: pull the release image again (:server).
 #                     This, and the singularity targets below, source
@@ -49,7 +49,7 @@ ifeq ($(BACKEND),jax)
 MAGENTA_HOME ?= /scratch/aimusic_project_root/aimusic_project/shared_data
 export MAGENTA_HOME
 endif
-PORT ?= 9100
+PORT ?= 9000
 ARGS ?=
 # Release tags move when someone runs Actions → release on the client branch.
 # Dev tags move on `make image-push` from a laptop.

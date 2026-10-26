@@ -130,7 +130,7 @@ _BACKEND = flags.DEFINE_enum(
     "backend", "mlx", ["mlx", "jax"], "mlx: Apple Silicon; jax: NVIDIA GPU (cluster)."
 )
 _MODEL = flags.DEFINE_enum("model", "mrt2_small", MODELS, "MRT2 model size.")
-_PORT = flags.DEFINE_integer("port", 9100, "Port to listen on.")
+_PORT = flags.DEFINE_integer("port", 9000, "Port to listen on.")
 _FRAMES_PER_BLOCK = flags.DEFINE_integer(
     "frames_per_block", 5, "MRT2 frames (40ms each) generated and sent per block."
 )
@@ -154,8 +154,8 @@ def _forwarded_port(spec):
 def is_lighthouse_tunnel(command, port):
     """True when `command` is an ssh client forwarding `port` toward Lighthouse.
 
-    The laptop tunnel is `ssh -L 9100:lh2300:9100 ...@lighthouse.arc-ts.umich.edu`,
-    or the outer hop of the two-step tunnel (`-L 9100:127.0.0.1:19100` to lighthouse).
+    The laptop tunnel is `ssh -L 9000:lh2300:9000 ...@lighthouse.arc-ts.umich.edu`,
+    or the outer hop of the two-step tunnel (`-L 9000:127.0.0.1:19100` to lighthouse).
     """
     command = (command or "").strip()
     if not command:

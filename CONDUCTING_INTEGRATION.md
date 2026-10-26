@@ -4,9 +4,9 @@ Four processes run at once. The conducting process sends tempo requests directly
 
 | Process | Branch / folder | Port |
 |---|---|---|
-| server (MRT2 + tempo) | `server` / `superconductor_server` | 9100 |
-| client | `main` / `superconductor_client` | 8467 (objects page) |
-| describe | `describe` / `superconductor_describe` | 9200 |
+| server (MRT2 + tempo) | `server` / `superconductor_server` | 9000 |
+| client | `main` / `superconductor_client` | 9100 (objects page) |
+| describe | `describe` / `superconductor_describe` | 9106 |
 | conducting | (new) | sends requests to the server |
 
 ### Requests
@@ -25,7 +25,7 @@ Set `t` from the conducting process's own monotonic clock, measured when the bea
 ```python
 import time, requests
 
-SERVER = "http://localhost:9100"
+SERVER = "http://localhost:9000"
 
 def on_beat():  # called by the hand tracker
     requests.post(f"{SERVER}/tempo/beat", json={"t": time.monotonic()}, timeout=0.5)
@@ -41,7 +41,7 @@ Sending requests from a background thread or queue keeps the tracking loop from 
 - `model_bpm` needs about 4s of audio first. Until then, requests are accepted but the speed doesn't change.
 - Music only plays while a client is connected.
 
-To test without a conducting process, use the conductor page at `http://localhost:9100/conduct` (space bar = one beat).
+To test without a conducting process, use the conductor page at `http://localhost:9000/conduct` (space bar = one beat).
 
 ### Possible extensions
 
