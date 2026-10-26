@@ -41,7 +41,7 @@
 <body>
 <header>
   <h1>SuperConductor — Conducting</h1>
-  <nav id="links"><a id="objects" href="http://localhost:9100/prompts" target="_blank" rel="noopener">Prompts</a></nav>
+  <nav id="links"><a id="objects" href="http://localhost:9100/prompts" target="_blank" rel="noopener">Prompts</a><a id="tracking" href="http://localhost:9100/" target="_blank" rel="noopener">Tracking</a></nav>
 </header>
 <main>
   <div class="controls">
@@ -85,11 +85,19 @@ let frame = null, reply = null, replyAt = 0, busy = false;
 const trail = [];  // {t, x, y}: the middle fingertip (landmark 12) of the first hand
 
 config = await fetch(new URL("api/web", location.href)).then(r => r.json()).catch(() => ({}));
-if (config.objects_url) $("objects").href = config.objects_url;
+if (config.objects_url) {
+  $("objects").href = config.objects_url;
+  // prompts and the camera page are the same app; /prompts is the prompts page
+  const tracking = new URL(config.objects_url);
+  tracking.pathname = tracking.pathname.replace(/\/prompts\/?$/, "") || "/";
+  tracking.search = "";
+  tracking.hash = "";
+  $("tracking").href = tracking.href;
+}
 if (config.server_url) {
   const a = document.createElement("a");
   a.href = config.server_url.replace(/\/$/, "") + "/tempo";
-  a.target = "_blank"; a.rel = "noopener"; a.textContent = "Music server (tempo)";
+  a.target = "_blank"; a.rel = "noopener"; a.textContent = "Tempo (server)";
   $("links").append(a);
 }
 

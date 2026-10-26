@@ -82,6 +82,7 @@ web_dir = "var/web"           # superconductor_client/tracking/var/web: ort/ (ma
 [services]
 # other SuperConductor programs, listed (with whether they're up) on the objects page's Services tab
 midi_player_url = "http://localhost:9101"   # superconductor_client/midi/, `make player`
+conduct_url = "http://localhost:9102"       # MediaPipe conducting, `make conduct`
 # Atlas: tried first; if it is on another port (9103 in use), the running Atlas is found anyway
 atlas_url = "http://localhost:9103"         # ../superconductor_atlas app, `make run`
 atlas_engine_url = "http://localhost:9104"  # its audio engine (control API)

@@ -102,10 +102,14 @@ let frameReader = null, latestFrame = null;  // the newest VideoFrame not sent y
 config = await fetch("/api/web").then(r => r.json()).catch(() => ({}));
 {
   const names = { atlas: "Atlas", midi_player: "MIDI player", describe: "Describe server",
-                  server: "Music server (tempo)", conduct: "Conducting" };
+                  server: "Tempo (server)", conduct: "Conducting" };
   const paths = { server: "/tempo", conduct: "/" };
-  for (const [key, url] of Object.entries(config.links || {})) {
-    if (!names[key]) continue;
+  const links = config.links || {};
+  // Prompts is already in the header; Conducting and Tempo sit next to it, then the rest
+  const keys = ["conduct", "server", ...Object.keys(links).filter(k => k !== "conduct" && k !== "server")];
+  for (const key of keys) {
+    const url = links[key];
+    if (!url || !names[key]) continue;
     const a = document.createElement("a");
     a.href = url.replace(/\/$/, "") + (paths[key] || "");
     a.target = "_blank"; a.rel = "noopener"; a.textContent = names[key];

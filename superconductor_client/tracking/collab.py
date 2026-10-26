@@ -194,8 +194,13 @@ class CollabFrontend:
         web_dir = tracking_path(web_cfg.get("web_dir", "var/web"))
         detection = web_cfg.get("detection", "auto")
         model_ok = detection != "container" and ensure_web_model(t["model"], t.get("classes") or [], web_dir)
-        # camera page plays on the browser's playback address when its sound button is pressed
+        # camera page plays on the browser's playback address when its sound button is pressed.
+        # conduct: the browser address (public_urls in the container), else the local page.
         links = dict(web_cfg.get("public_urls") or {})
+        if "conduct" not in links:
+            conduct = cfg.get("services", {}).get("conduct_url")
+            if conduct:
+                links["conduct"] = conduct
         links["server"] = self.place.browser.http
         page_config = {"playback_url": self.place.browser.playback,
                        "credits": music.get("credits", 3),

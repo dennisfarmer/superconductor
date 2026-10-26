@@ -107,7 +107,9 @@ class PageTests(unittest.TestCase):
         html = (Path(__file__).resolve().parents[1] / "conducting_web" / "app.html").read_text()
         header = html.split("<main>", 1)[0]
         assert 'id="objects"' in header and ">Prompts</a>" in header
-        assert html.index(">Prompts</a>") < html.index('id="start"') < html.index('id="sound"')
+        assert 'id="tracking"' in header and ">Tracking</a>" in header
+        assert ">Conducting</a>" not in header  # this page is the conducting page
+        assert html.index(">Prompts</a>") < html.index(">Tracking</a>") < html.index('id="start"') < html.index('id="sound"')
         assert "Start sound" in html
 
 

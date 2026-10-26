@@ -30,7 +30,7 @@
 #   make -C superconductor_client/describe pull-svg   download that icon model into the HF cache
 #   make midi         MIDI player (superconductor_client/midi/): plays .mid files through the running client's
 #                     notes input, page on http://localhost:9101
-#   make atlas        SuperConductor Atlas (../superconductor_atlas, its make start): engine as the
+#   make atlas        SuperConductor Atlas (../superconductor_atlas, its make atlas): engine as the
 #                     running client's note / drum source, page on http://localhost:9103; stop it
 #                     with make -C ../superconductor_atlas stop
 #   make worktrees    server, atlas, playback and touchdesigner into the sibling folders.
@@ -195,7 +195,7 @@ midi:
 	$(MAKE) -C $(MIDI_DIR) player ENV_NAME=$(ENV_NAME)
 
 atlas:
-	$(MAKE) -C $(ATLAS_DIR) start
+	$(MAKE) -C $(ATLAS_DIR) atlas
 
 conduct:
 	$(MAKE) -C $(CONDUCT_DIR) conduct ENV_NAME=$(ENV_NAME)
