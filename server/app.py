@@ -5,7 +5,7 @@ The endpoints are plain `def`, so FastAPI runs them in its threadpool and a beam
 doesn't block the event loop; one lock serves them one at a time, and the session is
 saved after each.
 
-    python -m server.app --port 8764 [--local]
+    python -m server.app --port 9103 [--local]
 """
 
 import argparse
@@ -119,7 +119,7 @@ def main() -> None:
     global _server
     ap = argparse.ArgumentParser(description="SuperConductor Atlas server")
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=8764)
+    ap.add_argument("--port", type=int, default=9103)
     ap.add_argument("--local", action="store_true",
                     help="local mode: the engine runs Magenta itself (make run-local); default: SuperConductor sink")
     a = ap.parse_args()

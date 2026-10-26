@@ -14,7 +14,7 @@ Ollama is installed with qwen3:4b-instruct, so the path descriptions (server/nar
   OpenAPI schema: `npm --prefix client run gen-types` with the API on :8763.
 - `audio_engine/`: the Magenta / SuperConductor-sink engine (separate process).
 - Conda env `sc_env_atlas`. `make run` / `make start` build the client when needed;
-  `make dev` runs the API with reload on :8763 and Vite on :8764.
+  `make dev` runs the API with reload on :8763 and Vite on :9103.
 - `pytest tests/` checks that the session file saves and loads.
 
 

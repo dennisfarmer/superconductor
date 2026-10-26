@@ -11,7 +11,7 @@ sounds like**.
 
 ```bash
 bash setup_env.sh          # once: creates the conda env sc_env_atlas
-make run                   # SuperConductor mode (default), app on http://localhost:8764
+make run                   # SuperConductor mode (default), app on http://localhost:9103
 make run-local             # standalone: local Magenta RT 2, no SuperConductor needed
 make dev                   # development: API reloads on change, client hot-reloads
 ```
@@ -33,10 +33,10 @@ browser (Harmony / Drums pages)
    │  app: React client (client/) + FastAPI server (server/app.py, server/atlas.py):
    │  progression, walkers, session
    ▼
-audio_engine/engine.py --sink superconductor        (port 8765)
+audio_engine/engine.py --sink superconductor        (port 9104)
    │  HTTP POST /pattern, POST /controls            (MIDI message protocol)
    ▼
-superconductor_client  client_midi                  (port 8470)
+superconductor_client  client_midi                  (port 9105)
    │  websocket "Pattern", "UpdateControls" (same bodies)
    ▼
 mrt2_server.py  ──▶  audio, with SuperConductor's prompts
@@ -96,7 +96,7 @@ The model picks the drum sounds; the lane only says when hits happen.
 - `Makefile` variables: `PORT`, `ENGINE_PORT`, `CLIENT_MIDI`, `SC_SERVER` (the MRT2 server's
   HTTP address, for tempo sync), `PRESET` (local mode).
 - Environment: `ATLAS_ENGINE_URL` (where the app reaches the engine, default
-  `http://127.0.0.1:8765`), `ATLAS_ENGINE_PUBLIC_URL` (where the page reaches it, since it
+  `http://127.0.0.1:9104`), `ATLAS_ENGINE_PUBLIC_URL` (where the page reaches it, since it
   sends timelines and reads `/status` itself; default the same, `/engine` behind the
   SuperConductor container's gateway), `ATLAS_DATA`, `OLLAMA_URL`, `LLM_MODEL`.
 - More detail: `docs/ENGINE.md` (engine), `docs/CRITERIA.md` (how chords are scored),

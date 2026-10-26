@@ -35,21 +35,21 @@ PY := $(ENV_PREFIX)/bin/python
 else
 PY := $(CURDIR)/.venv/bin/python
 endif
-# The page. 8765 is the engine; 8000 is left free (often taken locally).
+# The page. 9104 is the engine; 8000 is left free (often taken locally).
 # A comment on the assignment line would become part of the value (Make keeps the
 # spaces before '#'), and then the health check URL never matches.
-PORT ?= 8764
+PORT ?= 9103
 # make dev: the reloading API. Vite on PORT proxies to it.
 DEV_API_PORT := 8763
-ENGINE_PORT ?= 8765
+ENGINE_PORT ?= 9104
 PORT := $(strip $(PORT))
 DEV_API_PORT := $(strip $(DEV_API_PORT))
 ENGINE_PORT := $(strip $(ENGINE_PORT))
 PRESET     ?= warm_piano
 LOGS       := logs
 RUN        := .run
-CLIENT_MIDI?= http://localhost:8470
-SC_SERVER  ?= http://localhost:9100
+CLIENT_MIDI?= http://localhost:9105
+SC_SERVER  ?= http://localhost:9000
 
 # what the engine is started with, per mode
 SC_ENGINE    := audio_engine/engine.py --sink superconductor --client-midi $(CLIENT_MIDI) --sc-server $(SC_SERVER) --preset $(PRESET) --port $(ENGINE_PORT)

@@ -129,7 +129,7 @@ export function TempoPage({ status, bpm, onSync }: TempoPageProps) {
         <p>
           Atlas runs its own clock, one frame per 40 ms of wall time. When anything changes (a chord hovered or kept, a drum cell, the
           tempo), it writes the coming frames as a Pattern (one loop, or the progression once) and sends it: engine → HTTP → client_midi
-          (port 8470) → websocket → server. The server applies it from the next frame it generates, starting the Pattern from its first
+          (port 9105) → websocket → server. The server applies it from the next frame it generates, starting the Pattern from its first
           step. Between changes, the server loops the Pattern on its own; Atlas sends nothing.
         </p>
 

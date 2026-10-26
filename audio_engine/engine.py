@@ -34,7 +34,7 @@ cells, each -1 / 0 / 1) on the beat clock. A hit cell is 1 on its first frame an
 Sink mode (--sink superconductor): no model and no sound card. The conductor runs
 on a 40 ms clock and every timeline it enters is rendered into a Pattern (notes +
 drums lanes, see superconductor_server/mrt2_server.py) and POSTed to the
-SuperConductor client's client_midi (default http://localhost:8470), which plays it
+SuperConductor client's client_midi (default http://localhost:9105), which plays it
 through the MRT2 server with SuperConductor's prompts. /style doesn't apply there:
 SuperConductor owns the prompts. The sampling controls (temperature, top_k,
 cfg_scales) are POSTed to client_midi's /controls, which relays them to the server
@@ -44,7 +44,7 @@ the Drums page) is the weight of the style prompt "drums", POSTed to client_midi
 Tempo sync (POST /sync, the BPM page): the sink follows the SuperConductor server's
 heard tempo and lines its beat one up with the server's (SinkEngine._syncer).
 
-HTTP API (JSON, CORS open, default port 8765):
+HTTP API (JSON, CORS open, default port 9104):
   GET  /status
   POST /timeline {"role": "idle"|"preview"|"play", "chords": [{"label", "symbol", "notes"}], "id"}
   POST /release                      -> drop preview/play, back to idle
@@ -61,8 +61,8 @@ HTTP API (JSON, CORS open, default port 8765):
                  lane cleared, its cfg_scales key removed, and for drums the "drums" prompt
                  removed) and then leaves it alone, so another program can take it
 
-Run:  python audio_engine/engine.py [--model mrt2_small] [--port 8765] [--record out.wav]
-      python audio_engine/engine.py --sink superconductor [--client-midi http://localhost:8470] [--sc-server http://localhost:9100]
+Run:  python audio_engine/engine.py [--model mrt2_small] [--port 9104] [--record out.wav]
+      python audio_engine/engine.py --sink superconductor [--client-midi http://localhost:9105] [--sc-server http://localhost:9000]
 """
 
 import argparse
@@ -711,7 +711,7 @@ class SinkEngine:
     SYNC_PHASE_GAIN = 0.5  # share of a measured latency error corrected per check
     SYNC_PIN_EVERY_S = 4.0  # at most one beat-one pin per this many seconds
 
-    def __init__(self, client_midi: str, lead_ms: float, preset: dict | None = None, sc_server: str = "http://localhost:9100"):
+    def __init__(self, client_midi: str, lead_ms: float, preset: dict | None = None, sc_server: str = "http://localhost:9000"):
         preset = preset or {}
         self.settings = Settings.from_dict(preset.get("settings", {}))
         self.conductor = Conductor(self.settings)
@@ -1301,7 +1301,7 @@ def make_handler(engine: Engine):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", default="mrt2_small")
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--port", type=int, default=9104)
     ap.add_argument("--buffer-frames", type=int, default=8, help="frames per audio chunk (40 ms each); one chunk plays while the next is generated")
     ap.add_argument("--prompt", default="warm grand piano, intimate, slow")
     ap.add_argument("--device", default=None, help="sounddevice output device name or index")
@@ -1309,8 +1309,8 @@ def main():
     ap.add_argument("--preset", default=None, help="preset name in audio_engine/presets/ or a path to a preset JSON (see VOICE.md)")
     ap.add_argument("--sink", default="local", choices=["local", "superconductor"],
                     help="local: run Magenta here; superconductor: send notes/drums to the SuperConductor client instead")
-    ap.add_argument("--client-midi", default="http://localhost:8470", help="SuperConductor client_midi URL (--sink superconductor)")
-    ap.add_argument("--sc-server", default="http://localhost:9100",
+    ap.add_argument("--client-midi", default="http://localhost:9105", help="SuperConductor client_midi URL (--sink superconductor)")
+    ap.add_argument("--sc-server", default="http://localhost:9000",
                     help="--sink superconductor: the MRT2 server's HTTP address, for tempo sync (its /tempo/status)")
     ap.add_argument("--lead-ms", type=float, default=600.0,
                     help="--sink superconductor: how far SuperConductor's audio trails the conductor (its buffer)")
@@ -1331,7 +1331,7 @@ def main():
 
     if args.sink == "superconductor":
         sink = SinkEngine(args.client_midi, args.lead_ms, preset, args.sc_server)
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(sink))
+        server = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(sink))
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
         def stop_sink(_sig, _frame):
@@ -1354,7 +1354,7 @@ def main():
     # MLX streams are per-thread: the model is loaded and run on the main thread.
     # The HTTP server runs on a background thread; the audio callback on PortAudio's.
     engine = Engine(args.model, args.buffer_frames, args.record, args.prompt, preset)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(engine))
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(engine))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     engine.queue.put([engine.generate_one() for _ in range(args.buffer_frames)])
 

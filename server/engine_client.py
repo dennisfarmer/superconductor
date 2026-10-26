@@ -13,7 +13,7 @@ import subprocess
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-ENGINE_URL: str = os.environ.get("ATLAS_ENGINE_URL", "http://127.0.0.1:8765")
+ENGINE_URL: str = os.environ.get("ATLAS_ENGINE_URL", "http://127.0.0.1:9104")
 ENGINE_PRESET: str = os.environ.get("ATLAS_ENGINE_PRESET", "warm_piano")
 # where the page reaches the engine (it sends timelines and reads /status itself); behind
 # a gateway that only forwards one port, e.g. "/engine"
@@ -109,7 +109,7 @@ def restart_engine() -> bool:
     False if the running engine did not stop (then nothing is launched)."""
     if not stop_engine():
         return False
-    port = str(urlparse(ENGINE_URL).port or 8765)
+    port = str(urlparse(ENGINE_URL).port or 9104)
     os.makedirs("logs", exist_ok=True)
     os.makedirs(".run", exist_ok=True)
     log = open("logs/engine.log", "a")
