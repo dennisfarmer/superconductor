@@ -3,7 +3,7 @@
 #   make playback-build    build the plugins (VST3 / AU / LV2) and the Standalone app
 #   make playback          build if needed, then ask where the music server is, then open the app
 #   make playback-local    server on this computer (port 9100)
-#   make playback-remote   server through the SSH tunnel (port 9000)
+#   make playback-remote   server through the SSH tunnel (port 9100)
 #   make playback-cluster  server through the container gateway (server.localhost:8080)
 
 BUILD_DIR := playback/build
