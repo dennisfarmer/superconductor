@@ -1,4 +1,6 @@
 .env
+.venv/
+.cache/
 node_modules/
 __pycache__/
 *.wav

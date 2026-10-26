@@ -27,7 +27,14 @@
 #   make dev
 
 ENV_PREFIX ?= $(shell conda info --base 2>/dev/null)/envs/sc_env_atlas
-PY         := $(ENV_PREFIX)/bin/python
+# macOS: the conda env sc_env_atlas. lh2300: .venv from requirements_lighthouse.txt.
+# `make start` calls ensure-setup, which stops after a few file tests when
+# .cache/setup-stamp still matches.
+ifeq ($(shell uname -s),Darwin)
+PY := $(ENV_PREFIX)/bin/python
+else
+PY := $(CURDIR)/.venv/bin/python
+endif
 # The page. 8765 is the engine; 8000 is left free (often taken locally).
 # A comment on the assignment line would become part of the value (Make keeps the
 # spaces before '#'), and then the health check URL never matches.
@@ -48,7 +55,47 @@ SC_SERVER  ?= http://localhost:9100
 SC_ENGINE    := audio_engine/engine.py --sink superconductor --client-midi $(CLIENT_MIDI) --sc-server $(SC_SERVER) --preset $(PRESET) --port $(ENGINE_PORT)
 LOCAL_ENGINE := audio_engine/engine.py --preset $(PRESET) --port $(ENGINE_PORT)
 
-.PHONY: run start check-client run-local start-local stop restart status logs app client-build dev
+.PHONY: run start check-client run-local start-local stop restart status logs app client-build dev setup setup-stamp ensure-setup
+
+# Laptop: sc_env_atlas, created if it is missing. lh2300: .venv and
+# requirements_lighthouse.txt (the sink; no MLX). `make start` calls ensure-setup.
+# `make setup` itself still runs the installer.
+SETUP_STAMP := $(CURDIR)/.cache/setup-stamp
+HASH_CMD := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256)
+ifeq ($(shell uname -s),Darwin)
+SETUP_PY := $(ENV_PREFIX)/bin/python
+SETUP_HASH_FILES := environment.yml
+else
+SETUP_PY := $(CURDIR)/.venv/bin/python
+SETUP_HASH_FILES := requirements_lighthouse.txt
+endif
+
+setup:
+ifeq ($(shell uname -s),Darwin)
+	@if [ -x "$(SETUP_PY)" ]; then \
+		conda env update -n sc_env_atlas -f environment.yml --prune; \
+	else \
+		bash setup_env.sh; \
+	fi
+else
+	@test -x .venv/bin/python || python3.12 -m venv .venv
+	.venv/bin/python -m pip install -r requirements_lighthouse.txt
+endif
+	@$(MAKE) setup-stamp
+
+setup-stamp:
+	@mkdir -p $(dir $(SETUP_STAMP))
+	@cat $(SETUP_HASH_FILES) | $(HASH_CMD) | awk '{print $$1}' > $(SETUP_STAMP)
+
+ensure-setup:
+	@hash=$$(cat $(SETUP_HASH_FILES) | $(HASH_CMD) | awk '{print $$1}'); \
+	stamp="$(SETUP_STAMP)"; \
+	if [ -x "$(SETUP_PY)" ] && { [ ! -f "$$stamp" ] || [ "$$(cat "$$stamp")" = "$$hash" ]; }; then \
+	  if [ ! -f "$$stamp" ]; then mkdir -p "$$(dirname "$$stamp")" && printf '%s\n' "$$hash" > "$$stamp"; fi; \
+	  echo "setup already done"; \
+	else \
+	  $(MAKE) setup; \
+	fi
 
 # Ask the engine on ENGINE_PORT to exit (POST /shutdown: it finishes its chunk, closes
 # the audio stream and its server), then wait up to 15 s until it no longer answers.
@@ -101,10 +148,10 @@ endef
 # client at CLIENT_MIDI
 # ==================================================================================
 
-run: check-client client-build
+run: ensure-setup check-client client-build
 	$(call RUN_FG,$(SC_ENGINE),engine (SuperConductor sink))
 
-start: check-client
+start: ensure-setup check-client
 	$(call START_ENGINE,$(SC_ENGINE),audio engine (SuperConductor sink))
 	@$(MAKE) --no-print-directory app
 	$(call STARTED,engine as SuperConductor sink)
@@ -119,10 +166,10 @@ check-client:
 # Standalone: local Magenta RT 2 engine, no SuperConductor
 # ==================================================================================
 
-run-local: client-build
+run-local: ensure-setup client-build
 	$(call RUN_FG,$(LOCAL_ENGINE),engine (local Magenta),--local)
 
-start-local:
+start-local: ensure-setup
 	$(call START_ENGINE,$(LOCAL_ENGINE),audio engine (local Magenta, preset $(PRESET)))
 	@$(MAKE) --no-print-directory app APP_ARGS=--local
 	$(call STARTED,local Magenta engine)
@@ -170,7 +217,7 @@ client-build:
 
 # Engine (SuperConductor sink) + API (reloads on server/ changes) + Vite (hot reload).
 # Ctrl-C stops all three.
-dev: check-client
+dev: ensure-setup check-client
 	@[ -d client/node_modules ] || npm --prefix client ci
 	@mkdir -p $(LOGS)
 	@stop_engine() { $(STOP_ENGINE); }; \
