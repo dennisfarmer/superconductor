@@ -13,7 +13,7 @@ If running either the client or the server on Lighthouse, you will want to first
 
 Note that client assumes MacOS or Lighthouse, but may also run via WSL just fine as long as both the `make` and `ssh` commands are ran inside of WSL terminals. server doesn't run on windows unless further modifications are made.
 
-I assume that this would work with multiple users simultaneously on difference sessions, since perhaps the nodes are unique to the lighthouse session. Since for now the client -> server protocol covers most / all of possible input options, and tempo control is via a server endpoint rather than a client endpoint, likely all prototype development work can be done on laptop side (MacOS or WSL), with the only thing running on lighthouse being the server since the server implementation doesn't have to change very often for now.
+Since for now the client -> server protocol covers most / all of possible input options, and tempo control is via a server endpoint rather than a client endpoint, likely all prototype development work can be done on laptop side (MacOS or WSL), with the only thing running on lighthouse being the server since the server implementation doesn't have to change very often for now.
 
 ### SSH tunnel for client + server both running on lighthouse
 
