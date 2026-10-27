@@ -44,4 +44,4 @@ Requests are handled one at a time. The prompt templates are at the top of `desc
 
 ### Icons (`POST /svg`)
 
-Every prompt returns `default.svg` in this folder, a wand drawn once by SVGen. The request does not load a model and does not take a GPU. Descriptions still go to Ollama, which is the process that can hold the card.
+Every prompt returns `default.svg` in this folder, a wand traced from the Superconductor cover image. The request does not load a model and does not take a GPU. Descriptions still go to Ollama, which is the process that can hold the card.
