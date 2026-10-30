@@ -1,69 +1,9 @@
-# Where the music server is. Copied from superconductor_client.
-# `make playback` asks. `make playback-local`, `make playback-remote`, and
-# `make playback-cluster` pick a name and skip the question.
-# The app opens `browser.playback` and reads tempo from `browser.http`.
-#
-# This is the only list of those addresses. `make client`, `make client-remote`,
-# `make client-singularity` and `make client-docker` each pick one name. Programs
-# read that entry. Nothing else builds an address by editing another one.
-#
-# `direct` is what a program on the client machine opens: the input socket, tempo
-# posts, Atlas. `browser` is what the laptop browser opens: Start sound, and the
-# links on the prompts page. Leave `browser` out when it is the same as `direct`.
-#
-# A client on a third machine is another entry here, and a start command that
-# names it. That command is not wired up yet.
-#
-# Tempo is not either socket. Conducting POSTs /tempo/target and /tempo/free to `http`.
+# Where the music server is. The server and the client run on the cluster, and
+# the SSH tunnel puts them on this computer's localhost (superconductor_client
+# README). A server on this computer uses the same ports, so there is one entry.
+# The app opens `playback` and reads tempo from `http`.
 
-[local]
-description = "Music server on this computer (make client)."
-
-[local.direct]
+[server]
 input = "ws://localhost:9000/stream/input"
-playback = "ws://localhost:9000/stream/playback"
-http = "http://localhost:9000"
-
-[remote]
-description = "Music server on the cluster, through the SSH tunnel on port 9000 (make client-remote)."
-
-[remote.direct]
-input = "ws://localhost:9000/stream/input"
-playback = "ws://localhost:9000/stream/playback"
-http = "http://localhost:9000"
-
-[cluster]
-description = "Music server on this cluster node (make client-singularity). The browser uses the gateway; programs in the container use localhost:9000."
-
-[cluster.direct]
-input = "ws://localhost:9000/stream/input"
-playback = "ws://localhost:9000/stream/playback"
-http = "http://localhost:9000"
-
-[cluster.browser]
-playback = "ws://server.localhost:8080/stream/playback"
-http = "http://server.localhost:8080"
-
-[docker]
-description = "Container on the laptop, music server through the laptop's SSH tunnel (make client-docker). The container uses host.docker.internal; the browser uses localhost:9000."
-
-[docker.direct]
-input = "ws://host.docker.internal:9000/stream/input"
-playback = "ws://host.docker.internal:9000/stream/playback"
-http = "http://host.docker.internal:9000"
-
-[docker.browser]
-playback = "ws://localhost:9000/stream/playback"
-http = "http://localhost:9000"
-
-[docker-local]
-description = "Container on the laptop, music server on the laptop (make client-docker SC_WHERE=docker-local). The container uses host.docker.internal; the browser uses localhost:9000."
-
-[docker-local.direct]
-input = "ws://host.docker.internal:9000/stream/input"
-playback = "ws://host.docker.internal:9000/stream/playback"
-http = "http://host.docker.internal:9000"
-
-[docker-local.browser]
 playback = "ws://localhost:9000/stream/playback"
 http = "http://localhost:9000"

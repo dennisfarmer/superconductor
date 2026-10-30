@@ -7,7 +7,7 @@
 namespace
 {
 // `make playback` sets these. They win over the address saved with the project,
-// so playback-remote and playback-cluster actually open that server.
+// so the app opens the address in addresses.toml.
 void applyLaunchAddress (SCPlaybackProcessor::Settings& settings)
 {
     if (const char* url = std::getenv ("SC_PLAYBACK_URL"); url != nullptr && url[0] != '\0')

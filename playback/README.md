@@ -21,20 +21,17 @@ Needs CMake 3.22+ and a C++20 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 
 ```bash
 make playback-build    # from the repo root: plugins + app, Release
-make playback          # build if needed, ask where the music server is, open the app
-make playback-local    # server on this computer (port 9000)
-make playback-remote   # server through the SSH tunnel (port 9000)
-make playback-cluster  # server through the container gateway
+make playback          # build if needed, open the app on ws://localhost:9000/stream/playback
 ```
 
-`make playback` asks the same question as `make client` and `make audio`. The app does not talk to the client, so it is not asked where the client is. The addresses are `addresses.toml`. `playback-cluster` uses `ws://server.localhost:8080/stream/playback`.
+The address is in `addresses.toml`. It is the same whether the server is on this computer or on the cluster through the SSH tunnel.
 
 The plugins are copied to your plugin folders after each build (Mac: `~/Library/Audio/Plug-Ins/VST3` and `Components`). Builds: VST3 everywhere, AU on Mac, LV2 on Linux, plus the Standalone app.
 
 ## Use
 
-1. Start the server and the client (`make server`, `make client`). The client opens `ws://localhost:9000/stream/input` and does not play. Through the SSH tunnel, `make client-remote` opens `ws://localhost:9000/stream/input`.
-2. Load **SuperConductor Playback VST3 Plugin** in a DAW or in TouchDesigner, or open the app with `make playback`. The app uses the address you picked. A plugin inside a DAW still opens `ws://localhost:9000/stream/playback` until you change its stream field; `make playback-remote` and `make playback-cluster` only affect the app they launch.
+1. Start the server and the client on the cluster (`make server`, `make client`) and open the SSH tunnel. The client opens `ws://localhost:9000/stream/input` and does not play.
+2. Load **SuperConductor Playback VST3 Plugin** in a DAW or in TouchDesigner, or open the app with `make playback`. The app and the plugin both open `ws://localhost:9000/stream/playback`.
 3. Turn on **Send OSC** in one copy.
 
 The page's Start sound and `make audio` open the same playback socket. Close the other player first, or the server rejects this one.

@@ -1,30 +1,11 @@
 #!/usr/bin/env bash
-# Opens the Standalone app pointed at one music server.
-#
-#   playback/launch.sh                 ask where the server is
-#   playback/launch.sh --where local
-#   playback/launch.sh --where remote
-#   playback/launch.sh --where cluster
-#
-# The menu is the same one `make client` and `make audio` use. This app does not
-# talk to the client, so it is not asked where the client is. cluster is the
-# gateway address (server.localhost:8080), for a player on this computer.
+# Opens the Standalone app pointed at the music server in addresses.toml
+# (localhost:9000: the server on this computer, or the cluster through the SSH tunnel).
 set -euo pipefail
 
-where=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --where) where="${2:?--where needs a name}"; shift 2 ;;
-        *) echo "unknown argument: $1" >&2; exit 1 ;;
-    esac
-done
-
 here="$(cd "$(dirname "$0")/.." && pwd)"
-if [ -z "$where" ]; then
-    where="$(python3 "$here/addresses.py" --ask)" || exit $?
-fi
-url="$(python3 "$here/addresses.py" --where "$where" --field browser_playback)"
-http="$(python3 "$here/addresses.py" --where "$where" --field browser_http)"
+url="$(python3 "$here/addresses.py" --field playback)"
+http="$(python3 "$here/addresses.py" --field http)"
 app="$here/playback/build/plugin/SCPlayback_artefacts/Release/Standalone/SuperConductor Playback VST3 Plugin.app"
 bin="$here/playback/build/plugin/SCPlayback_artefacts/Release/Standalone/SuperConductor Playback VST3 Plugin"
 
