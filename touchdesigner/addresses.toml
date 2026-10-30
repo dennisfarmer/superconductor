@@ -1,85 +1,17 @@
-# Where the music server is, and where TouchDesigner reaches the client.
-# Copied from superconductor_client. `make visualize` asks both questions.
-# `make visualize-local`, `make visualize-remote`, and `make visualize-cluster` pick a name and skip the question.
-#
-# `direct` / `browser` are the music server, as in the client copy.
-# `client` is what this computer opens for tracking and conducting.
-#
-# `direct` is what a program on the client machine opens: the input socket, tempo
-# posts, Atlas. `browser` is what the laptop browser opens: Start sound, and the
-# links on the prompts page. Leave `browser` out when it is the same as `direct`.
-#
-# A client on a third machine is another entry here, and a start command that
-# names it. That command is not wired up yet.
-#
-# Tempo is not either socket. Conducting POSTs /tempo/target and /tempo/free to `http`.
+# Where the music server and the client are. Copied from superconductor_client.
+# Both run on the cluster, and the SSH tunnel puts them on this computer's
+# localhost (superconductor_client README). Running them on this computer uses
+# the same ports, so there is one entry each.
 
-[local]
-description = "Music server on this computer (make client)."
-
-[local.direct]
+# The music server: the Playback app opens `playback` and reads tempo from `http`.
+[server]
 input = "ws://localhost:9000/stream/input"
 playback = "ws://localhost:9000/stream/playback"
 http = "http://localhost:9000"
 
-[local.client]
+# What this computer opens for tracking and conducting.
+[client]
 tracking = "ws://localhost:9100/ws/tracking"
 hands = "ws://localhost:9102/ws/hands/monitor"
 tracking_page = "http://localhost:9100/?audio=monitor"
 conduct_page = "http://localhost:9102"
-
-[remote]
-description = "Music server on the cluster, through the SSH tunnel on port 9000 (make client-remote)."
-
-[remote.direct]
-input = "ws://localhost:9000/stream/input"
-playback = "ws://localhost:9000/stream/playback"
-http = "http://localhost:9000"
-
-[remote.client]
-tracking = "ws://localhost:9100/ws/tracking"
-hands = "ws://localhost:9102/ws/hands/monitor"
-tracking_page = "http://localhost:9100/?audio=monitor"
-conduct_page = "http://localhost:9102"
-
-[cluster]
-description = "Music server on this cluster node (make client-singularity). The browser uses the gateway; programs in the container use localhost:9000."
-
-[cluster.direct]
-input = "ws://localhost:9000/stream/input"
-playback = "ws://localhost:9000/stream/playback"
-http = "http://localhost:9000"
-
-[cluster.browser]
-playback = "ws://server.localhost:8080/stream/playback"
-http = "http://server.localhost:8080"
-
-[cluster.client]
-tracking = "ws://localhost:8080/ws/tracking"
-hands = "ws://localhost:8080/conduct/ws/hands/monitor"
-tracking_page = "http://localhost:8080/?audio=monitor"
-conduct_page = "http://localhost:8080/conduct/"
-
-[docker]
-description = "Container on the laptop, music server through the laptop's SSH tunnel (make client-docker). The container uses host.docker.internal; the browser uses localhost:9000."
-
-[docker.direct]
-input = "ws://host.docker.internal:9000/stream/input"
-playback = "ws://host.docker.internal:9000/stream/playback"
-http = "http://host.docker.internal:9000"
-
-[docker.browser]
-playback = "ws://localhost:9000/stream/playback"
-http = "http://localhost:9000"
-
-[docker-local]
-description = "Container on the laptop, music server on the laptop (make client-docker SC_WHERE=docker-local). The container uses host.docker.internal; the browser uses localhost:9000."
-
-[docker-local.direct]
-input = "ws://host.docker.internal:9000/stream/input"
-playback = "ws://host.docker.internal:9000/stream/playback"
-http = "http://host.docker.internal:9000"
-
-[docker-local.browser]
-playback = "ws://localhost:9000/stream/playback"
-http = "http://localhost:9000"

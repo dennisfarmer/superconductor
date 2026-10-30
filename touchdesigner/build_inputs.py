@@ -23,26 +23,17 @@ it provides is in TOUCHDESIGNER_PROTOCOL_GETTING_STARTED.md. Inside:
 Coordinates are 0-1 of the camera image, x to the right and y DOWN (image rows), not
 mirrored. For TouchDesigner's y-up space use 1 - y.
 
-The client TouchDesigner listens to is not the music server.
-
-  local, remote   the client is on this computer: localhost:9100 and :9102.
-                  remote only changes where that client finds the music server.
-  cluster         the client is the container. This computer reaches it through
-                  the gateway, localhost:8080.
-
-Set SC_WHERE to one of those before building, or set SC_TRACKING_URL and
-SC_HANDS_URL (ws://host:port/path) for somewhere else. make visualize passes
-SC_WHERE, and the component applies it again each time TouchDesigner opens.
+The client TouchDesigner listens to is not the music server. It is on
+localhost:9100 and :9102: on the cluster through the SSH tunnel, or on this
+computer. Set SC_TRACKING_URL and SC_HANDS_URL (ws://host:port/path) for
+somewhere else. make visualize passes them, and the component applies them
+again each time TouchDesigner opens.
 """
 import os
 import sys
 from urllib.parse import urlparse
 
-# client on this computer. remote uses the same sockets: the client is still here.
-_LAPTOP = ("ws://localhost:9100/ws/tracking", "ws://localhost:9102/ws/hands/monitor")
-# client inside the container; the laptop tunnel is port 8080.
-_CLUSTER = ("ws://localhost:8080/ws/tracking", "ws://localhost:8080/conduct/ws/hands/monitor")
-PLACES = {"local": _LAPTOP, "remote": _LAPTOP, "cluster": _CLUSTER}
+_CLIENT = ("ws://localhost:9100/ws/tracking", "ws://localhost:9102/ws/hands/monitor")
 
 
 def _socket(url):
@@ -60,11 +51,7 @@ def _place_urls():
         if not tracking or not hands:
             raise SystemExit("set both SC_TRACKING_URL and SC_HANDS_URL, or neither")
         return tracking, hands
-    where = os.environ.get("SC_WHERE", "local")
-    try:
-        return PLACES[where]
-    except KeyError:
-        raise SystemExit(f"SC_WHERE must be one of: {', '.join(PLACES)}") from None
+    return _CLIENT
 
 
 CLIENT_HOST, CLIENT_PORT, CLIENT_PATH = _socket(_place_urls()[0])
@@ -170,18 +157,11 @@ def onReceiveText(dat, rowIndex, message):
         conduct[key, 1] = '' if value is None else value
 '''
 
-# Runs when a project opens. local and remote keep the laptop sockets. cluster,
-# or SC_TRACKING_URL and SC_HANDS_URL, point the two WebSocket DATs elsewhere.
-APPLY_LOCATION = '''"""Apply SC_WHERE, or SC_TRACKING_URL and SC_HANDS_URL, to the two sockets."""
+# Runs when a project opens. SC_TRACKING_URL and SC_HANDS_URL point the two
+# WebSocket DATs elsewhere.
+APPLY_LOCATION = '''"""Apply SC_TRACKING_URL and SC_HANDS_URL to the two sockets."""
 import os
 from urllib.parse import urlparse
-
-_LAPTOP = ("ws://localhost:9100/ws/tracking", "ws://localhost:9102/ws/hands/monitor")
-_PLACES = {
-    "local": _LAPTOP,
-    "remote": _LAPTOP,
-    "cluster": ("ws://localhost:8080/ws/tracking", "ws://localhost:8080/conduct/ws/hands/monitor"),
-}
 
 
 def _apply(name, url):
@@ -199,11 +179,6 @@ def _apply(name, url):
 def onStart(scriptOp):
     tracking = os.environ.get("SC_TRACKING_URL")
     hands = os.environ.get("SC_HANDS_URL")
-    if not tracking and not hands:
-        pair = _PLACES.get(os.environ.get("SC_WHERE", ""))
-        if not pair:
-            return
-        tracking, hands = pair
     _apply("tracking", tracking)
     _apply("hands", hands)
 '''
@@ -332,9 +307,8 @@ def build(parent_path=None):
     hands.nodeX, hands.nodeY = 800, 0
     _table_chop(sc, 'hand_points_chop', points, ['hand', 'point', 'x', 'y', 'z'], x=1000, y=-300)
 
-    # Re-read SC_WHERE / SC_TRACKING_URL / SC_HANDS_URL when a project opens, so
-    # make visualize WHERE=remote does not need another rebuild for the laptop
-    # sockets. cluster (and a custom pair) needs this component rebuilt once.
+    # Re-read SC_TRACKING_URL / SC_HANDS_URL when a project opens, so a new
+    # address does not need another rebuild.
     apply_cb = _text(sc, 'apply_location_callbacks', APPLY_LOCATION, x=200, y=-300)
     apply = sc.create(executeDAT, 'apply_location')
     apply.par.callbacks = apply_cb

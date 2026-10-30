@@ -6,20 +6,17 @@ How to get a visualizer running: building the plugin, starting the services, ope
 
 From the `superconductor_touchdesigner` folder (after building the plugin once, below):
 ```bash
-make visualize                                # asks where the client is, then where the music server is
-make visualize-local                          # client and music server on this computer
-make visualize-remote                         # client on this computer, server through the tunnel (port 9000)
-make visualize-cluster                        # both on the cluster; pages are on localhost:8080
+make visualize                                # overlay_example_1
 make visualize VISUALIZER=<name>              # visualizers/<name>/<name>.toe
 ```
-`make visualize-remote` does not start the music server. The tunnel (`ssh -N -L 9000:lh2300:9000`) has to be open, and the plugin's stream address has to be `ws://localhost:9000/stream/playback`. `make visualize-cluster` expects the container and `ssh -N -L 8080:lh2300:8080`, and the plugin stream `ws://server.localhost:8080/stream/playback`. The addresses are `touchdesigner/addresses.toml`. The two sockets inside TouchDesigner follow them after `superconductor_inputs.tox` is rebuilt once (`build_inputs.py`). Until that rebuild, they stay on localhost:9100 and localhost:9102, which is right unless the client is the container.
+The music server and the client run on the cluster (`make server`, `make client`), and the SSH tunnel in the `superconductor_client` README puts them on localhost:9000, :9100 and :9102. Running them on this computer uses the same ports. The addresses are `touchdesigner/addresses.toml`.
 It:
-1. starts the MRT2 server, the client and the conducting server (any that aren't already running);
+1. checks that the music server and the client are listening;
 2. starts the **SuperConductor Playback VST3 Plugin app** (`playback` branch), which plays the music on your Mac's current sound output (speakers or headphones) and sets the pace;
 3. opens the **Tracking** page (quiet, so the music isn't played twice) and the **Conducting** page in the browser;
 4. opens the visualizer showing only its output, in a window you can resize or make full screen.
 
-Press **Start** on the Tracking page for the object tracking. **Esc** shows the editor (**F1** goes back); quitting TouchDesigner (**Cmd+Q**) stops the services and the app it started. Logs are in `var/logs/`. This is macOS only, and needs the SuperConductor Playback VST3 Plugin app built (`make playback-build` in `superconductor_playback`).
+Press **Start** on the Tracking page for the object tracking. **Esc** shows the editor (**F1** goes back); quitting TouchDesigner (**Cmd+Q**) quits the app if it started it. This is macOS only, and needs the SuperConductor Playback VST3 Plugin app built (`make playback-build` in `superconductor_playback`).
 
 The rest of this document is the same thing step by step, and how to check each part.
 
