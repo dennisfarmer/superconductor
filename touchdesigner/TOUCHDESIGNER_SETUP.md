@@ -94,14 +94,14 @@ Inside `inputs`:
 
 ## Rebuilding the inputs component
 
-`superconductor_inputs.tox` is built by `build_inputs.py`. Only rebuild it when the inputs themselves change (e.g. other ports), since every visualizer loads it:
-1. Open any visualizer and its Textport.
-2. Paste this line and press Return:
-   ```python
-   exec(open('/Users/dennisfj/Michigan/superconductor/superconductor_touchdesigner/touchdesigner/build_inputs.py').read())
-   ```
-   It prints `built /inputs: ...` and replaces the earlier copy, keeping its link to the `.tox` file.
-3. Save it to its file: right-click `inputs` → **Save Component .tox**, onto `touchdesigner/superconductor_inputs.tox`. Or in the Textport: `op('/inputs').save('../../superconductor_inputs.tox')` (the path is relative to the visualizer's folder).
+`superconductor_inputs.tox` is built by `build_inputs.py` and committed. Only rebuild it when the inputs themselves change (e.g. other ports), since every visualizer loads it from that file when it opens:
+```bash
+make touchdesigner-build
+```
+It runs `build_inputs.py` inside TouchDesigner through the MCP component (port 9981, below) and saves `/inputs` to `touchdesigner/superconductor_inputs.tox`. If a visualizer is already open, it uses that one and leaves it open; otherwise it opens one, builds, and quits TouchDesigner. Commit the new `.tox`.
+
+By hand instead: in any visualizer's Textport, run
+`exec(open('/path/to/superconductor_touchdesigner/touchdesigner/build_inputs.py').read())`, then `op('/inputs').save('../../superconductor_inputs.tox')` (the path is relative to the visualizer's folder).
 
 ## Claude Code in TouchDesigner (MCP)
 

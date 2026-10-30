@@ -176,7 +176,7 @@ def _apply(name, url):
     node.par.active = True
 
 
-def onStart(scriptOp):
+def onStart():
     tracking = os.environ.get("SC_TRACKING_URL")
     hands = os.environ.get("SC_HANDS_URL")
     _apply("tracking", tracking)
@@ -309,9 +309,8 @@ def build(parent_path=None):
 
     # Re-read SC_TRACKING_URL / SC_HANDS_URL when a project opens, so a new
     # address does not need another rebuild.
-    apply_cb = _text(sc, 'apply_location_callbacks', APPLY_LOCATION, x=200, y=-300)
     apply = sc.create(executeDAT, 'apply_location')
-    apply.par.callbacks = apply_cb
+    apply.text = APPLY_LOCATION
     apply.par.active = True
     apply.par.start = True
     apply.nodeX, apply.nodeY = 200, -180
