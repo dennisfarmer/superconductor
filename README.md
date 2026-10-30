@@ -30,7 +30,10 @@ To use it in a DAW or TouchDesigner, load **SuperConductor Playback VST3 Plugin*
 
 ## 3. TouchDesigner projects (`superconductor_touchdesigner/`, macOS)
 
+TouchDesigner has to be installed (derivative.ca), and the Playback plugin has to be built (step 2).
+
 ```bash
+make touchdesigner-build            # optional: rebuild touchdesigner/superconductor_inputs.tox
 make visualize                      # overlay_example_1
 make visualize VISUALIZER=<name>    # touchdesigner/visualizers/<name>/<name>.toe
 make touchdesigner VISUALIZER=<name> PERFORM=0   # open only the .toe, in the editor
@@ -38,3 +41,9 @@ make touchdesigner VISUALIZER=<name> PERFORM=0   # open only the .toe, in the ed
 
 `make visualize` opens the Playback app, the Tracking and Conducting pages, and the visualizer.
 Quit TouchDesigner with Cmd+Q to stop. Details are in `touchdesigner/TOUCHDESIGNER_SETUP.md`.
+
+`superconductor_inputs.tox` (the `/inputs` that every visualizer loads: plugin, OSC, tracking,
+conducting) is committed already built, so `make touchdesigner-build` is optional. Run it only after
+`touchdesigner/build_inputs.py` changes, for example after the client ports move. It opens
+TouchDesigner, rebuilds the `.tox`, and closes it. Commit the new `.tox`. If a visualizer shows no
+tracking or conducting while both pages work, the `.tox` is out of date, so run it.
