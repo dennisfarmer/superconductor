@@ -15,9 +15,42 @@ The `playback` and `touchdesigner` branches are used together.
 
 ## 1. Start the stack (cluster)
 
-On lh2300: `make server` and `make client`. On the laptop, open the SSH tunnel from the
-`superconductor_client` README. That puts everything on `localhost` (9000 server, 9100 tracking,
-9102 conducting).
+On lh2300, in two terminals:
+
+```bash
+# server
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_server
+make server
+```
+
+```bash
+# client
+cd /scratch/aimusic_project_root/aimusic_project/shared_data/superconductor_client
+make client
+```
+
+On the laptop, open the SSH tunnel and leave it open. That puts everything on `localhost`:
+
+```bash
+# 9000 Server, Tempo View and Conductor
+# 9100 Tracking and Prompts
+# 9101 MIDI player
+# 9102 Conducting
+# 9103 Atlas
+# 9104 Atlas engine
+# 9105 client_midi
+# 9106 Describe
+ssh -N \
+  -L 9000:lh2300:9000 \
+  -L 9100:lh2300:9100 \
+  -L 9101:lh2300:9101 \
+  -L 9102:lh2300:9102 \
+  -L 9103:lh2300:9103 \
+  -L 9104:lh2300:9104 \
+  -L 9105:lh2300:9105 \
+  -L 9106:lh2300:9106 \
+  YOUR_UNIQNAME@lighthouse.arc-ts.umich.edu
+```
 
 ## 2. Playback plugin (`superconductor_playback/`)
 
