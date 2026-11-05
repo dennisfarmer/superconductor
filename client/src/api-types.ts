@@ -98,7 +98,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** The Drums page's grid (JSON: mode, bars, per_beat, cells, after_hit, cfg; see */
+        /** The Drums page's grid (JSON: mode, bars, per_beat, cells, after_hit; see */
         post: operations["set_drums_function_set_drums_post"];
         delete?: never;
         options?: never;
@@ -117,6 +117,23 @@ export interface paths {
         put?: never;
         /** Allow or forbid LLM calls. Ollama shares the GPU with Magenta, so turning this */
         post: operations["set_llm_function_set_llm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/function/set_synth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Play the progression on the engine's built-in synth instead of Magenta (which then */
+        post: operations["set_synth_function_set_synth_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -412,6 +429,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/function/drop_step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take the kept chord at `index` out of the progression (the last one left stays). */
+        post: operations["drop_step_function_drop_step_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/function/replace_step": {
         parameters: {
             query?: never;
@@ -514,6 +548,21 @@ export interface components {
              * @default
              */
             alt_rn: string;
+            /**
+             * Names
+             * @default []
+             */
+            names: string[];
+            /**
+             * Degrees
+             * @default []
+             */
+            degrees: string[];
+            /**
+             * Leads
+             * @default []
+             */
+            leads: components["schemas"]["LeadView"][];
         };
         /** ChordView */
         ChordView: {
@@ -569,6 +618,16 @@ export interface components {
              * @default
              */
             also: string;
+            /**
+             * Degrees
+             * @default []
+             */
+            degrees: string[];
+            /**
+             * Leads
+             * @default []
+             */
+            leads: components["schemas"]["LeadView"][];
         };
         /** ClearProgressionArgs */
         ClearProgressionArgs: Record<string, never>;
@@ -588,6 +647,11 @@ export interface components {
             search_id: number;
             /** Node Id */
             node_id: number;
+        };
+        /** DropStepArgs */
+        DropStepArgs: {
+            /** Index */
+            index: number;
         };
         /** Envelope[OptionResult] */
         Envelope_OptionResult_: {
@@ -860,6 +924,11 @@ export interface components {
             drum_grid: string;
             /** Llm Enabled */
             llm_enabled: boolean;
+            /**
+             * Synth
+             * @default false
+             */
+            synth: boolean;
             /** Extended */
             extended: boolean;
             /** Bpm */
@@ -924,6 +993,11 @@ export interface components {
             texts: string[];
             /** Weights */
             weights: number[];
+        };
+        /** SetSynthArgs */
+        SetSynthArgs: {
+            /** On */
+            on: boolean;
         };
         /** SetTempoArgs */
         SetTempoArgs: {
@@ -1229,6 +1303,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SetLlmArgs"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SessionView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_synth_function_set_synth_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSynthArgs"];
             };
         };
         responses: {
@@ -1790,6 +1897,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RemoveStepArgs"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SessionView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    drop_step_function_drop_step_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DropStepArgs"];
             };
         };
         responses: {

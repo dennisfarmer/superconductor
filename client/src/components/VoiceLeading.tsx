@@ -11,7 +11,16 @@
 // (no key signature).
 
 import { useState } from "react";
-import type { LeadView, StepView } from "../api";
+import type { LeadView } from "../api";
+
+/** One chord of the change, as drawn: a kept step, a graph node or an option. */
+export interface VLChord {
+  rn: string;
+  symbol: string;
+  notes: number[];
+  names: string[];
+  degrees?: string[];
+}
 
 const W = 300;
 const H = 152;
@@ -102,12 +111,14 @@ export function worst(ls: LeadView[]): string {
 }
 
 export interface VoiceLeadingProps {
-  prev: StepView;
-  step: StepView;
+  prev: VLChord;
+  step: VLChord;
+  /** the rules on the change prev → step */
+  leads: LeadView[];
   onClose: () => void;
 }
 
-export function VoiceLeading({ prev, step, onClose }: VoiceLeadingProps) {
+export function VoiceLeading({ prev, step, leads, onClose }: VoiceLeadingProps) {
   const [hover, setHover] = useState(-1);
   // the note head under the mouse: [0 before | 1 after, voice], or []
   const [hover_note, setHoverNote] = useState<number[]>([]);
@@ -115,7 +126,7 @@ export function VoiceLeading({ prev, step, onClose }: VoiceLeadingProps) {
   const left = heads(XL, prev.notes, prev.names);
   const right = heads(XR, step.notes, step.names);
   const by_voice: LeadView[][] = [[], [], [], []];
-  for (const l of step.leads) by_voice[l.voice].push(l);
+  for (const l of leads) by_voice[l.voice].push(l);
   const shown = hover >= 0 ? by_voice[hover] : [];
   // a rule between two voices (parallels, overlap, cross relation) lights both arrows
   const related: number[] = [];
@@ -168,8 +179,9 @@ export function VoiceLeading({ prev, step, onClose }: VoiceLeadingProps) {
   }
 
   /** A note as the rule details write it: "soprano: D5 (2̂)". */
-  function note_label(st: StepView, v: number): string {
-    const deg = v < st.degrees.length ? st.degrees[v] : "";
+  function note_label(st: VLChord, v: number): string {
+    const degs = st.degrees ?? [];
+    const deg = v < degs.length ? degs[v] : "";
     return VOICE_NAMES[v] + ": " + st.names[v] + (deg ? " (" + deg + ")" : "");
   }
 
@@ -264,7 +276,7 @@ export function VoiceLeading({ prev, step, onClose }: VoiceLeadingProps) {
           </div>
         ) : hover < 0 ? (
           <p className="vl-hint">
-            {step.leads.length > 0
+            {leads.length > 0
               ? "Hover an arrow for the rule behind it, or a note for its name."
               : "No rule in the bank applies to this change: no tendency tones, held common tones or faults. Hover a note for its name."}
           </p>

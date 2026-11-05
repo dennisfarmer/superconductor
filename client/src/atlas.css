@@ -525,6 +525,13 @@ a.unit.bpm-link.on { color: var(--ink); cursor: default; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 .icon-btn.spin .ic { animation: spin 0.9s linear infinite; }
+/* Close: always in view at the bar's right edge, over whatever scrolls under it */
+.close-anchor {
+  position: sticky; right: 0; z-index: 3; margin-right: calc(-1 * var(--s-4)); padding: 0 var(--s-4) 0 var(--s-3);
+  align-self: stretch; display: flex; align-items: center; background: var(--panel); box-shadow: -14px 0 14px -4px var(--panel);
+}
+.close-btn { display: inline-flex; align-items: center; gap: 6px; }
+.close-btn:hover:not(:disabled), .close-btn.on { color: var(--bad); border-color: var(--bad); background: rgba(255, 122, 133, 0.12); }
 .icon-btn.quit:hover:not(:disabled), .icon-btn.quit.on { color: var(--bad); background: rgba(255, 122, 133, 0.12); }
 
 .btn.danger { background: #a3303d; border-color: #c94a57; color: white; font-weight: 600; }

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import os
+import signal
 import sys
 import json
 import time
@@ -98,6 +99,41 @@ def stop_engine(timeout_s: float = 15.0) -> bool:
             return True
         time.sleep(0.2)
     return False
+
+
+def kill_engine(timeout_s: float = 3.0) -> bool:
+    """Force the audio engine to exit when it doesn't on request (a stuck audio thread):
+    SIGTERM, then SIGKILL, to the process listening on ENGINE_URL's port, and only if
+    that process is this project's engine (audio_engine/engine.py) on this machine.
+    True once nothing answers there."""
+    u = urlparse(ENGINE_URL)
+    if u.hostname not in ("127.0.0.1", "localhost", "::1"):
+        return not engine_online()
+    port = str(u.port or 9104)
+    try:
+        out = subprocess.run(["lsof", "-ti", "tcp:" + port, "-sTCP:LISTEN"], capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        out = ""
+    pids: list[int] = []
+    for line in out.split():
+        try:
+            cmd = subprocess.run(["ps", "-o", "command=", "-p", line], capture_output=True, text=True, timeout=3).stdout
+        except Exception:
+            continue
+        if "audio_engine/engine.py" in cmd:
+            pids.append(int(line))
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if not engine_online():
+                return True
+            time.sleep(0.2)
+    return not engine_online()
 
 
 def restart_engine() -> bool:

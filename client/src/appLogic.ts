@@ -1,9 +1,5 @@
-// Stateless helpers for the shell (App.tsx): engine timelines, per-browser
-// preferences, and the saved map locks.
-
-import type { SearchView, SessionView } from "./api";
-import { chain_in, is_back_id, node_map } from "./components/paths";
-import type { NodeMap } from "./components/paths";
+// Stateless helpers for the shell (App.tsx): engine timelines and per-browser
+// preferences.
 
 export interface EngineChord {
   label: string;
@@ -47,51 +43,6 @@ export function pref_set(key: string, value: unknown): void {
   } catch {
     // no storage: nothing to keep
   }
-}
-
-/** The progression the map's locks were made on: locks saved for it are put back
- * when the app is reopened on the same progression. */
-export function lock_sig(s: SessionView): string {
-  return JSON.stringify([s.tonic, s.mode, s.steps.map((st) => st.cid)]);
-}
-
-interface StoredLocks {
-  sig: string;
-  locks: { back: boolean; path: string[] }[];
-}
-
-/** Save the locks as chord paths from their tree's start (node ids change with
- * every search). */
-export function save_locks(by_id: NodeMap, lock_ids: number[], sig: string): void {
-  const paths: StoredLocks["locks"] = [];
-  for (const l of lock_ids) {
-    if (l in by_id) paths.push({ back: is_back_id(l), path: chain_in(by_id, l).map((c) => c.cid) });
-  }
-  pref_set("locks", { sig, locks: paths });
-}
-
-/** The nodes of a fresh search standing where the saved locks were (a lock whose
- * path the search no longer has, e.g. through a typed chord, is dropped). */
-export function restore_locks(res: SearchView, sig: string): number[] {
-  const stored = pref_get<StoredLocks | null>("locks", null);
-  if (!stored || stored.sig !== sig) return [];
-  const by_id = node_map(res, []);
-  const found: number[] = [];
-  for (const want of stored.locks) {
-    const path = JSON.stringify(want.path);
-    const column = want.back ? res.back_nodes : res.nodes;
-    for (const n of column) {
-      if (n.layer === want.path.length && JSON.stringify(chain_in(by_id, n.id).map((c) => c.cid)) === path) {
-        found.push(n.id);
-        break;
-      }
-    }
-  }
-  return found;
-}
-
-export function sleep_ms(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Pitch class of a tonic name like "E♭" or "F♯" (as server/theory/pitch.py Key.parse). */

@@ -9,12 +9,13 @@
 // are 3D boxes outlined in their function's colour, their labels painted onto the
 // front face with the page's own font stacks and colours, joined by 3D curves.
 //
-// Words: *pin* a chord on the graph (its column ignores hover; paths not through
-// the pins dim), *keep* it into the progression (its other options stay fanned
-// beside it: hover one to hear it in place, click to swap it in), *save* the whole
-// progression (it moves behind). Type chords into each column's dashed slot (ⓧ
-// removes them; a mini walker grows on from each); click a kept chord to set the
-// loop. Click any chord of a saved progression to play it; click again to go back.
+// Hover a chord on the graph to hear the path to it; click it to add that path to the
+// progression (the other options stay fanned beside each added chord: hover one to
+// hear it in place, click to swap it in). Click a chord of the progression to take it
+// out again. Every edge has a dot coloured by its worst voice-leading rule: click it
+// for the voice-leading diagram. Type chords into each column's dashed slot (ⓧ
+// removes them; a mini walker grows on from each). Click any chord of a saved
+// progression to play it; click again to go back.
 // Text faces the camera from either side: chord labels are on both faces of every
 // block, and floating text turns round when the camera goes behind it.
 //
@@ -30,9 +31,10 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { CubicBezierLine, Edges, Html, Line, OrbitControls } from "@react-three/drei";
 import { CanvasTexture, MOUSE, SRGBColorSpace, TOUCH } from "three";
 import type { Group, Texture } from "three";
-import type { AltView, ChordView, SavedView, SearchView, StepView } from "../api";
-import { is_back_id, lock_at, node_map, reachable } from "./paths";
+import type { AltView, ChordView, LeadView, SavedView, SearchView, StepView } from "../api";
+import { is_back_id, node_map } from "./paths";
 import { KIND_COLOR, VoiceLeading, worst } from "./VoiceLeading";
+import type { VLChord } from "./VoiceLeading";
 
 const FUNC_COLOR: Record<string, string> = {
   T: "#5aa9ff",
@@ -248,13 +250,10 @@ function layers_of(start: ChordView, nodes: ChordView[], depth: number): ChordVi
 
 export interface Graph3DProps {
   search: SearchView;
-  anim: number;
   hoverId: number;
-  selectedId: number;
   soundingId: number;
   soundingStep: number;
-  loopFrom: number;
-  onStep: (i: number) => void;
+  onDropStep: (i: number) => void;
   showAll: boolean;
   steps: StepView[];
   altHover: number[];
@@ -264,7 +263,6 @@ export interface Graph3DProps {
   onHover: (id: number) => void;
   onLeave: () => void;
   onSelect: (id: number) => void;
-  locks: number[];
   typed: ChordView[];
   onAddTyped: (back: boolean, layer: number, text: string) => void;
   onRemoveTyped: (ids: number[]) => void;
@@ -277,15 +275,23 @@ export interface Graph3DProps {
 }
 
 export function Graph3D(props: Graph3DProps) {
-  const { search, anim, hoverId, selectedId, soundingId, soundingStep, onStep, showAll, steps, altHover } = props;
-  const { onAltHover, onAltLeave, onAltPick, onHover, onLeave, onSelect, locks, typed, onAddTyped, onRemoveTyped } = props;
+  const { search, hoverId, soundingId, soundingStep, onDropStep, showAll, steps, altHover } = props;
+  const { onAltHover, onAltLeave, onAltPick, onHover, onLeave, onSelect, typed, onAddTyped, onRemoveTyped } = props;
   const { onStepTyped, onRemoveStep, saved, viewing, savedSounding, onPickSaved } = props;
   const [editing, setEditing] = useState(""); // the typing slot whose text box is open ("f2" = forward column 2)
-  const [leadAt, setLeadAt] = useState(-1); // the step whose incoming edge shows its voice-leading diagram
-  const [edgeHover, setEdgeHover] = useState(-1);
+  const [leadAt, setLeadAt] = useState(""); // the edge whose voice-leading diagram is open (its dot's key)
+  const [edgeHover, setEdgeHover] = useState("");
+
+  // Esc closes the open voice-leading diagram
+  useEffect(() => {
+    const on_key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLeadAt("");
+    };
+    window.addEventListener("keydown", on_key);
+    return () => window.removeEventListener("keydown", on_key);
+  }, []);
 
   const depth = search.depth;
-  const animating = anim >= 0 && anim <= depth;
   const base = steps.length - 1;
   const fwd_layers = layers_of(search.start, search.nodes, depth);
   const back_layers = layers_of(search.back_start, search.back_nodes, depth);
@@ -302,14 +308,11 @@ export function Graph3D(props: Graph3DProps) {
 
   const box_key = (n: ChordView) => (is_back_id(n.id) ? "b" : "f") + String(n.layer) + ":" + n.cid;
 
-  /** The variant a box stands for: the first given if still reachable, else the
-   * cheapest reachable one, else the cheapest. */
+  /** The variant a box stands for: the first given, or else the cheapest. */
   function pick(vs: ChordView[], prefer_first: boolean): ChordView {
-    if (prefer_first && reachable(by_id, locks, vs[0].id)) return vs[0];
-    const live = vs.filter((v) => reachable(by_id, locks, v.id));
-    const pool = live.length > 0 ? live : vs;
-    let best = pool[0];
-    for (const v of pool) if (v.total < best.total) best = v;
+    if (prefer_first) return vs[0];
+    let best = vs[0];
+    for (const v of vs) if (v.total < best.total) best = v;
     return best;
   }
 
@@ -401,18 +404,13 @@ export function Graph3D(props: Graph3DProps) {
   place(back_layers, true);
   const y0 = ypos[search.start.id];
 
-  // --- the chains to the focused node and to every lock are drawn hot ---
-  const focus = hoverId >= 0 ? hoverId : selectedId;
+  // --- the chain to the hovered node is drawn hot ---
   const hot: number[] = [];
-  for (const end of [focus, ...locks]) {
-    let cur = end;
-    while (cur in by_id && by_id[cur].layer > 0) {
-      hot.push(cur);
-      cur = by_id[cur].parent;
-    }
+  let cur = hoverId;
+  while (cur in by_id && by_id[cur].layer > 0) {
+    hot.push(cur);
+    cur = by_id[cur].parent;
   }
-
-  const visible = (n: ChordView) => !animating || n.layer <= anim;
 
   /** 3D curve from the right side of the box at (xl, yl) to the left side of the box
    * at (xr, yr), on plane z. kind: hot | dest | typed | grown | past | dim | plain. */
@@ -518,11 +516,25 @@ export function Graph3D(props: Graph3DProps) {
     );
   }
 
-  /** Tree edge from a node's parent (one layer nearer the progression) to the node. */
+  /** Tree edge from a node's parent (one layer nearer the progression) to the node,
+   * with its voice-leading dot. */
   function tree_edge(key: string, n: ChordView, y: number, kind: string) {
     const py = ypos[n.parent];
-    if (n.id >= search.back_start.id) return curve(key, x_back(n.layer), y, x_back(n.layer - 1), py, 0.0, color_of(n.func), kind);
-    return curve(key, x_fwd(n.layer - 1), py, x_fwd(n.layer), y, 0.0, color_of(n.func), kind);
+    const p = by_id[n.parent];
+    if (n.id >= search.back_start.id) {
+      return (
+        <group key={key}>
+          {curve("c" + key, x_back(n.layer), y, x_back(n.layer - 1), py, 0.0, color_of(n.func), kind)}
+          {p && lead_dot("d" + key, x_back(n.layer), y, x_back(n.layer - 1), py, 0.0, n, p, n.leads ?? [], kind.includes("hot"))}
+        </group>
+      );
+    }
+    return (
+      <group key={key}>
+        {curve("c" + key, x_fwd(n.layer - 1), py, x_fwd(n.layer), y, 0.0, color_of(n.func), kind)}
+        {p && lead_dot("d" + key, x_fwd(n.layer - 1), py, x_fwd(n.layer), y, 0.0, p, n, n.leads ?? [], kind.includes("hot"))}
+      </group>
+    );
   }
 
   const alt_on = (i: number, j: number) => altHover.length === 2 && altHover[0] === i && altHover[1] === j;
@@ -555,13 +567,9 @@ export function Graph3D(props: Graph3DProps) {
   function node_g(n: ChordView, ids: number[], kind: string) {
     const x = x_node(n);
     const y = ypos[n.id];
-    const live = reachable(by_id, locks, n.id);
-    const col_locked = lock_at(by_id, locks, is_back_id(n.id), n.layer) >= 0;
-    const hoverable = live && !col_locked;
     const is_hot = ids.some((i) => hot.includes(i));
-    const is_locked = ids.some((i) => locks.includes(i));
-    const fill = ids.includes(soundingId) ? FILL_SOUNDING : is_hot || is_locked ? FILL_HOT : FILL;
-    const label = chord_texture(n.rn, n.symbol, n.cadence, is_locked ? ACCENT : INK, NODE_W, NODE_H, n.alt_rn);
+    const fill = ids.includes(soundingId) ? FILL_SOUNDING : is_hot ? FILL_HOT : FILL;
+    const label = chord_texture(n.rn, n.symbol, n.cadence, INK, NODE_W, NODE_H, n.alt_rn);
     return (
       <group key={"n" + String(n.id)}>
         {box(
@@ -573,26 +581,23 @@ export function Graph3D(props: Graph3DProps) {
           NODE_H,
           color_of(n.func),
           fill,
-          live ? 1.0 : 0.25,
+          1.0,
           label,
           (e) => {
             e.stopPropagation();
-            if (hoverable) onHover(n.id);
+            onHover(n.id);
+            document.body.style.setProperty("cursor", "pointer");
           },
           () => {
-            if (hoverable) onLeave();
+            onLeave();
+            document.body.style.removeProperty("cursor");
           },
           (e) => {
             e.stopPropagation();
-            if (live) onSelect(n.id);
+            document.body.style.removeProperty("cursor");
+            onSelect(n.id);
           },
           kind === "typed"
-        )}
-        {is_locked && (
-          <mesh position={[wx(x + NODE_W / 2), wy(y + NODE_H / 2), 0.0]}>
-            <boxGeometry args={[NODE_W * S + 0.05, NODE_H * S + 0.05, BOX_D * 0.6]} />
-            <meshBasicMaterial color="#8fb3ff" transparent={true} opacity={0.25} />
-          </mesh>
         )}
         {kind === "typed" && (
           <Html center={true} position={[wx(x + 1), wy(y + 1), BOX_D / 2 + 0.01]} zIndexRange={[200, 0]}>
@@ -700,6 +705,7 @@ export function Graph3D(props: Graph3DProps) {
         {prog.steps.map((st, i) => (
           <group key={"ss" + String(k) + "-" + String(i)}>
             {i > 0 ? curve("se" + String(k) + "-" + String(i), px(i - 1), y0, px(i), y0, z, color_of(st.func), on ? "hot" : "plain") : null}
+            {i > 0 ? lead_dot("sd" + String(k) + "-" + String(i), px(i - 1), y0, px(i), y0, z, prog.steps[i - 1], st, st.leads ?? [], on) : null}
             {box(
               "sb" + String(k) + "-" + String(i),
               px(i),
@@ -724,44 +730,46 @@ export function Graph3D(props: Graph3DProps) {
     );
   }
 
-  /** The edge into kept step i: click it (or its dot) to open the voice-leading
-   * diagram for that change; the dot takes the colour of the worst rule on it. */
-  function lead_edge(i: number) {
-    const x1 = px(i - 1) + NODE_W;
-    const x2 = px(i);
-    const ym = wy(y0 + NODE_H / 2);
-    const is_open = leadAt === i;
-    const on = is_open || edgeHover === i;
-    const kind = steps[i].leads.length > 0 ? worst(steps[i].leads) : "hold";
+  /** The voice-leading dot on the edge from the box at layout (xl, yl) to the one at
+   * (xr, yr), on plane z: coloured by the worst rule on the change prev → next; click
+   * it for the diagram. `strong`: drawn full size (the progression's own edges, the
+   * hovered path). */
+  function lead_dot(key: string, xl: number, yl: number, xr: number, yr: number, z: number, prev: VLChord, next: VLChord, leads: LeadView[], strong: boolean) {
+    const mx = wx((xl + NODE_W + xr) / 2);
+    const my = wy((yl + yr) / 2 + NODE_H / 2);
+    const is_open = leadAt === key;
+    const on = is_open || edgeHover === key;
+    const kind = leads.length > 0 ? worst(leads) : "hold";
+    const r = on ? 0.07 : strong ? 0.05 : 0.036;
     return (
-      <group key={"le" + String(i)}>
+      <group key={key}>
         <mesh
-          position={[wx((x1 + x2) / 2), ym, 0.0]}
+          position={[mx, my, z + 0.012]}
           onPointerOver={(e) => {
             e.stopPropagation();
-            setEdgeHover(i);
+            setEdgeHover(key);
             document.body.style.setProperty("cursor", "pointer");
           }}
           onPointerOut={() => {
-            setEdgeHover(-1);
+            setEdgeHover("");
             document.body.style.removeProperty("cursor");
           }}
           onClick={(e) => {
             e.stopPropagation();
-            setLeadAt(is_open ? -1 : i);
+            setLeadAt(is_open ? "" : key);
           }}
         >
-          <planeGeometry args={[(x2 - x1) * S, 0.22]} />
+          <circleGeometry args={[0.1, 16]} />
           <meshBasicMaterial transparent={true} opacity={0.0} depthWrite={false} />
         </mesh>
-        <mesh position={[wx((x1 + x2) / 2), ym, 0.01]}>
-          <circleGeometry args={[on ? 0.07 : 0.05, 24]} />
-          <meshBasicMaterial color={KIND_COLOR[kind]} toneMapped={false} />
+        <mesh position={[mx, my, z + 0.01]}>
+          <circleGeometry args={[r, 24]} />
+          <meshBasicMaterial color={KIND_COLOR[kind]} toneMapped={false} transparent={true} opacity={on || strong ? 1.0 : 0.75} />
         </mesh>
         {is_open && (
-          <Html position={[wx((x1 + x2) / 2), ym + 0.12, 0.02]} zIndexRange={[400, 0]}>
+          <Html position={[mx, my + 0.12, z + 0.02]} zIndexRange={[400, 0]}>
             <div className="vl-anchor">
-              <VoiceLeading prev={steps[i - 1]} step={steps[i]} onClose={() => setLeadAt(-1)} />
+              <VoiceLeading prev={prev} step={next} leads={leads} onClose={() => setLeadAt("")} />
             </div>
           </Html>
         )}
@@ -806,6 +814,7 @@ export function Graph3D(props: Graph3DProps) {
                 {i > 0
                   ? curve("oe" + String(i) + "-" + String(j), px(i - 1), y0, px(i), opt_y(j), 0.0, color_of(o.func), alt_on(i, j) ? "hot" : "past")
                   : null}
+                {i > 0 ? lead_dot("od" + String(i) + "-" + String(j), px(i - 1), y0, px(i), opt_y(j), 0.0, steps[i - 1], o, o.leads ?? [], alt_on(i, j)) : null}
                 {box(
                   "ob" + String(i) + "-" + String(j),
                   px(i),
@@ -836,7 +845,7 @@ export function Graph3D(props: Graph3DProps) {
           <group key={"step" + String(i)}>
             {tag("sl" + String(i), px(i) + NODE_W / 2, lo - 18, 0.0, step_label(i), "col")}
             {i > 0 ? curve("st" + String(i), px(i - 1), y0, px(i), y0, 0.0, color_of(steps[i].func), "hot") : null}
-            {i > 0 ? lead_edge(i) : null}
+            {i > 0 ? lead_dot("le" + String(i), px(i - 1), y0, px(i), y0, 0.0, steps[i - 1], steps[i], steps[i].leads ?? [], true) : null}
             {box(
               "sb" + String(i),
               px(i),
@@ -848,11 +857,14 @@ export function Graph3D(props: Graph3DProps) {
               i === soundingStep ? FILL_SOUNDING : FILL,
               1.0,
               chord_label(steps[i].rn, steps[i].symbol, steps[i].cadence, steps[i].alt_rn),
-              undefined,
-              undefined,
+              () => {
+                if (steps.length > 1) document.body.style.setProperty("cursor", "pointer");
+              },
+              () => document.body.style.removeProperty("cursor"),
               (e) => {
                 e.stopPropagation();
-                onStep(i);
+                document.body.style.removeProperty("cursor");
+                onDropStep(i);
               },
               steps[i].typed
             )}
@@ -874,66 +886,31 @@ export function Graph3D(props: Graph3DProps) {
         ))}
 
         {tree_nodes
-          .filter((n) => visible(n) && n.parent in ypos)
+          .filter((n) => n.parent in ypos)
           .map((n) => tree_edge("e" + String(n.id), n, ypos[n.id], (hot.includes(n.id) ? "hot" : "plain") + (n.status === "dest" ? " dest" : "")))}
 
         {typed
-          .filter((t) => !animating && t.parent in ypos && t.id in ypos)
-          .map((t) =>
-            tree_edge(
-              "et" + String(t.id),
-              t,
-              ypos[t.id],
-              (t.status === "custom" ? "typed" : "grown") + (hot.includes(t.id) ? " hot" : "") + (reachable(by_id, locks, t.id) ? "" : " dim")
-            )
-          )}
+          .filter((t) => t.parent in ypos && t.id in ypos)
+          .map((t) => tree_edge("et" + String(t.id), t, ypos[t.id], (t.status === "custom" ? "typed" : "grown") + (hot.includes(t.id) ? " hot" : "")))}
 
-        {tree_nodes.filter((n) => visible(n)).map((n) => node_g(kept_rep(n), kept_ids(n), "kept"))}
-        {group_keys
-          .filter(() => !animating)
-          .map((k) =>
+        {tree_nodes.map((n) => node_g(kept_rep(n), kept_ids(n), "kept"))}
+        {group_keys.map((k) =>
             node_g(
               rep_of[k],
               group_of[k].map((v) => v.id),
               group_of[k].some((v) => v.status === "custom") ? "typed" : "grown"
             )
           )}
-        {range(0, steps.length)
-          .filter(() => !animating)
-          .map((i) => typing_slot("s" + String(i), px(i), y0 + (Math.trunc((others[i].length + 1) / 2) + 1) * ROW_H, (text) => onStepTyped(i, text)))}
-        {range(1, depth + 1)
-          .filter(() => !animating)
-          .map((L) => slot_g(false, L))}
-        {range(1, depth + 1)
-          .filter(() => !animating)
-          .map((L) => slot_g(true, L))}
-
-        {animating && anim < depth && (
-          <group>
-            {fwd_layers[anim]
-              .filter((n) => n.status !== "dest" || n.layer === 0)
-              .map((n) => (
-                <mesh key={"wf" + String(n.id)} position={[wx(x_fwd(anim) + NODE_W), wy(ypos[n.id] + NODE_H / 2), 0.08]}>
-                  <sphereGeometry args={[0.05, 16, 16]} />
-                  <meshBasicMaterial color="#ffffff" />
-                </mesh>
-              ))}
-            {back_layers[anim]
-              .filter((n) => n.status !== "dest" || n.layer === 0)
-              .map((n) => (
-                <mesh key={"wb" + String(n.id)} position={[wx(x_back(anim)), wy(ypos[n.id] + NODE_H / 2), 0.08]}>
-                  <sphereGeometry args={[0.05, 16, 16]} />
-                  <meshBasicMaterial color="#ffffff" />
-                </mesh>
-              ))}
-          </group>
-        )}
+        {range(0, steps.length).map((i) =>
+          typing_slot("s" + String(i), px(i), y0 + (Math.trunc((others[i].length + 1) / 2) + 1) * ROW_H, (text) => onStepTyped(i, text)))}
+        {range(1, depth + 1).map((L) => slot_g(false, L))}
+        {range(1, depth + 1).map((L) => slot_g(true, L))}
 
         {shown_saved.map((k, slot) => saved_row(k, slot, saved[k]))}
       </Canvas>
       <div className="graph3d-hint">
-        faint boxes beside a kept chord: click to swap · "+ type a chord" under a kept chord replaces it · click the dot on an edge for its
-        voice leading · drag to pan · right-drag to rotate · scroll to zoom
+        hover a chord to hear it · click to add it (and the path to it) · click a chord of the progression to take it out · faint boxes
+        beside it: click to swap · click any dot for its voice leading · drag to pan · right-drag to rotate · scroll to zoom
       </div>
     </div>
   );

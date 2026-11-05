@@ -166,6 +166,9 @@ class Settings:
     cfg_scales: dict = field(default_factory=lambda: {"musiccoca": 3.0, "notes": 3.0, "drums": 1.0})
     # weight 0..1 of the style prompt DRUM_PROMPT in the SuperConductor client's recipe (sink only)
     drum_prompt: float = 0.0
+    # local only: play the timeline on the built-in synth (Synth) instead of Magenta,
+    # which then generates nothing
+    synth: bool = False
 
     @classmethod
     def from_dict(cls, d: dict) -> "Settings":
@@ -390,6 +393,80 @@ class Conductor:
             return tokens, meta
 
 
+class Synth:
+    """A plain electric-piano-like synth that plays the conductor's notes vector, one 40 ms
+    frame at a time: 2 strikes a pitch, 1 or 3 holds it, 0 releases it. A frame with
+    "model chooses" pitches (-1, the improvise texture) plays the chord's voicing instead.
+    Drum hits (drum value 1) are a short soft click."""
+
+    ATTACK = 0.006   # seconds
+    DECAY = 1.6      # seconds to fall by 1/e while held
+    FLOOR = 0.18     # held notes settle at this level
+    RELEASE = 0.07   # seconds to fall by 1/e after release
+    LEVEL = 0.11     # per voice
+
+    def __init__(self):
+        self.voices: dict = {}   # pitch -> [phase, age in samples, level, released]
+        self.click_left = 0
+        self.t = np.arange(FRAME_SAMPLES, dtype=np.float64)
+
+    def reset(self):
+        self.voices = {}
+        self.click_left = 0
+
+    def render(self, tokens: list, drum: int, held: list) -> np.ndarray:
+        if any(v == -1 for v in tokens):
+            strike = any(v == 2 for v in tokens)
+            tokens = [0] * 128
+            for p in held:
+                tokens[p] = 2 if strike else 1
+        out = np.zeros(FRAME_SAMPLES, dtype=np.float64)
+        sr = float(SAMPLE_RATE)
+        for p, v in enumerate(tokens):
+            if v == 2:
+                old = self.voices.get(p)
+                self.voices[p] = [old[0] if old else 0.0, 0, old[2] if old else 0.0, False]
+            elif v in (1, 3) and p not in self.voices:
+                self.voices[p] = [0.0, 0, 0.0, False]
+            elif v == 0 and p in self.voices:
+                self.voices[p][3] = True
+        gone = []
+        for p, vc in self.voices.items():
+            phase, age, level, released = vc
+            freq = 440.0 * 2.0 ** ((p - 69) / 12.0)
+            ph = phase + 2.0 * math.pi * freq * self.t / sr
+            ages = (age + self.t) / sr
+            if released:
+                env = level * np.exp(-self.t / sr / self.RELEASE)
+            else:
+                body = self.FLOOR + (1.0 - self.FLOOR) * np.exp(-ages / self.DECAY)
+                env = np.minimum(1.0, ages / self.ATTACK) * body
+                # glide from the level it had (a re-struck note doesn't click)
+                env = np.maximum(env, level * np.exp(-self.t / sr / 0.01))
+            # brighter at the strike, mellower as it sustains
+            bright = 0.35 * np.exp(-ages / 0.4)
+            wave = np.sin(ph) + bright * np.sin(2.0 * ph) + 0.08 * np.sin(3.0 * ph)
+            # lower notes a little louder, so the bass carries
+            out += self.LEVEL * (1.25 - (p - 36) / 120.0) * env * wave
+            vc[0] = float(ph[-1] + 2.0 * math.pi * freq / sr) % (2.0 * math.pi)
+            vc[1] = age + FRAME_SAMPLES
+            vc[2] = float(env[-1])
+            if released and vc[2] < 1e-4:
+                gone.append(p)
+        for p in gone:
+            del self.voices[p]
+        if drum == 1:
+            self.click_left = int(0.03 * sr)
+        if self.click_left > 0:
+            n = min(self.click_left, FRAME_SAMPLES)
+            start = int(0.03 * sr) - self.click_left
+            k = np.arange(start, start + n) / sr
+            out[:n] += 0.12 * np.sin(2.0 * math.pi * 70.0 * k) * np.exp(-k / 0.012)
+            self.click_left -= n
+        out = np.tanh(out)
+        return np.stack([out, out], axis=1).astype(np.float32)
+
+
 class Engine:
     def __init__(self, model: str, buffer_frames: int, record: str | None, prompt: str, preset: dict | None = None):
         from magenta_rt import MagentaRT2StdMlxfn
@@ -425,6 +502,8 @@ class Engine:
             self.style_cache[prompt] = list(preset["style_tokens"])
         self._set_style_now(prompt)
         self.state = None
+        self.synth = Synth()
+        self.synth_was_on = False
         self.underruns = 0
         self.paused = False  # silence out; the full buffer blocks the generator, so the GPU idles
         # output level, applied in the audio callback so a change is heard at once
@@ -489,6 +568,14 @@ class Engine:
 
         tokens, meta = self.conductor.next_frame()
         s = self.settings
+        if s.synth:
+            # the synth plays; Magenta generates nothing (it starts fresh when switched back)
+            self.synth_was_on = True
+            self.state = None
+            return self.synth.render(tokens, meta.drum, self.conductor.current_notes) * s.gain, meta
+        if self.synth_was_on:
+            self.synth_was_on = False
+            self.synth.reset()
         cond = {
             MUSICCOCA.key: self.style_tokens,
             PIANOROLL_WITH_ONSETS.key: tokens,
@@ -554,10 +641,10 @@ class Engine:
         ms = self.step_ms
         return {
             "ok": True,
-            "model": self.model_name,
+            "model": "built-in synth" if self.settings.synth else self.model_name,
             "style": self.style_prompt,
             "style_layers": self.style_layers,
-            "ms_per_frame": round(float(np.mean(ms)), 1) if ms else None,
+            "ms_per_frame": round(float(np.mean(ms)), 1) if ms and not self.settings.synth else None,
             "realtime_budget_ms": 1000 / FRAME_RATE,
             "underruns": self.underruns,
             "paused": self.paused,
@@ -1272,7 +1359,12 @@ def make_handler(engine: Engine):
                     if "drum_prompt" in body:
                         s.drum_prompt = round(float(body["drum_prompt"]), 3)
                         engine.prompts_changed()
-                    if not body.keys() - {"temperature", "top_k", "cfg_scales", "drum_prompt"}:
+                    if "synth" in body:
+                        if not isinstance(engine, Engine):
+                            raise ValueError("the built-in synth is for local mode (make run-local)")
+                        s.synth = bool(body["synth"])
+                        log.info("playback: %s", "built-in synth" if s.synth else "Magenta")
+                    if not body.keys() - {"temperature", "top_k", "cfg_scales", "drum_prompt", "synth"}:
                         self._send(200, engine.status())
                         return
                     if "beats_per_chord" in body:

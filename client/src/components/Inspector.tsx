@@ -1,6 +1,6 @@
 // Details for the focused node of the search: the path, the SATB voicing the
 // walker chose, the three tiers of cost (syntax / voice leading / phrase), every
-// rule that fired, and actions (commit, audition, LLM description).
+// rule that fired, and actions (add to the progression, LLM description).
 
 import type { ChordView, PathStory } from "../api";
 
@@ -18,19 +18,18 @@ export interface InspectorProps {
   chain: ChordView[];
   startRn: string;
   backward: boolean;
-  isPinned: boolean;
-  locked: boolean;
+  isHovered: boolean;
   story: PathStory | null;
   storyLoading: boolean;
   llmEnabled: boolean;
   local: boolean;
-  onCommitFirst: () => void;
-  onCommitPath: () => void;
+  onKeepFirst: () => void;
+  onKeepPath: () => void;
   onDescribe: () => void;
 }
 
 export function Inspector(props: InspectorProps) {
-  const { focusNode, chain, startRn, backward, isPinned, story, storyLoading, llmEnabled, local, onCommitFirst, onCommitPath, onDescribe } = props;
+  const { focusNode, chain, startRn, backward, isHovered, story, storyLoading, llmEnabled, local, onKeepFirst, onKeepPath, onDescribe } = props;
   if (focusNode == null) {
     return (
       <div className="card">
@@ -38,9 +37,9 @@ export function Inspector(props: InspectorProps) {
           <h2>Inspector</h2>
         </div>
         <div className="card-b empty">
-          Hover any chord on the map to hear the path to it looped by Magenta, starting from the chord you're on. Click to pin
-          it: its column stops reacting to hover and later columns follow it; click again to unpin. Keep puts it into the
-          progression.
+          Hover any chord on the map to hear the path to it looped by Magenta, starting from the chord you're on. Click it to add
+          that path to the progression; click a chord of the progression to take it out again. Click the dot on any edge to see
+          its voice leading.
         </div>
       </div>
     );
@@ -56,7 +55,7 @@ export function Inspector(props: InspectorProps) {
   return (
     <div className="card">
       <div className="card-h">
-        <h2>{isPinned ? "Pinned" : "Hovering"}</h2>
+        <h2>{isHovered ? "Hovering" : "Last hovered"}</h2>
         <span className="sub">{"layer " + String(cv.layer) + " · " + cv.family}</span>
       </div>
       <div className="card-b">
@@ -115,14 +114,14 @@ export function Inspector(props: InspectorProps) {
           <div className="actions">
             <button
               className="btn primary"
-              title="Put it into the progression; the other options stay beside it, so you can swap later"
-              onClick={() => onCommitFirst()}
+              title="Add the whole path to this chord to the progression (the same as clicking the chord)"
+              onClick={() => onKeepPath()}
             >
-              {chain.length > 0 ? "Keep " + chain[0].rn : "Keep"}
+              {chain.length > 1 ? "Add path (" + String(chain.length) + ")" : "Add " + cv.rn}
             </button>
             {chain.length > 1 && (
-              <button className="btn" title="Put every chord on this path into the progression at once" onClick={() => onCommitPath()}>
-                {"Keep whole path (" + String(chain.length) + ")"}
+              <button className="btn" title="Add only the first chord of this path" onClick={() => onKeepFirst()}>
+                {"Add " + chain[0].rn + " only"}
               </button>
             )}
             {local && (

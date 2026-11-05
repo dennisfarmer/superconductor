@@ -83,12 +83,13 @@ export interface HeaderProps {
   onTempo: (bpm: number, beats: number) => void;
   onTexture: (texture: string) => void;
   onLlm: (on: boolean) => void;
+  onSynth: (on: boolean) => void;
   onSend: () => void;
 }
 
 export function Header(props: HeaderProps) {
   const { page, session, engineOk, engineInfo, paused, onPause, restarting, onRestart, volume, muted, onVolume, onMute } = props;
-  const { quitting, onQuit, walking, onKey, onTempo, onTexture, onLlm, onSend } = props;
+  const { quitting, onQuit, walking, onKey, onTempo, onTexture, onLlm, onSynth, onSend } = props;
   const [menu_open, setMenuOpen] = useState(false);
   const [confirm_quit, setConfirmQuit] = useState(false);
   // where an open menu sits on screen: the bar scrolls sideways, so menus are
@@ -259,6 +260,16 @@ export function Header(props: HeaderProps) {
         </span>
         {/* local mode only (make run-local): with SuperConductor there is no model to restart and no LLM */}
         {session.local && (
+          <div className="seg" title="What plays the progression: Magenta, or a plain built-in synth (steady, no glitches; Magenta generates nothing while it is on)">
+            <button className={session.synth ? "" : "on"} disabled={!engineOk} onClick={() => session.synth && onSynth(false)}>
+              Magenta
+            </button>
+            <button className={session.synth ? "on" : ""} disabled={!engineOk} onClick={() => !session.synth && onSynth(true)}>
+              Synth
+            </button>
+          </div>
+        )}
+        {session.local && (
           <button
             className={"icon-btn" + (restarting ? " spin" : "")}
             disabled={restarting || quitting}
@@ -299,28 +310,30 @@ export function Header(props: HeaderProps) {
         {walking ? "Walkers out…" : "Send walkers"}
       </button>
 
-      <div className="pop-anchor">
+      {/* pinned to the bar's right edge, so it is on screen however far the bar scrolls */}
+      <div className="pop-anchor close-anchor">
         <button
-          className={"icon-btn quit" + (confirm_quit ? " on" : "")}
+          className={"btn close-btn" + (confirm_quit ? " on" : "")}
           disabled={quitting}
-          title="Quit SuperConductor Atlas: stop the audio engine and the app server"
+          title="Close SuperConductor Atlas: stop the audio engine (killed if it doesn't stop) and the app server"
           onClick={(e) => {
             place_menu(e);
             setConfirmQuit(!confirm_quit);
           }}
         >
           {power_icon()}
+          Close
         </button>
         {confirm_quit && (
           <div className="menu confirm fixed" style={menu_at}>
-            <p>Quit SuperConductor Atlas?</p>
+            <p>Close SuperConductor Atlas?</p>
             <span>The audio engine and the app server shut down. Your session is kept for next time.</span>
             <div className="confirm-actions">
               <button className="btn ghost" onClick={() => setConfirmQuit(false)}>
                 Cancel
               </button>
-              <button className="btn danger" disabled={quitting} onClick={() => onQuit()}>
-                {quitting ? "Quitting…" : "Quit"}
+              <button className="btn danger" autoFocus={true} disabled={quitting} onClick={() => onQuit()}>
+                {quitting ? "Closing…" : "Close"}
               </button>
             </div>
           </div>

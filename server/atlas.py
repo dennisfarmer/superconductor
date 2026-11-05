@@ -120,6 +120,7 @@ class Session:
     texture: str = "block"
     drum_grid: str = ""   # the Drums page's grid, as JSON ("" = engine default: no drums)
     llm_enabled: bool = False
+    synth: bool = False      # local mode: the engine plays the built-in synth, not Magenta
     extended: bool = False   # the walkers may use added-note chords (add9, add11, 6)
     bpm: float = 84.0
     beats_per_chord: int = 4
@@ -294,16 +295,25 @@ def alt_views(kid: str, steps: list[Step], i: int) -> list[AltView]:
         c = spec_of(kid, a.cid)
         notes = voice_at(kid, steps, i, c)
         if notes is not None:
-            out.append(AltView(cid=a.cid, rn=c.rn, symbol=c.symbol, func=c.func, notes=notes, alt_rn=c.alt_rn))
+            edge = edge_leads(kid, steps[i - 1].cid, steps[i - 1].notes, a.cid, notes) if i > 0 else []
+            out.append(AltView(
+                cid=a.cid, rn=c.rn, symbol=c.symbol, func=c.func, notes=notes, alt_rn=c.alt_rn,
+                names=voicing_names(kid, c, notes), degrees=[degree_label(key_for(kid), c, n) for n in notes], leads=edge
+            ))
+    return out
+
+
+def edge_leads(kid: str, a_cid: str, a_notes: list[int], b_cid: str, b_notes: list[int]) -> list[LeadView]:
+    """The voice-leading rules on the change a → b (in time order)."""
+    out: list[LeadView] = []
+    for l in leads(kid, spec_of(kid, a_cid), a_notes, spec_of(kid, b_cid), b_notes):
+        r = RULES[l.rule]
+        out.append(LeadView(voice=l.voice, kind=r.kind, title=r.title, text=r.text, detail=l.detail))
     return out
 
 
 def lead_views(kid: str, prev: Step, st: Step) -> list[LeadView]:
-    out: list[LeadView] = []
-    for l in leads(kid, spec_of(kid, prev.cid), prev.notes, spec_of(kid, st.cid), st.notes):
-        r = RULES[l.rule]
-        out.append(LeadView(voice=l.voice, kind=r.kind, title=r.title, text=r.text, detail=l.detail))
-    return out
+    return edge_leads(kid, prev.cid, prev.notes, st.cid, st.notes)
 
 
 def step_view(kid: str, i: int, st: Step, alts: list[AltView] = [], prev: Step | None = None) -> StepView:
@@ -338,6 +348,7 @@ def session_view(s: Session, notice: str = "") -> SessionView:
         texture=s.texture,
         drum_grid=s.drum_grid,
         llm_enabled=s.llm_enabled,
+        synth=LOCAL and synth_on(s),
         extended=key_id(s).endswith("|ext"),
         bpm=s.bpm,
         beats_per_chord=s.beats_per_chord,
@@ -361,6 +372,11 @@ def mark_views(marks: list[Mark]) -> list[MarkView]:
 
 def chord_view(kid: str, h: Hyp, status: str) -> ChordView:
     c = spec_of(kid, h.cid)
+    # the edge to its parent, in time order: parent → h forwards, h → parent backwards
+    edge: list[LeadView] = []
+    p = _SEARCH.get(h.parent, None) if h.layer > 0 else None
+    if p is not None:
+        edge = edge_leads(kid, h.cid, h.notes, p.cid, p.notes) if is_back(h.id) else edge_leads(kid, p.cid, p.notes, h.cid, h.notes)
     return ChordView(
         id=h.id,
         parent=h.parent,
@@ -384,7 +400,9 @@ def chord_view(kid: str, h: Hyp, status: str) -> ChordView:
         cadence_name=CADENCE_NAMES.get(h.cadence, ""),
         status=status,
         alt_rn=c.alt_rn,
-        also=c.also
+        also=c.also,
+        degrees=[degree_label(key_for(kid), c, n) for n in h.notes],
+        leads=edge
     )
 
 
@@ -404,6 +422,8 @@ def get_state() -> SessionView:
     s = session()
     send_style_layers(s.style_texts, s.style_weights)
     settings: dict[str, Any] = {"bpm": s.bpm, "beats_per_chord": s.beats_per_chord, "texture": s.texture}
+    if LOCAL:
+        settings["synth"] = synth_on(s)
     if s.drum_grid:
         settings["drum_grid"] = json.loads(s.drum_grid)
     send_settings(settings)
@@ -558,6 +578,21 @@ def set_drums(grid: str) -> SessionView:
     return session_view(s)
 
 
+def synth_on(s: Session) -> bool:
+    """Sessions saved before the synth switch existed have no `synth`."""
+    return hasattr(s, "synth") and s.synth
+
+
+def set_synth(on: bool) -> SessionView:
+    """Play the progression on the engine's built-in synth instead of Magenta (which then
+    generates nothing), or go back to Magenta. Local mode only."""
+    require_local("the built-in synth")
+    s = session()
+    s.synth = on
+    send_settings({"synth": on})
+    return session_view(s)
+
+
 def set_llm(enabled: bool) -> SessionView:
     """Allow or forbid LLM calls. Ollama shares the GPU with Magenta, so turning this
     off guarantees the LLM never competes with real-time generation. Local mode only."""
@@ -609,7 +644,37 @@ def tree_nodes(kid: str, searcher: BeamSearch) -> list[ChordView]:
     return nodes + [chord_view(kid, h, "dest") for h in searcher.destinations if h.id not in kept_ids]
 
 
+# Walker results are deterministic in their inputs, so each is kept and reused: the
+# options beside a kept chord, and each tree of the search (forward and backward apart,
+# so adding at one end leaves the other tree's search as it was).
+_CACHE_MAX: int = 256
+_OPTIONS_CACHE: dict[tuple, list[str]] = {}
+_WALK_CACHE: dict[tuple, BeamSearch] = {}
+
+
+def cache_put(cache: dict, k: tuple, v: Any) -> None:
+    if len(cache) >= _CACHE_MAX:
+        del cache[next(iter(cache))]
+    cache[k] = v
+
+
+def walker_settings(s: Session) -> tuple:
+    return (s.width, s.depth, s.options, s.max_syntax, s.syntax_weight, s.colour, s.cadence_pull, s.smooth)
+
+
 def ranked_options(s: Session, kid: str, i: int) -> list[Alt]:
+    steps = s.steps
+    k = (
+        kid, walker_settings(s), steps[i].cid,
+        (steps[i - 1].cid, tuple(steps[i - 1].notes)) if i > 0 else None,
+        (steps[i + 1].cid, tuple(steps[i + 1].notes)) if i + 1 < len(steps) else None,
+    )
+    if k not in _OPTIONS_CACHE:
+        cache_put(_OPTIONS_CACHE, k, [a.cid for a in rank_options(s, kid, i)])
+    return [Alt(cid=cid) for cid in _OPTIONS_CACHE[k]]
+
+
+def rank_options(s: Session, kid: str, i: int) -> list[Alt]:
     """The options beside kept step `i`: every chord of the vocabulary that can follow
     the chord before it and lead into the chord after it (either side may be missing at
     the ends), ranked like a walker's move - syntax cost × weight plus voice leading on
@@ -701,14 +766,8 @@ def explore() -> SearchView:
         id=BACK_BASE, parent=-1, layer=0, first=-1, cid=first.cid, notes=first.notes,
         path=[st.cid for st in s.steps[:3]][::-1], at=chord_in(space, first.cid)
     )
-    fwd = BeamSearch(
-        key_id=kid, start=fwd_start, width=s.width, depth=s.depth, options=s.options,
-        max_syntax=s.max_syntax, syntax_weight=s.syntax_weight, colour=s.colour, cadence_pull=s.cadence_pull, smooth=s.smooth
-    ).run()
-    back = BeamSearch(
-        key_id=kid, start=back_start, width=s.width, depth=s.depth, options=s.options, backward=True, next_id=BACK_BASE + 1,
-        max_syntax=s.max_syntax, syntax_weight=s.syntax_weight, colour=s.colour, cadence_pull=s.cadence_pull, smooth=s.smooth
-    ).run()
+    fwd = walk(s, kid, fwd_start, False)
+    back = walk(s, kid, back_start, True)
     _SEARCH_ID += 1
     _SEARCH_KEY = kid
     _SEARCH = {0: fwd_start, BACK_BASE: back_start}
@@ -740,6 +799,19 @@ def explore() -> SearchView:
         back_layers=layer_views(back),
         back_elapsed_ms=r2(back.elapsed_ms)
     )
+
+
+def walk(s: Session, kid: str, start: Hyp, backward: bool) -> BeamSearch:
+    """One tree's BeamSearch from `start`, reused when it has been run on the same input."""
+    k = (kid, walker_settings(s), backward, start.cid, tuple(start.notes), tuple(start.path))
+    if k not in _WALK_CACHE:
+        w = BeamSearch(
+            key_id=kid, start=start, width=s.width, depth=s.depth, options=s.options,
+            backward=backward, next_id=BACK_BASE + 1 if backward else 1,
+            max_syntax=s.max_syntax, syntax_weight=s.syntax_weight, colour=s.colour, cadence_pull=s.cadence_pull, smooth=s.smooth
+        ).run()
+        cache_put(_WALK_CACHE, k, w)
+    return _WALK_CACHE[k]
 
 
 def siblings(h: Hyp) -> list[Alt]:
@@ -1167,6 +1239,30 @@ def remove_step(index: int) -> SessionView:
     s.loop_from = -1
     s.loop_to = -1
     s = session()
+    return session_view(s)
+
+
+def drop_step(index: int) -> SessionView:
+    """Take the kept chord at `index` out of the progression (the last one left stays).
+    The chords after it are voice-led again from the one before it."""
+    s = session()
+    kid = key_id(s)
+    if index < 0 or index >= len(s.steps) or len(s.steps) < 2:
+        return session_view(s)
+    steps = s.steps[:index] + s.steps[index + 1:]
+    if index == 0:
+        steps[0] = restep(steps[0], "", "")
+    steps = relink(kid, steps, index, False)
+    remember(s)
+    s.steps = steps
+    # the loop keeps its chords where it can
+    lo = s.loop_from
+    hi = s.loop_to
+    if lo == index or hi == index:
+        lo = -1
+        hi = -1
+    s.loop_from = lo - 1 if lo > index else lo
+    s.loop_to = hi - 1 if hi > index else hi
     return session_view(s)
 
 

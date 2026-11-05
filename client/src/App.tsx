@@ -7,7 +7,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import * as api from "./api";
 import type { ChordView, PathStory, SearchView, SessionView, StepView } from "./api";
-import { engine_chord, lock_sig, make_timeline, page_of, pref_get, pref_set, restore_locks, save_locks, sleep_ms, tonic_pc } from "./appLogic";
+import { engine_chord, make_timeline, page_of, pref_get, pref_set, tonic_pc } from "./appLogic";
 import type { EngineChord, Timeline } from "./appLogic";
 import { beat_sync } from "./components/BeatLights";
 import { DrumsPage } from "./components/DrumGrid";
@@ -23,13 +23,11 @@ import { SuperConductorInput } from "./components/SuperConductorInput";
 import { TempoPage } from "./components/TempoPage";
 import { Tooltip } from "./components/Tooltip";
 import { TypingGuide } from "./components/TypingGuide";
-import { BACK_BASE, ancestor_at, chain_in, deepest_lock, is_back_id, lock_at, node_map, reachable } from "./components/paths";
+import { BACK_BASE, chain_in, is_back_id, node_map } from "./components/paths";
 
 // Non-reactive module state: timers and values read from long-lived callbacks.
 let _search_id = -1;
 let _engine_url = "";
-// the session loaded at startup: its saved locks are put back on the first map
-let _restore_sig = "";
 let _engine_was_ok = false;
 let _restarting = false;
 let _bpm = 84.0;
@@ -84,10 +82,10 @@ const DEFAULT_SOUND = "warm grand piano, intimate, slow";
 export function App() {
   const [session, setSession] = useState<SessionView | null>(null);
   const [search, setSearch] = useState<SearchView | null>(null);
-  const [anim, setAnim] = useState(-1);
   const [walking, setWalking] = useState(false);
   const [hover_id, setHoverId] = useState(-1);
-  const [selected_id, setSelectedId] = useState(-1);
+  // the chord the Inspector shows: the one hovered last (it stays after the mouse leaves)
+  const [inspect_id, setInspectId] = useState(-1);
   const [mix_texts, setMixTexts] = useState<string[]>([]);
   const [mix_weights, setMixWeights] = useState<number[]>([]);
   const [engine_style, setEngineStyle] = useState("");
@@ -119,8 +117,6 @@ export function App() {
   const [viewing, setViewing] = useState(-1);
   const [view_from, setViewFrom] = useState(-1);
   const [view_to, setViewTo] = useState(-1);
-  // pins: one pinned node per column per tree (see components/paths)
-  const [locks, setLocks] = useState<number[]>([]);
   // chords typed into the map's columns, as tree nodes (status "custom")
   const [typed, setTyped] = useState<ChordView[]>([]);
   const [restarting, setRestarting] = useState(false);
@@ -177,11 +173,6 @@ export function App() {
     setTimeout(() => window.dispatchEvent(new Event("resize")), 30);
   }, [side_open]);
 
-  // pinning a chord brings up its details
-  useEffect(() => {
-    if (selected_id >= 0 && side_open && side_tab !== "inspect") open_tab("inspect");
-  }, [selected_id]);
-
   // ---- handlers --------------------------------------------------------------------
 
   async function load() {
@@ -191,7 +182,6 @@ export function App() {
       setMixTexts(s.style_texts);
       setMixWeights(s.style_weights);
       _engine_url = s.engine_url;
-      _restore_sig = lock_sig(s);
     } catch (e) {
       setError("could not load session: " + String(e));
       return;
@@ -199,42 +189,23 @@ export function App() {
     await send_walkers();
   }
 
-  /** Spawn the BeamSearch walker server-side, then replay its layers on the map. */
+  /** The walkers' search around the progression as it is now (the server reuses any
+   * search it has already run, so this is quick) and the options beside each kept chord. */
   async function send_walkers() {
     setWalking(true);
     setError("");
-    setHoverId(-1);
-    setSelectedId(-1);
-    setLocks([]);
-    setTyped([]);
-    setStory(null);
-    if (!_restore_sig) pref_set("locks", null);
     try {
-      // fresh options beside every kept chord, ranked against its neighbours as they are now
       setSession(await api.refreshOptions());
       const res = await api.explore();
       _search_id = res.search_id;
-      setAnim(0);
       setSearch(res);
-      if (_restore_sig) {
-        // reopened on the progression the saved locks were made on: put them back
-        const held = restore_locks(res, _restore_sig);
-        _restore_sig = "";
-        if (held.length) {
-          const by_id = node_map(res, []);
-          const deepest = deepest_lock(by_id, held, false);
-          setLocks(held);
-          setSelectedId(deepest >= 0 ? deepest : deepest_lock(by_id, held, true));
-        }
-      }
-      for (let k = 0; k < res.depth + 1; k++) {
-        setAnim(k);
-        await sleep_ms(620);
-      }
+      setHoverId(-1);
+      setInspectId(-1);
+      setTyped([]);
+      setStory(null);
     } catch (e) {
       setError("walkers failed: " + String(e));
     }
-    setAnim(-1);
     setWalking(false);
   }
 
@@ -268,7 +239,7 @@ export function App() {
         }
       } else {
         setScUrl("");
-        setEngineInfo(String(data.model) + " · " + (ms ? String(ms) + " ms/frame" : "warming up"));
+        setEngineInfo(data.settings && data.settings.synth ? "built-in synth" : String(data.model) + " · " + (ms ? String(ms) + " ms/frame" : "warming up"));
       }
       setEngineStyle(String(data.style));
       setPaused(Boolean(data.paused));
@@ -340,52 +311,25 @@ export function App() {
   /** Hover a map node: the page plays the path to it (see `_want` above). */
   function on_hover(node_id: number) {
     setHoverId(node_id);
+    if (node_id !== inspect_id) {
+      setInspectId(node_id);
+      setStory(null);
+    }
     setPlayAll(false);
   }
 
-  /** Leave: playback falls back to the half-committed path, else the loop. */
+  /** Leave: playback falls back to the loop. */
   function on_leave() {
     setHoverId(-1);
   }
 
-  /** Click a map node to half-commit its column: hover there is ignored, and later
-   * columns only offer paths through it. Click it again to release the column (and any
-   * later locks that hung off it); click another chord in the column to move the lock. */
+  /** Click a map node: add the path to it to the progression. */
   function on_select(node_id: number) {
-    setStory(null);
-    if (search == null) return;
-    const by_id = node_map(search, typed);
-    if (!(node_id in by_id)) return;
-    const back = is_back_id(node_id);
-    const layer = by_id[node_id].layer;
-    const kept: number[] = [];
-    if (locks.includes(node_id)) {
-      for (const l of locks) if (is_back_id(l) !== back || by_id[l].layer < layer) kept.push(l);
-    } else {
-      for (const l of locks) {
-        if (is_back_id(l) !== back || by_id[l].layer < layer) kept.push(l);
-        else if (by_id[l].layer > layer && ancestor_at(by_id, l, layer) === node_id) kept.push(l); // a later lock on a path through the new one still holds
-      }
-      kept.push(node_id);
-    }
-    setLocks(kept);
-    save_locks(by_id, kept, lock_sig(session!));
-    pin_deepest(back, kept, typed);
-    setHoverId(-1);
-  }
-
-  /** Make the deepest lock of a tree the pinned path (Inspector, chips, idle loop). */
-  function pin_deepest(back: boolean, lock_ids: number[], typed_now: ChordView[]) {
-    if (search == null) return;
-    const by_id = node_map(search, typed_now);
-    let deepest = deepest_lock(by_id, lock_ids, back);
-    if (deepest < 0) deepest = deepest_lock(by_id, lock_ids, !back);
-    setSelectedId(deepest);
+    do_keep(node_id, true);
   }
 
   /** Type a chord into column `layer` of one tree. It links from every chord in the
-   * previous column you can still reach (only the locked one, if that column is locked)
-   * that may legally move to it. */
+   * previous column that may legally move to it. */
   async function add_typed(back: boolean, layer: number, text: string) {
     if (search == null || !text.trim()) return;
     const cur = search;
@@ -395,33 +339,20 @@ export function App() {
     if (layer === 1) {
       parents = [start_id];
     } else {
-      const held = lock_at(by_id, locks, back, layer - 1);
-      if (held >= 0) {
-        parents = [held];
-      } else {
-        const column = [...(back ? cur.back_nodes : cur.nodes), ...typed];
-        for (const n of column) {
-          if (n.layer === layer - 1 && is_back_id(n.id) === back && reachable(by_id, locks, n.id)) parents.push(n.id);
-        }
+      const column = [...(back ? cur.back_nodes : cur.nodes), ...typed];
+      for (const n of column) {
+        if (n.layer === layer - 1 && is_back_id(n.id) === back && n.id in by_id) parents.push(n.id);
       }
     }
     const res = await api.addOption(_search_id, parents, text, force_add);
     setError(res.notice);
     if (res.notice) return;
     setNotice(res.info);
-    // the typed chord first, then the mini walker's finds one column at a time
-    let shown = [...typed, ...res.nodes.filter((n) => n.status === "custom")];
-    setTyped(shown);
-    const grown = res.nodes.filter((n) => n.status === "grown");
-    const later = [...new Set(grown.map((n) => n.layer))].sort((a, b) => a - b);
-    for (const L of later) {
-      await sleep_ms(450);
-      shown = [...shown, ...grown.filter((n) => n.layer === L)];
-      setTyped(shown);
-    }
+    // the typed chord and the mini walker's finds after it
+    setTyped([...typed, ...res.nodes]);
   }
 
-  /** Remove a typed option (all its links), anything typed after it, and their locks. */
+  /** Remove a typed option (all its links) and anything typed after it. */
   function remove_typed(ids: number[]) {
     const gone = [...ids];
     let changed = true;
@@ -436,21 +367,25 @@ export function App() {
     }
     const remaining = typed.filter((n) => !gone.includes(n.id));
     setTyped(remaining);
-    if (locks.some((l) => gone.includes(l))) {
-      const held = locks.filter((l) => !gone.includes(l));
-      setLocks(held);
-      save_locks(node_map(search!, remaining), held, lock_sig(session!));
-      pin_deepest(selected_id >= BACK_BASE, held, remaining);
-    }
     if (gone.includes(hover_id)) setHoverId(-1);
+    if (gone.includes(inspect_id)) setInspectId(-1);
   }
 
-  /** Keep: put the hovered/pinned chord (or its whole path) into the progression. The
-   * server keeps the other options beside each kept chord, so it can be swapped later. */
-  async function do_commit(whole: boolean) {
-    const target = hover_id >= 0 ? hover_id : selected_id;
-    if (target <= 0 || _search_id < 0) return;
-    setSession(await api.addPath(_search_id, target, whole));
+  /** Add a map node to the progression: the whole path to it, or only the first chord
+   * of that path. The server keeps the other options beside each added chord, so it can
+   * be swapped later. */
+  async function do_keep(node_id: number, whole: boolean) {
+    if (node_id <= 0 || node_id === BACK_BASE || _search_id < 0) return;
+    setSession(await api.addPath(_search_id, node_id, whole));
+    await send_walkers();
+  }
+
+  /** Take the chord at step `index` out of the progression (clicked on the graph). */
+  async function do_drop_step(index: number) {
+    if (session == null || session.steps.length < 2) return;
+    const s = await api.dropStep(index);
+    setSession(s);
+    setNotice(s.notice);
     await send_walkers();
   }
 
@@ -535,7 +470,7 @@ export function App() {
   }
 
   async function do_describe() {
-    const target = hover_id >= 0 ? hover_id : selected_id;
+    const target = inspect_id;
     if (target <= 0) return;
     setStoryLoading(true);
     try {
@@ -548,6 +483,14 @@ export function App() {
 
   async function change_texture(texture: string) {
     setSession(await api.setTexture(texture));
+  }
+
+  async function set_synth(on: boolean) {
+    try {
+      setSession(await api.setSynth(on));
+    } catch (e) {
+      setError("could not switch the synth: " + String(e));
+    }
   }
 
   async function toggle_llm(enabled: boolean) {
@@ -773,21 +716,21 @@ export function App() {
   const last_idx = steps.length - 1;
   const viewing_ok = viewing >= 0 && viewing < session.saved.length;
   const shown_steps: StepView[] = viewing_ok ? session.saved[viewing].steps : steps;
-  const focus_id = hover_id >= 0 ? hover_id : selected_id;
+  const focus_id = hover_id >= 0 ? hover_id : inspect_id;
   const focus_back = focus_id >= BACK_BASE;
   let focus: ChordView | null = null;
   let chain: ChordView[] = [];
   let sounding_id = -1;
   let sounding_step = -1;
-  // tentative chips: each side shows its hovered path, else its half-committed one
+  // tentative chips: the hovered path, on the side it extends
   const preview_before: ChordView[] = [];
   let preview_after: ChordView[] = [];
   if (search != null) {
     const by_id = node_map(search, typed);
     focus = focus_id in by_id ? by_id[focus_id] : null;
     chain = focus_id > 0 && focus_id !== BACK_BASE ? chain_in(by_id, focus_id) : [];
-    const back_end = hover_id >= BACK_BASE ? hover_id : deepest_lock(by_id, locks, true);
-    const fwd_end = hover_id > 0 && hover_id < BACK_BASE ? hover_id : deepest_lock(by_id, locks, false);
+    const back_end = hover_id >= BACK_BASE ? hover_id : -1;
+    const fwd_end = hover_id > 0 && hover_id < BACK_BASE ? hover_id : -1;
     if (back_end > BACK_BASE) for (const c of chain_in(by_id, back_end)) preview_before.unshift(c);
     if (fwd_end > 0) preview_after = chain_in(by_id, fwd_end);
   }
@@ -802,7 +745,6 @@ export function App() {
   if (search != null) {
     const by_now = node_map(search, typed);
     if (hover_id > 0 && hover_id !== BACK_BASE && hover_id in by_now) target = hover_id;
-    else if (!play_all && selected_id > 0 && selected_id !== BACK_BASE && selected_id in by_now) target = selected_id;
     // (an alternative beside a kept chord only highlights on hover: a column that
     // already has its chord is never auditioned by hovering; click it to swap)
     if (target > 0) {
@@ -910,14 +852,13 @@ export function App() {
         chain={chain}
         startRn={focus_back ? steps[0].rn : steps[last_idx].rn}
         backward={focus_back}
-        isPinned={hover_id < 0 && selected_id >= 0}
-        locked={locks.includes(selected_id)}
+        isHovered={hover_id >= 0}
         story={story}
         storyLoading={story_loading}
         llmEnabled={session.llm_enabled}
         local={session.local}
-        onCommitFirst={() => do_commit(false)}
-        onCommitPath={() => do_commit(true)}
+        onKeepFirst={() => do_keep(inspect_id, false)}
+        onKeepPath={() => do_keep(inspect_id, true)}
         onDescribe={do_describe}
       />
     );
@@ -960,6 +901,7 @@ export function App() {
         onTempo={change_tempo}
         onTexture={change_texture}
         onLlm={toggle_llm}
+        onSynth={set_synth}
         onSend={send_walkers}
       />
       <ControlsBar
@@ -1005,13 +947,10 @@ export function App() {
           <ErrorBoundary fallback={<p className="empty stage-msg">The 3D view hit an error; reload the page to bring it back.</p>}>
             <Graph3D
               search={search}
-              anim={anim}
               hoverId={hover_id}
-              selectedId={selected_id}
               soundingId={sounding_id}
               soundingStep={sounding_step}
-              loopFrom={session.loop_from}
-              onStep={(i) => do_loop(i, false)}
+              onDropStep={do_drop_step}
               showAll={show_all}
               steps={steps}
               altHover={alt_hover}
@@ -1021,7 +960,6 @@ export function App() {
               onHover={on_hover}
               onLeave={on_leave}
               onSelect={on_select}
-              locks={locks}
               typed={typed}
               onAddTyped={add_typed}
               onRemoveTyped={remove_typed}
@@ -1048,13 +986,11 @@ export function App() {
               </span>
             )}
             <span>
-              {anim >= 0
-                ? "walkers on layer " + String(anim) + "…"
-                : "searching before " +
-                  steps[0].rn +
-                  " and after " +
-                  steps[last_idx].rn +
-                  (session.saved.length > 0 ? " · " + String(session.saved.length) + " saved behind" : "")}
+              {"searching before " +
+                steps[0].rn +
+                " and after " +
+                steps[last_idx].rn +
+                (session.saved.length > 0 ? " · " + String(session.saved.length) + " saved behind" : "")}
             </span>
             {error && <span className="err">{error}</span>}
           </div>
@@ -1137,8 +1073,6 @@ export function App() {
         onRename={do_rename_saved}
         onDelete={do_delete_saved}
         onResume={do_resume_saved}
-        keepPath={focus != null && focus.id !== 0 ? chain : []}
-        onKeep={do_commit}
       />
       <Tooltip />
     </div>

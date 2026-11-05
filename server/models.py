@@ -39,6 +39,8 @@ class ChordView(BaseModel):
     status: str
     alt_rn: str = ""   # the other Roman numeral for the same pitches (VI for V/ii)
     also: str = ""     # why each name applies
+    degrees: list[str] = []      # scale degree of each voice
+    leads: list[LeadView] = []   # the edge between this chord and its parent, in time order
 
 
 class LayerView(BaseModel):
@@ -89,6 +91,9 @@ class AltView(BaseModel):
     func: str
     notes: list[int]   # voiced from the chord before (or into the one after)
     alt_rn: str = ""
+    names: list[str] = []
+    degrees: list[str] = []
+    leads: list[LeadView] = []   # the edge into it from the kept chord before
 
 
 class LeadView(BaseModel):
@@ -134,6 +139,7 @@ class SessionView(BaseModel):
     texture: str
     drum_grid: str
     llm_enabled: bool
+    synth: bool = False   # local mode: the built-in synth plays instead of Magenta
     extended: bool
     bpm: float
     beats_per_chord: int

@@ -10,6 +10,7 @@ saved after each.
 
 import argparse
 import inspect
+import os
 import signal
 import threading
 from pathlib import Path
@@ -22,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, create_model
 
 from server import atlas
-from server.engine_client import stop_engine
+from server.engine_client import kill_engine, stop_engine
 
 DIST = Path(__file__).resolve().parent.parent / "client" / "dist"
 
@@ -44,12 +45,14 @@ _server: uvicorn.Server | None = None
 
 
 def shutdown_app() -> dict[str, Any]:
-    """Quit SuperConductor Atlas from the page: ask the audio engine to exit and wait for it,
-    then ask this app server to exit. Nothing is killed: the engine winds down through
-    its own /shutdown, and the server through uvicorn's own exit path. The server stops
-    a moment after this reply, so the page receives it."""
-    engine_stopped = stop_engine()
+    """Close SuperConductor Atlas from the page: ask the audio engine to exit, and kill it
+    if it hasn't within a few seconds; then this app server exits (through uvicorn's
+    exit path, or at once if that hangs). The server stops a moment after this reply,
+    so the page receives it."""
+    engine_stopped = stop_engine(timeout_s=5.0) or kill_engine()
     threading.Timer(0.4, _stop_server).start()
+    # a request or thread that keeps uvicorn from finishing must not keep Atlas running
+    threading.Timer(4.0, lambda: os._exit(0)).start()
     return {"engine_stopped": engine_stopped}
 
 
@@ -64,10 +67,10 @@ def _stop_server() -> None:
 
 ENDPOINTS: list[Callable[..., Any]] = [
     atlas.get_state, atlas.set_extended, atlas.set_key, atlas.set_tempo, atlas.set_texture,
-    atlas.set_drums, atlas.set_llm, atlas.set_style_layers, atlas.refresh_options, atlas.explore,
+    atlas.set_drums, atlas.set_llm, atlas.set_synth, atlas.set_style_layers, atlas.refresh_options, atlas.explore,
     atlas.add_path, atlas.undo, atlas.clear_progression, atlas.describe, atlas.add_chords,
     atlas.restart_engine, shutdown_app, atlas.set_loop, atlas.add_option, atlas.commit_progression,
-    atlas.rename_saved, atlas.delete_saved, atlas.resume_saved, atlas.remove_step,
+    atlas.rename_saved, atlas.delete_saved, atlas.resume_saved, atlas.remove_step, atlas.drop_step,
     atlas.replace_step, atlas.swap_step,
 ]
 

@@ -51,6 +51,7 @@ export const setTempo = (bpm: number, beats_per_chord: number) => call("set_temp
 export const setTexture = (texture: string) => call("set_texture", { texture });
 export const setDrums = (grid: string) => call("set_drums", { grid });
 export const setLlm = (enabled: boolean) => call("set_llm", { enabled });
+export const setSynth = (on: boolean) => call("set_synth", { on });
 export const setStyleLayers = (texts: string[], weights: number[]) => call("set_style_layers", { texts, weights });
 export const refreshOptions = () => call("refresh_options");
 export const explore = () => call("explore");
@@ -69,5 +70,6 @@ export const renameSaved = (index: number, name: string) => call("rename_saved",
 export const deleteSaved = (index: number) => call("delete_saved", { index });
 export const resumeSaved = (index: number) => call("resume_saved", { index });
 export const removeStep = (index: number) => call("remove_step", { index });
+export const dropStep = (index: number) => call("drop_step", { index });
 export const replaceStep = (index: number, text: string) => call("replace_step", { index, text });
 export const swapStep = (index: number, cid: string) => call("swap_step", { index, cid });

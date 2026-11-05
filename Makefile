@@ -7,6 +7,7 @@
 #
 #   make run           engine + app in the foreground (Ctrl-C stops both)
 #   make start         engine + app in the background, wait until both are up
+#   make atlas         same as make start (`make atlas` in ../superconductor_client)
 #
 # Standalone: the engine runs Magenta RT 2 itself and plays through this machine's
 # speakers. No SuperConductor client needed.
@@ -55,7 +56,7 @@ SC_SERVER  ?= http://localhost:9000
 SC_ENGINE    := audio_engine/engine.py --sink superconductor --client-midi $(CLIENT_MIDI) --sc-server $(SC_SERVER) --preset $(PRESET) --port $(ENGINE_PORT)
 LOCAL_ENGINE := audio_engine/engine.py --preset $(PRESET) --port $(ENGINE_PORT)
 
-.PHONY: run start check-client run-local start-local stop restart status logs app client-build dev setup setup-stamp ensure-setup
+.PHONY: run start atlas check-client run-local start-local stop restart status logs app client-build dev setup setup-stamp ensure-setup
 
 # Laptop: sc_env_atlas, created if it is missing. lh2300: .venv and
 # requirements_lighthouse.txt (the sink; no MLX). `make start` calls ensure-setup.
@@ -155,6 +156,10 @@ start: ensure-setup check-client
 	$(call START_ENGINE,$(SC_ENGINE),audio engine (SuperConductor sink))
 	@$(MAKE) --no-print-directory app
 	$(call STARTED,engine as SuperConductor sink)
+
+# Same as start. ../superconductor_client/Makefile calls this the way it calls
+# `make server`, `make playback`, and the other sibling targets.
+atlas: start
 
 # A warning, not a failure: the engine connects once the client is up.
 check-client:

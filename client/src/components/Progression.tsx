@@ -3,8 +3,8 @@
 // progression actions, including the list of saved progressions. The strip scrolls
 // sideways (the mouse wheel scrolls it too) when it is wider than the dock.
 //
-// The path under the mouse (or pinned) on the graph shows up as dashed chips on
-// whichever side it extends.
+// The path under the mouse on the graph shows up as dashed chips on whichever side it
+// extends.
 
 import { useEffect, useState } from "react";
 import type { FocusEvent, WheelEvent } from "react";
@@ -55,13 +55,11 @@ export interface ProgressionProps {
   onRename: (i: number, name: string) => void;
   onDelete: () => void;
   onResume: () => void;
-  keepPath: ChordView[];
-  onKeep: (whole: boolean) => void;
 }
 
 export function Progression(props: ProgressionProps) {
   const { steps, soundingStep, soundingId, previewBefore, previewAfter, loopFrom, loopTo, onLoop, canUndo, notice } = props;
-  const { onUndo, onClear, onPlay, playAll, saved, viewing, onPick, onCommit, onRename, onDelete, onResume, keepPath, onKeep } = props;
+  const { onUndo, onClear, onPlay, playAll, saved, viewing, onPick, onCommit, onRename, onDelete, onResume } = props;
   const [more, setMore] = useState(false);
   const [lib, setLib] = useState(false);
   // the Save popover: open, and the name being typed
@@ -171,7 +169,7 @@ export function Progression(props: ProgressionProps) {
         <div
           className="chips"
           onWheel={scroll_chips}
-          title="Your progression. Click a chord to loop from it (click it again for the default loop); shift-click another to end the loop there. Dashed chords are the path you are hovering or have pinned on the graph, not yet kept."
+          title="Your progression. Click a chord to loop from it (click it again for the default loop); shift-click another to end the loop there. Dashed chords are the path you are hovering on the graph: click it there to add it."
         >
           {previewBefore.map((c) => (
             <div key={"pb" + String(c.id)} className="chip-wrap">
@@ -220,23 +218,6 @@ export function Progression(props: ProgressionProps) {
             <button className="icon-btn" disabled={!canUndo} title="Undo" onClick={() => onUndo()}>
               ↶
             </button>
-            <button
-              className="btn primary"
-              disabled={keepPath.length === 0}
-              title={
-                keepPath.length > 0
-                  ? "Put it into the progression; the other options stay beside it, so you can swap later"
-                  : "Hover or pin a chord on the graph to keep it"
-              }
-              onClick={() => onKeep(false)}
-            >
-              {keepPath.length > 0 ? "Keep " + keepPath[0].rn : "Keep"}
-            </button>
-            {keepPath.length > 1 && (
-              <button className="btn" title="Put every chord on this path into the progression at once" onClick={() => onKeep(true)}>
-                {"Keep whole path (" + String(keepPath.length) + ")"}
-              </button>
-            )}
             <div className="pop-anchor">
               <button
                 className={"btn" + (naming ? " on" : "")}
